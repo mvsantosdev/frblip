@@ -1,0 +1,3 @@
+include data/*.npy
+include data/*.npz
+include data/*.csv
