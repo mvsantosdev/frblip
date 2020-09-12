@@ -24,21 +24,21 @@ It is strongly recommended to create a exclusive enviorement, using conda for ex
 ## Quick Start
 
 ```
-from frblip import FRB, Survey
+from frblip import CosmicBursts, RadioSurvey
 
 # Mock catalog of random FRBs
-frbs = FRB()
+frbs = CosmicBursts()
 
 # to pandas DataFrame
 df = frbs.to_pandas()
 
 # Survey Object
-bingo = Survey()
+bingo = RadioSurvey()
 
 # Observations
 coords, signal = bingo(frbs)
 
 # coords: sky coordinates in survey site (astropy object)
-# signal (n_frbs, n_beams, n_bands): telescope signal in Kelvin
+# signal (n_beams, n_frbs, n_bands): telescope signal in Kelvin
 ```
 

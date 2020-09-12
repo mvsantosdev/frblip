@@ -8,6 +8,7 @@ from astropy import coordinates, units
 _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
 
+
 def phi(x, alpha):
 
     return (x**alpha) * numpy.exp(-x)

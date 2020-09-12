@@ -18,15 +18,15 @@ from .patterns import patterns
 from .utils import _DATA, angular_separation
 
 
-class Survey():
+class RadioSurvey():
 
     """
     Class which defines a Radio Survey
     """
-    
+
     def __init__(self, name='bingo', kind='gaussian', start_time=None,
                  **kwargs):
-        
+
         """
         Creates a Survey object.
 
@@ -61,27 +61,27 @@ class Survey():
         """
 
         if start_time is None:
-            
+
             self.start_time = Time.now()
-            
+
         else:
-            
+
             self.start_time = start_time
-            
+
         name_ = '{}/{}.npz'.format(_DATA, name)
-            
+
         if os.path.exists(name):
-            
+
             input_dict = self._load_from_file(name)
-            
+
         elif os.path.exists(name_):
-            
+
             input_dict = self._load_from_file(name_)
-            
+
         else:
-            
+
             input_dict = kwargs
-            
+
         self._load_params(**input_dict)
         self._load_beams(**input_dict)
 
@@ -90,13 +90,13 @@ class Survey():
             self._load_grid(**input_dict)
 
         elif kind in ('tophat', 'bessel', 'gaussian'):
-            
+
             self._set_selection(kind)
 
         else:
 
             print('Please choose a valid pattern kind')
-            
+
     def __call__(self, frb):
 
         coords = frb.get_local_coordinates(self.location)
@@ -110,17 +110,17 @@ class Survey():
         signal = response[:, :, numpy.newaxis] * Speak
 
         return coords, signal
-            
+
     def _load_params(self, frequency_bands, polarizations,
                      system_temperature, sampling_time,
                      longitude, latitude, elevation,
                      degradation_factor, **kwargs):
-        
+
         """
         This is a private function, please do not call it
         directly unless you know exactly what you are doing.
         """
-        
+
         self.degradation_factor = degradation_factor
         self.system_temperature = system_temperature * units.K
         self.frequency_bands = frequency_bands.reshape(-1, 1)
@@ -128,28 +128,28 @@ class Survey():
         self.band_widths = numpy.diff(self.frequency_bands, axis=0)
         self.sampling_time = sampling_time * units.ms
         self.polarizations = polarizations
-        
+
         lon = coordinates.Angle(longitude, unit=units.degree)
         lat = coordinates.Angle(latitude, unit=units.degree)
         el = elevation * units.meter
-        
+
         self.location = coordinates.EarthLocation(
             lon=lon, lat=lat,
             height=elevation
         )
-        
+
         scaled_time = (self.band_widths * self.sampling_time).to(1)
         noise_scale = numpy.sqrt(polarizations * scaled_time.value)
 
         self.minimum_temperature = self.system_temperature / noise_scale
-        
+
     def _load_beams(self, az, alt, solid_angle, gain, **kwargs):
-        
+
         """
         This is a private function, please do not call it
         directly unless you know exactly what you are doing.
         """
-        
+
         self.az = az * units.degree
         self.alt = alt * units.degree
         self.solid_angle = solid_angle * units.degree**2
@@ -158,20 +158,20 @@ class Survey():
         self.nbeams = len(gain)
 
         sa_rad = self.solid_angle.to(units.sr).value
-        
+
         arg = 1 - sa_rad / (2 * numpy.pi)
 
         radius = numpy.arccos(arg) * units.rad
 
         self.radius = radius.to(units.degree)
-    
+
     def _load_grid(self, pattern, az_range, alt_range, **kwargs):
-        
+
         """
         This is a private function, please do not call it
         directly unless you know exactly what you are doing.
         """
-        
+
         self.pattern = pattern
 
         az_min, az_max, naz = az_range
@@ -184,7 +184,7 @@ class Survey():
         self.nalt = int(nalt)
 
         self.az_grid = numpy.linspace(az_min, az_max, self.naz)
-        
+
         self.alt_grid = numpy.linspace(alt_min, alt_max, self.nalt)
 
         self.Fs = [
@@ -198,30 +198,30 @@ class Survey():
         ]
 
         self.selection = self._grid
-    
+
     def _load_from_file(self, file):
-        
+
         """
         This is a private function, please do not call it
         directly unless you know exactly what you are doing.
         """
-        
+
         try:
-            
+
             filename, extension = os.path.splitext(file)
-            
-            if extension == '.npz': 
-        
+
+            if extension == '.npz':
+
                 data = numpy.load(file)
-            
+
             elif extension == '.json':
-                
+
                 data = json.loads(file)
-                
+
         except FileNotFoundError:
-            
+
             print('File does not exist')
-            
+
         return dict(
             polarizations=int(data.get('Polarizations')),
             system_temperature=float(data.get('System Temperature (K)')),
@@ -241,12 +241,12 @@ class Survey():
         )
 
     def _set_selection(self, kind):
-        
+
         """
         This is a private function, please do not call it
         directly unless you know exactly what you are doing.
         """
-    
+
         self.pattern = patterns[kind]
 
         def selection(az, alt):
@@ -260,7 +260,7 @@ class Survey():
         self.selection = selection
 
     def _grid(self, az, alt):
-        
+
         """
         This is a private function, please do not call it
         directly unless you know exactly what you are doing.
