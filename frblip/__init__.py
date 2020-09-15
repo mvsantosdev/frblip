@@ -1,6 +1,7 @@
 import warnings
 
-from .frb import CosmicBursts
+from .cosmic_bursts import CosmicBursts
+from .observed_bursts import ObservedBursts
 from .survey import RadioSurvey
 
 

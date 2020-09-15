@@ -15,6 +15,8 @@ from scipy.interpolate import RectBivariateSpline
 
 from .patterns import patterns
 
+from .observed_bursts import ObservedBursts
+
 from .utils import _DATA, angular_separation
 
 
@@ -109,7 +111,25 @@ class RadioSurvey():
 
         signal = response[:, :, numpy.newaxis] * Speak
 
-        return coords, signal
+        return self._observations(coords.obstime, signal)
+
+    def _observations(self, time, signal):
+
+        """
+        This is a private function, please do not call it
+        directly unless you know exactly what you are doing.
+        """
+
+        obs = ObservedBursts()
+
+        obs.time = time
+        obs.signal = signal
+
+        obs.location = self.location
+
+        obs.noise = self.minimum_temperature.ravel()
+
+        return obs
 
     def _load_params(self, frequency_bands, polarizations,
                      system_temperature, sampling_time,
@@ -128,6 +148,8 @@ class RadioSurvey():
         self.band_widths = numpy.diff(self.frequency_bands, axis=0)
         self.sampling_time = sampling_time * units.ms
         self.polarizations = polarizations
+
+        self.n_bands = len(self.band_widths)
 
         lon = coordinates.Angle(longitude, unit=units.degree)
         lat = coordinates.Angle(latitude, unit=units.degree)
@@ -155,7 +177,7 @@ class RadioSurvey():
         self.solid_angle = solid_angle * units.degree**2
         self.gain = gain * units.K / units.Jy
 
-        self.nbeams = len(gain)
+        self.n_beams = len(gain)
 
         sa_rad = self.solid_angle.to(units.sr).value
 
@@ -177,25 +199,26 @@ class RadioSurvey():
         az_min, az_max, naz = az_range
         alt_min, alt_max, nalt = alt_range
 
-        self.az_min, self.az_max = az_min, az_max
-        self.alt_min, self.alt_max = alt_min, alt_max
-
         self.naz = int(naz)
         self.nalt = int(nalt)
 
-        self.az_grid = numpy.linspace(az_min, az_max, self.naz)
-
-        self.alt_grid = numpy.linspace(alt_min, alt_max, self.nalt)
+        az_grid = numpy.linspace(az_min, az_max, self.naz)
+        alt_grid = numpy.linspace(alt_min, alt_max, self.nalt)
 
         self.Fs = [
             numpy.vectorize(
                 RectBivariateSpline(
-                    self.az_grid, self.alt_grid, P
+                    az_grid, alt_grid, P
                 ),
                 otypes=[numpy.float]
             )
             for P in self.pattern
         ]
+
+        self.az_min = az_min * units.degree
+        self.az_max = az_max * units.degree
+        self.alt_min = alt_min * units.degree
+        self.alt_max = alt_max * units.degree
 
         self.selection = self._grid
 
@@ -266,7 +289,20 @@ class RadioSurvey():
         directly unless you know exactly what you are doing.
         """
 
-        return numpy.row_stack([
-            F(az.value, alt.value)
-            for F in self.Fs
-        ])
+        n_frbs = len(az)
+
+        output = numpy.zeros((self.n_beams, n_frbs))
+
+        az_in = (az > self.az_min) & (az < self.az_max)
+        alt_in = (alt > self.alt_min) & (alt < self.alt_max)
+
+        idx = az_in & alt_in
+
+        if idx.any():
+
+            output[:, idx] = numpy.row_stack([
+                F(az[idx].value, alt[idx].value)
+                for F in self.Fs
+            ])
+
+        return output
