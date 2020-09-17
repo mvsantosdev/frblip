@@ -21,4 +21,4 @@ It is strongly recommended to create a exclusive enviorement, using conda for ex
 >>> python setup.py install
 ```
         
-**Take a look ate the examples [here](https://github.com/mvsantosdev/frblip/tree/master/examples)**
+**Take a look at the examples [here](https://github.com/mvsantosdev/frblip/tree/master/examples)**
