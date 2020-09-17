@@ -32,6 +32,10 @@ class ObservedBursts():
 
                 print('Please provide a valid file.')
 
+    def __getitem__(self, idx):
+    
+        return self.select(idx, inplace=False)
+
     def select(self, idx, inplace=False):
 
         frbs = self if inplace else ObservedBursts()

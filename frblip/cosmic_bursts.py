@@ -76,11 +76,11 @@ class CosmicBursts():
 
         sys.stdout = old_target
 
-    def to_csv(self, **kwargs):
+    def to_csv(self, file, **kwargs):
 
         df = self.to_pandas()
 
-        df.to_csv(**kwargs)
+        df.to_csv(file, **kwargs)
 
     def to_pandas(self):
 
@@ -106,9 +106,13 @@ class CosmicBursts():
 
         return df
 
+    def __getitem__(self, idx):
+
+        return self.select(idx, inplace=False)
+
     def select(self, idx, inplace=False):
 
-        frbs = self if inplace else CosmicBursts()
+        frbs = self if inplace else CosmicBursts(verbose=False)
 
         frbs.redshift = self.redshift[idx]
         frbs.comoving_distance = self.comoving_distance[idx]
