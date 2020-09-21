@@ -33,7 +33,7 @@ class ObservedBursts():
                 print('Please provide a valid file.')
 
     def __getitem__(self, idx):
-    
+
         return self.select(idx, inplace=False)
 
     def select(self, idx, inplace=False):
@@ -55,7 +55,7 @@ class ObservedBursts():
         output = {
             'Signal (K)': self.signal,
             'Noise (K)': self.noise,
-            'Time': self.time.to_datetime(),
+            'Time': self.time,
             'Longitude (degree)': self.location.lon,
             'Latitude (degree)': self.location.lat,
             'Elevation (meter)': self.location.height

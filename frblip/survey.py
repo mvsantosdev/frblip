@@ -111,7 +111,9 @@ class RadioSurvey():
 
         signal = response[:, :, numpy.newaxis] * Speak
 
-        return self._observations(coords.obstime, signal)
+        time = coords.obstime.to_datetime()
+
+        return self._observations(time, signal)
 
     def _observations(self, time, signal):
 
