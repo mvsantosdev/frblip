@@ -298,7 +298,7 @@ class CosmicBursts():
 
         r = self.L_0 / self.Lstar
 
-        Lum, eps = self.phistar * quad(phi, r, numpy.inf,
+        Lum, eps = self.phistar * quad(schechter, r, numpy.inf,
                                        args=(self.alpha,))
 
         Vol = self.cosmo.comoving_volume(self.zmax)
@@ -366,19 +366,9 @@ class CosmicBursts():
 
         U = random.random(self.n_frb)
 
-        r = numpy.log10(self.L_0 / self.Lstar).value
+        xmin = (self.L_0 / self.Lstar).value
 
-        x = numpy.linspace(r, numpy.log10(2), 100)
+        rvs = rvs_from_cdf(schechter, xmin, 3, size=self.n_frb,
+                           alpha=self.alpha)
 
-        L = x * self.Lstar
-
-        logL = x + numpy.log10(self.Lstar.value)
-
-        fL = phi(10**x, self.alpha)
-
-        cdfL = cumtrapz(x=x, y=fL, initial=0)
-        cdfL = cdfL / cdfL[-1]
-
-        logs = numpy.interp(x=U, xp=cdfL, fp=logL)
-
-        return (10**logs) * self.Lstar.unit
+        return self.Lstar * rvs
