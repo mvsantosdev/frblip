@@ -1,3 +1,5 @@
+import warnings
+
 import os
 
 import json
@@ -27,7 +29,7 @@ class RadioSurvey():
     """
 
     def __init__(self, name='bingo', kind='gaussian', start_time=None,
-                 **kwargs):
+                 az_shift=0, alt_shift=0, rotation=0, **kwargs):
 
         """
         Creates a Survey object.
@@ -99,11 +101,20 @@ class RadioSurvey():
 
             print('Please choose a valid pattern kind')
 
+        self.rotation = rotation * units.degree
+        self.alt_shift = alt_shift * units.degree
+        self.az_shift = az_shift * units.hourangle
+
+        self.cos_rot = np.cos(self.rotation)
+        self.sin_rot = np.sin(self.rotation)
+
     def __call__(self, frb):
 
         coords = frb.get_local_coordinates(self.location)
 
-        response = self.selection(coords.az, coords.alt) * self.gain
+        az, alt = self._transform_coordinates(coords.az, coords.alt)
+
+        response = self.selection(az, alt) * self.gain
 
         time_factor = numpy.sqrt(frb.arrived_pulse_width / self.sampling_time)
 
@@ -114,6 +125,28 @@ class RadioSurvey():
         time = coords.obstime.to_datetime()
 
         return self._observations(time, signal)
+
+    def _shift_and_rotation(self, az, alt):
+
+        """
+        This is a private function, please do not call it
+        directly unless you know exactly what you are doing.
+        """
+
+        rotated_az = az * self.cos_rot + alt * self.sin_rot
+        rotated_alt = - az * self.sin_rot + alt * self.cos_rot
+
+        shifted_az = rotated_az - self.az_shift
+        shifted_alt = rotated_alt - self.alt_shift
+
+        warning_message = ''.join([
+            'The shift and rotation function is not well implemented.',
+            'Pay attention if it will give the desired result.'
+        ])
+
+        warnings.warn(warning_message)
+
+        return shifted_az, shifted_alt
 
     def _observations(self, time, signal):
 
