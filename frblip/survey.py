@@ -105,8 +105,8 @@ class RadioSurvey():
         self.alt_shift = alt_shift * units.degree
         self.az_shift = az_shift * units.hourangle
 
-        self.cos_rot = np.cos(self.rotation)
-        self.sin_rot = np.sin(self.rotation)
+        self.cos_rot = numpy.cos(self.rotation)
+        self.sin_rot = numpy.sin(self.rotation)
 
     def __call__(self, frb):
 
