@@ -26,7 +26,8 @@ def galactic_dispersion(lon, lat, nside=256):
                                         lat.value, lonlat=True)
 
 
-def host_galaxy_dispersion(z, logrange=(-1, 4), model='ALGs(YMW16)'):
+def host_galaxy_dispersion(redshift, logrange=(-1, 4),
+                           model='ALGs(YMW16)'):
 
     pars = pandas.read_csv('{}/HostGalaxyDM.csv'.format(_DATA),
                            index_col='Parameters').loc[:, model]
@@ -39,7 +40,7 @@ def host_galaxy_dispersion(z, logrange=(-1, 4), model='ALGs(YMW16)'):
 
     logDMs = numpy.linspace(*logrange, 100)
 
-    U = numpy.random.random(len(z))
+    U = numpy.random.random(redshift.shape)
 
     pdf1 = a1 * numpy.exp(- ((logDMs - b1)/c1)**2)
     pdf2 = a2 * numpy.exp(- ((logDMs - b2)/c2)**2)
@@ -48,7 +49,7 @@ def host_galaxy_dispersion(z, logrange=(-1, 4), model='ALGs(YMW16)'):
 
     cdflogDM = cumtrapz(x=logDMs, y=pdf, initial=0)
 
-    q = 1 + z
+    q = 1 + redshift
 
     SFR = q**2.7 / (1 + 0.00257 * q**5.6)
 

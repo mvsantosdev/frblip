@@ -18,6 +18,15 @@ def schechter(x, alpha):
     return (x**alpha) * numpy.exp(-x)
 
 
+def simps(y):
+
+    m = y[..., 1::2]
+    a = y[..., :-1:2]
+    b = y[..., 2::2]
+
+    return (a + b + 4*m) / 6
+
+
 def angular_separation(lon1, lat1, lon2, lat2):
 
     s1, s2 = numpy.sin(lat1), numpy.sin(lat2)

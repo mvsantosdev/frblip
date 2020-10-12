@@ -4,33 +4,64 @@ import numpy
 
 import pandas
 
-from astropy import coordinates, units
+from astropy import coordinates, units, constants
+
+from .utils import simps
+
+
+def cross_correlation(obsi, obsj):
+
+    """
+    Compute the cross correlations between two observation sets
+    """
+
+    xi, yi, zi = obsi.location.geocentric
+    xj, yj, zj = obsj.location.geocentric
+
+    distance = numpy.sqrt((xi - xj)**2 + (yi - yj)**2 + (zi - zj)**2)
+
+    alti = obsi.coordinates.alt
+    altj = obsj.coordinates.alt
+
+    arc = .5 * (alti + alti)
+    optical_path = distance * numpy.cos(arc).reshape(-1, 1)
+
+    freq = obsi._frequency
+
+    arg = (2 * numpy.pi * freq * optical_path / constants.c).decompose().value
+    cos = numpy.cos(arg[:, numpy.newaxis, numpy.newaxis, :])
+
+    signal = obsi._signal[:, :, numpy.newaxis] * obsj._signal[:, numpy.newaxis]
+    signal = 0.5 * numpy.sqrt(signal) * cos
+
+    noii = obsi.noise(channels=True)
+    noij = obsj.noise(channels=True)
+
+    noise = numpy.sqrt(0.5 * noii[:, numpy.newaxis] * noij)
+
+    return ObservedBursts(signal, noise, obsi.frequency_bands,
+                          coordinates=obsi.coordinates.obstime)
 
 
 class ObservedBursts():
 
-    def __init__(self, file=None):
+    def __init__(self, signal, noise, frequency_bands,
+                 coordinates=None, location=None):
 
-        if file is not None:
+        self.location = location
+        self.coordinates = coordinates
 
-            try:
+        self.frequency_bands = frequency_bands * units.MHz
+        mid_frequency = 0.5 * (frequency_bands[1:] + frequency_bands[:-1])
 
-                data = numpy.load(file, allow_pickle=True)
+        self._band_widths = self.frequency_bands.diff()
 
-                self.signal = data['Signal (K)'] * units.K
-                self.noise = data['Noise (K)'] * units.K
+        self._frequency = numpy.concatenate((frequency_bands, mid_frequency))
+        self._frequency = numpy.sort(self._frequency) * units.MHz
+        self._signal = signal * units.Jy
 
-                self.time = data['Time']
-
-                self.location = coordinates.EarthLocation(
-                    lon=data['Longitude (degree)'],
-                    lat=data['Latitude (degree)'],
-                    height=data['Elevation (meter)']
-                )
-
-            except FileNotFoundError:
-
-                print('Please provide a valid file.')
+        self._channels_signal = simps(self._signal)
+        self._channels_noise = noise * units.Jy
 
     def __getitem__(self, idx):
 
@@ -40,22 +71,29 @@ class ObservedBursts():
 
         frbs = self if inplace else ObservedBursts()
 
-        frbs.signal = self.signal[:, idx, :]
-        frbs.time = self.time[idx]
+        frbs.coordinates = self.coordinates[idx]
+
+        frbs._signal = self._signal[idx]
+        frbs._channels_signal = self._channels_signal[idx]
 
         if not inplace:
 
-            frbs.noise = self.noise
+            frbs._channels_noise = self.noise
             frbs.location = self.location
+
+            frbs.frequency_bands = self.frequency_bands
+            frbs._band_widths = self._band_widths
+
+            frbs._frequency = self._frequency
 
             return frbs
 
     def save(self, file):
 
         output = {
+            'Time': self.time,
             'Signal (K)': self.signal,
             'Noise (K)': self.noise,
-            'Time': self.time,
             'Longitude (degree)': self.location.lon,
             'Latitude (degree)': self.location.lat,
             'Elevation (meter)': self.location.height
@@ -63,11 +101,29 @@ class ObservedBursts():
 
         numpy.savez(file, **output)
 
-    def signal_to_noise(self, beams=None, bands=None):
+    def signal(self, channels=False):
 
-        signal_sq = self.signal**2
-        noise_sq = self.noise**2
+        if channels:
 
-        SNR_sq = (signal_sq / noise_sq).sum(0).sum(-1)
+            return self._channels_signal
 
-        return numpy.sqrt(SNR_sq)
+        return numpy.average(self._channels_signal,
+                             weights=self._band_widths,
+                             axis=-1)
+
+    def noise(self, channels=False):
+
+        if channels:
+
+            return self._channels_noise
+
+        inoise = (1 / self._channels_noise**2).sum(-1)
+
+        return 1 / numpy.sqrt(inoise)
+
+    def signal_to_noise(self, channels=False):
+
+        signal = self.signal(channels)
+        noise = self.noise(channels)
+
+        return (signal / noise).value

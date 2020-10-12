@@ -85,23 +85,23 @@ class CosmicBursts():
     def to_pandas(self):
 
         df = pandas.DataFrame({
-            'Redshift': self.redshift,
-            'Comoving Distance (Mpc)': self.comoving_distance,
-            'Luminosity (erg/s)': self.luminosity,
-            'Flux (Jy * MHz)': self.flux,
+            'Redshift': self.redshift.ravel(),
+            'Comoving Distance (Mpc)': self.comoving_distance.ravel(),
+            'Luminosity (erg/s)': self.luminosity.ravel(),
+            'Flux (Jy * MHz)': self.flux.ravel(),
             'Right Ascension (hour)': self.sky_coord.ra.to(units.hourangle),
             'Declination (degree)': self.sky_coord.dec,
             'Galactic Longitude (degree)': self.sky_coord.galactic.l,
             'Galactic Latitude (degree)': self.sky_coord.galactic.b,
-            'Intrinsic Pulse Width (ms)': self.pulse_width,
-            'Arrived Pulse Width (ms)': self.arrived_pulse_width,
-            'Galactic DM (pc/cm^3)': self.galactic_dispersion,
-            'Host Galaxy DM (pc/cm^3)': self.host_dispersion,
-            'Intergalactic Medium DM (pc/cm^3)': self.igm_dispersion,
-            'Source DM (pc/cm^3)': self.source_dispersion,
-            'Dispersion Measure (pc/cm^3)': self.dispersion,
-            'Spectral Index': self.spectral_index,
-            'Time (ms)': self.time
+            'Intrinsic Pulse Width (ms)': self.pulse_width.ravel(),
+            'Arrived Pulse Width (ms)': self.arrived_pulse_width.ravel(),
+            'Galactic DM (pc/cm^3)': self.galactic_dispersion.ravel(),
+            'Host Galaxy DM (pc/cm^3)': self.host_dispersion.ravel(),
+            'Intergalactic Medium DM (pc/cm^3)': self.igm_dispersion.ravel(),
+            'Source DM (pc/cm^3)': self.source_dispersion.ravel(),
+            'Dispersion Measure (pc/cm^3)': self.dispersion.ravel(),
+            'Spectral Index': self.spectral_index.ravel(),
+            'Time (ms)': self.time.ravel()
         }).sort_values('Time (ms)', ignore_index=True)
 
         return df
@@ -159,12 +159,16 @@ class CosmicBursts():
         if start_time is None:
             start_time = Time.now()
 
-        date_time = start_time + self.time
+        date_time = start_time + self.time.ravel()
 
         AltAzCoords = coordinates.AltAz(location=location,
                                         obstime=date_time)
 
         return self.sky_coord.transform_to(AltAzCoords)
+
+    def specific_flux(self, nu):
+
+        return self.S0 * (nu.value**self.spectral_index)
 
     def peak_density_flux(self, survey):
 
@@ -258,22 +262,22 @@ class CosmicBursts():
 
         self.flux = (self.luminosity / surface).to(units.Jy * units.MHz)
 
-        self.pulse_width = random.lognormal(*wint, self.n_frb) * units.ms
+        self.pulse_width = random.lognormal(*wint, (self.n_frb, 1)) * units.ms
 
         self.arrived_pulse_width = _zp1 * self.pulse_width
 
         time_ms = int(self.duration.to(units.ms).value)
 
-        self.time = random.randint(time_ms, size=self.n_frb) * units.ms
+        self.time = random.randint(time_ms, size=(self.n_frb, 1)) * units.ms
 
-        self.spectral_index = random.uniform(*si, self.n_frb)
+        self.spectral_index = random.uniform(*si, (self.n_frb, 1))
 
         _sip1 = self.spectral_index + 1
 
         nu_low = lower_frequency**_sip1
         nu_high = higher_frequency**_sip1
 
-        self.dnu = nu_high - nu_low
+        self.S0 = _sip1 * self.flux / (nu_high - nu_low)
 
     def _sky_area(self):
 
@@ -326,10 +330,12 @@ class CosmicBursts():
 
         _zp1 = 1 + self.redshift
 
-        gal_DM = galactic_dispersion(self.sky_coord.galactic.l,
-                                     self.sky_coord.galactic.b)
+        lon = self.sky_coord.galactic.l.reshape(-1, 1)
+        lat = self.sky_coord.galactic.b.reshape(-1, 1)
+
+        gal_DM = galactic_dispersion(lon, lat)
         host_DM = host_galaxy_dispersion(self.redshift)
-        src_DM = source_dispersion(self.n_frb)
+        src_DM = source_dispersion((self.n_frb, 1))
         igm_DM = igm_dispersion(self.redshift, zmax=self.zmax)
 
         egal_DM = igm_DM + (src_DM + host_DM) / _zp1
@@ -345,7 +351,7 @@ class CosmicBursts():
 
     def _z_dist(self):
 
-        U = random.random(self.n_frb)
+        U = random.random((self.n_frb, 1))
 
         zs = numpy.linspace(.0, self.zmax, 100)
 
@@ -364,11 +370,10 @@ class CosmicBursts():
         directly unless you know exactly what you are doing.
         """
 
-        U = random.random(self.n_frb)
-
         xmin = (self.L_0 / self.Lstar).value
 
-        rvs = rvs_from_cdf(schechter, xmin, 3, size=self.n_frb,
+        rvs = rvs_from_cdf(schechter, xmin, 3,
+                           size=(self.n_frb, 1),
                            alpha=self.alpha)
 
         return self.Lstar * rvs

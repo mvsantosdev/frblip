@@ -9,23 +9,24 @@ import numpy
 import pandas
 
 from astropy.time import Time
-from astropy import coordinates, units
+from astropy import coordinates, units, constants
 
 from scipy.special import j1
 
 from scipy.interpolate import RectBivariateSpline
+from scipy.integrate import cumtrapz
 
 from .patterns import patterns
 
 from .observed_bursts import ObservedBursts
 
-from .utils import _DATA, angular_separation
+from .utils import _DATA, angular_separation, simps
 
 
-class RadioSurvey():
+class RadioTelescope():
 
     """
-    Class which defines a Radio Survey
+    Class which defines a Radio Surveynp
     """
 
     def __init__(self, name='bingo', kind='gaussian', start_time=None,
@@ -108,23 +109,27 @@ class RadioSurvey():
         self.cos_rot = numpy.cos(self.rotation)
         self.sin_rot = numpy.sin(self.rotation)
 
-    def __call__(self, frb):
+    def __call__(self, frb, return_coords=False):
 
         coords = frb.get_local_coordinates(self.location)
 
-        az, alt = self._transform_coordinates(coords.az, coords.alt)
+        az, alt = self._shift_and_rotation(coords.az, coords.alt)
 
-        response = self.selection(az, alt) * self.gain
+        response = self.selection(az, alt)
 
         time_factor = numpy.sqrt(frb.arrived_pulse_width / self.sampling_time)
 
-        Speak = frb.peak_density_flux(self) * time_factor.reshape(-1, 1)
+        signal = frb.specific_flux(self._frequency)
 
-        signal = response[:, :, numpy.newaxis] * Speak
+        signal = response[:, :, numpy.newaxis] * signal[:, numpy.newaxis]
+        signal = (signal / units.MHz).to(units.Jy)
 
-        time = coords.obstime.to_datetime()
+        noise = self.minimum_temperature / self.gain.reshape(-1, 1)
+        noise = noise.to(units.Jy)
 
-        return self._observations(time, signal)
+        return ObservedBursts(signal.value, noise.value,
+                              self.frequency_bands.value,
+                              coords, self.location)
 
     def _shift_and_rotation(self, az, alt):
 
@@ -136,35 +141,10 @@ class RadioSurvey():
         rotated_az = az * self.cos_rot + alt * self.sin_rot
         rotated_alt = - az * self.sin_rot + alt * self.cos_rot
 
-        shifted_az = rotated_az - self.az_shift
-        shifted_alt = rotated_alt - self.alt_shift
-
-        warning_message = ''.join([
-            'The shift and rotation function is not well implemented.',
-            'Pay attention if it will give the desired result.'
-        ])
-
-        warnings.warn(warning_message)
+        shifted_az = rotated_az.reshape(-1, 1) - self.az_shift
+        shifted_alt = rotated_alt.reshape(-1, 1) - self.alt_shift
 
         return shifted_az, shifted_alt
-
-    def _observations(self, time, signal):
-
-        """
-        This is a private function, please do not call it
-        directly unless you know exactly what you are doing.
-        """
-
-        obs = ObservedBursts()
-
-        obs.time = time
-        obs.signal = signal
-
-        obs.location = self.location
-
-        obs.noise = self.minimum_temperature.ravel()
-
-        return obs
 
     def _load_params(self, frequency_bands, polarizations,
                      system_temperature, sampling_time,
@@ -178,9 +158,14 @@ class RadioSurvey():
 
         self.degradation_factor = degradation_factor
         self.system_temperature = system_temperature * units.K
-        self.frequency_bands = frequency_bands.reshape(-1, 1)
-        self.frequency_bands = self.frequency_bands * units.MHz
-        self.band_widths = numpy.diff(self.frequency_bands, axis=0)
+
+        self.frequency_bands = frequency_bands * units.MHz
+        mid_frequency = 0.5 * (frequency_bands[1:] + frequency_bands[:-1])
+
+        self._frequency = numpy.concatenate((frequency_bands, mid_frequency))
+        self._frequency = numpy.sort(self._frequency) * units.MHz
+
+        self.band_widths = numpy.diff(self.frequency_bands)
         self.sampling_time = sampling_time * units.ms
         self.polarizations = polarizations
 
@@ -200,7 +185,8 @@ class RadioSurvey():
 
         self.minimum_temperature = self.system_temperature / noise_scale
 
-    def _load_beams(self, az, alt, solid_angle, gain, **kwargs):
+    def _load_beams(self, az, alt, solid_angle, reference_frequency,
+                    **kwargs):
 
         """
         This is a private function, please do not call it
@@ -210,9 +196,20 @@ class RadioSurvey():
         self.az = az * units.degree
         self.alt = alt * units.degree
         self.solid_angle = solid_angle * units.degree**2
-        self.gain = gain * units.K / units.Jy
+        self.reference_frequency = reference_frequency * units.MHz
 
-        self.n_beams = len(gain)
+        self.n_beams = len(solid_angle)
+
+        self.reference_wavelength = (constants.c / self.reference_frequency)
+        self.reference_wavelength = self.reference_wavelength.to(units.cm)
+
+        sa = self.solid_angle.to(units.sr).value
+
+        self.effective_area = (self.reference_wavelength**2 / sa)
+        self.effective_area = self.effective_area.to(units.meter**2)
+
+        self.gain = 0.5 * (self.effective_area / constants.k_B)
+        self.gain = self.gain.to(units.K / units.Jy)
 
         sa_rad = self.solid_angle.to(units.sr).value
 
@@ -284,6 +281,7 @@ class RadioSurvey():
             polarizations=int(data.get('Polarizations')),
             system_temperature=float(data.get('System Temperature (K)')),
             sampling_time=float(data.get('Sampling Time (ms)')),
+            reference_frequency=float(data.get('Reference Frequency (MHz)')),
             longitude=str(data.get('Longitude (degree)')),
             latitude=str(data.get('Latitude (degree)')),
             elevation=float(data.get('Elevation (meter)')),

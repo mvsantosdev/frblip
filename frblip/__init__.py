@@ -1,8 +1,8 @@
 import warnings
 
 from .cosmic_bursts import CosmicBursts
-from .observed_bursts import ObservedBursts
-from .survey import RadioSurvey
+from .radio_telescope import RadioTelescope
+from .observed_bursts import ObservedBursts, cross_correlation
 
 
 warning_message = ''.join([
