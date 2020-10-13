@@ -4,7 +4,10 @@ import numpy
 
 import pandas
 
-from astropy import coordinates, units, constants
+from itertools import combinations
+
+from astropy import coordinates, constants, units
+from astropy.time import Time
 
 from .utils import simps
 
@@ -43,6 +46,48 @@ def cross_correlation(obsi, obsj):
                           coordinates=obsi.coordinates.obstime)
 
 
+def interferometry(*observations):
+
+    """
+    Perform a interferometry observation by a Radio Telescope array.
+    """
+
+    n_frb = int(numpy.unique([obs.n_frb for obs in observations]))
+    n_channel = int(numpy.unique([obs.n_channel for obs in observations]))
+
+    obsij = [
+        cross_correlation(obsi, obsj)
+        for obsi, obsj in combinations(observations, 2)
+    ]
+
+    shapes = numpy.array([
+        numpy.prod(obs.n_beam)
+        for obs in obsij
+    ])
+
+    new_shapes = 1 + numpy.diag(shapes - 1)
+
+    _signal = [
+        obs._signal.value.reshape((n_frb, *shape, 2 * n_channel + 1))
+        for shape, obs in zip(new_shapes, obsij)
+    ]
+
+    _signal = sum(_signal, numpy.zeros((n_frb, *shapes, 2 * n_channel + 1)))
+
+    _noise = [
+        1 / obs._channels_noise.value.reshape((*shape, n_channel))**2
+        for shape, obs in zip(new_shapes, obsij)
+    ]
+
+    _noise = sum(_noise, numpy.zeros((n_frb, *shapes, n_channel)))
+    _noise = numpy.sqrt(1 / _noise)
+
+    return ObservedBursts(
+        _signal, _noise, observations[0].frequency_bands.value,
+        coordinates=observations[0].coordinates.obstime
+    )
+
+
 class ObservedBursts():
 
     def __init__(self, signal, noise, frequency_bands,
@@ -54,11 +99,16 @@ class ObservedBursts():
         self.frequency_bands = frequency_bands * units.MHz
         mid_frequency = 0.5 * (frequency_bands[1:] + frequency_bands[:-1])
 
+        self.n_channel = len(frequency_bands) - 1
+
         self._band_widths = self.frequency_bands.diff()
 
         self._frequency = numpy.concatenate((frequency_bands, mid_frequency))
         self._frequency = numpy.sort(self._frequency) * units.MHz
+
         self._signal = signal * units.Jy
+        self.n_frb = numpy.prod(signal.shape[0])
+        self.n_beam = signal.shape[1:-1]
 
         self._channels_signal = simps(self._signal)
         self._channels_noise = noise * units.Jy
@@ -91,15 +141,75 @@ class ObservedBursts():
     def save(self, file):
 
         output = {
-            'Time': self.time,
-            'Signal (K)': self.signal,
-            'Noise (K)': self.noise,
-            'Longitude (degree)': self.location.lon,
-            'Latitude (degree)': self.location.lat,
-            'Elevation (meter)': self.location.height
+            'Signal (Jy)': self._signal.value,
+            'Noise (Jy)': self._channels_noise.value,
+            'Frequency Bands (MHz)': self.frequency_bands.value
         }
 
+        if self.location is not None:
+
+            output.update({
+                'Longitude (degree)': self.location.lon.value,
+                'Latitude (degree)': self.location.lat.value,
+                'Elevation (meter)': self.location.height.value,
+            })
+
+        else:
+
+            output['Location'] = None
+
+        if type(self.coordinates) is Time:
+
+            output.update({
+                'Coordinates': 'Time',
+                'Time': self.coordinates
+            })
+
+        elif type(self.coordinates) is coordinates.SkyCoord:
+
+            output.update({
+                'Coordinates': 'Sky',
+                'Time': self.coordinates.obstime,
+                'Altitude (deg)': self.coordinates.alt.value,
+                'Azimuth (deg)': self.coordinates.az.value,
+            })
+
         numpy.savez(file, **output)
+
+    @staticmethod
+    def load(name):
+
+        file = numpy.load(name, allow_pickle=True)
+
+        if 'Location' not in file.files:
+
+            location = coordinates.EarthLocation(
+                lon=file['Longitude (degree)'] * units.degree,
+                lat=file['Latitude (degree)'] * units.degree,
+                height=file['Elevation (meter)'] * units.meter
+            )
+
+        else:
+
+            location = None
+
+        if file['Coordinates'] == 'Time':
+
+            coords = file['Time']
+
+        elif file['Coordinates'] == 'Sky':
+
+            coords = coordinates.AltAz(
+                az=file['Azimuth (deg)'] * units.degree,
+                alt=file['Altitude (deg)'] * units.degree,
+                obstime=file['Time']
+            )
+
+        return ObservedBursts(
+            signal=file['Signal (Jy)'], noise=file['Noise (Jy)'],
+            frequency_bands=file['Frequency Bands (MHz)'],
+            coordinates=coords, location=location
+        )
 
     def signal(self, channels=False):
 

@@ -2,7 +2,7 @@ import warnings
 
 from .cosmic_bursts import CosmicBursts
 from .radio_telescope import RadioTelescope
-from .observed_bursts import ObservedBursts, cross_correlation
+from .observed_bursts import ObservedBursts, cross_correlation, interferometry
 
 
 warning_message = ''.join([
