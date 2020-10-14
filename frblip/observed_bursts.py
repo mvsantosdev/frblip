@@ -4,6 +4,8 @@ import numpy
 
 import pandas
 
+from scipy.special import comb
+
 from itertools import combinations
 
 from astropy import coordinates, constants, units
@@ -52,6 +54,8 @@ def interferometry(*observations):
     Perform a interferometry observation by a Radio Telescope array.
     """
 
+    n_obs = len(observations)
+
     n_frb = int(numpy.unique([obs.n_frb for obs in observations]))
     n_channel = int(numpy.unique([obs.n_channel for obs in observations]))
 
@@ -60,26 +64,29 @@ def interferometry(*observations):
         for obsi, obsj in combinations(observations, 2)
     ]
 
-    shapes = numpy.array([
-        numpy.prod(obs.n_beam)
-        for obs in obsij
-    ])
+    n_comb = comb(n_obs, 2, exact=True)
 
-    new_shapes = 1 + numpy.diag(shapes - 1)
+    shapes = numpy.ones((n_comb, n_obs), dtype=numpy.int)
+
+    idx_beam = numpy.row_stack([*combinations(range(n_obs), 2)])
+    idx_comb = numpy.tile(numpy.arange(n_comb).reshape(-1, 1), (1, 2))
+
+    n_beam = numpy.concatenate([obs.n_beam for obs in observations])
+    shapes[idx_comb, idx_beam] = n_beam[idx_beam]
 
     _signal = [
         obs._signal.value.reshape((n_frb, *shape, 2 * n_channel + 1))
-        for shape, obs in zip(new_shapes, obsij)
+        for shape, obs in zip(shapes, obsij)
     ]
 
-    _signal = sum(_signal, numpy.zeros((n_frb, *shapes, 2 * n_channel + 1)))
+    _signal = sum(_signal, numpy.empty(()))
 
     _noise = [
         1 / obs._channels_noise.value.reshape((*shape, n_channel))**2
-        for shape, obs in zip(new_shapes, obsij)
+        for shape, obs in zip(shapes, obsij)
     ]
 
-    _noise = sum(_noise, numpy.zeros((n_frb, *shapes, n_channel)))
+    _noise = sum(_noise, numpy.empty(()))
     _noise = numpy.sqrt(1 / _noise)
 
     return ObservedBursts(
