@@ -119,24 +119,22 @@ class ObservedBursts():
 
     def select(self, idx, inplace=False):
 
-        frbs = self if inplace else ObservedBursts()
+        _signal = self._signal[idx]
+        coords = self.coordinates[idx]
 
-        frbs.coordinates = self.coordinates[idx]
-
-        frbs._signal = self._signal[idx]
-        frbs._channels_signal = self._channels_signal[idx]
+        output = ObservedBursts(
+            signal=_signal.value, noise=self._channels_noise.value,
+            frequency_bands=self.frequency_bands.value,
+            coordinates=coords, location=self.location
+        )
 
         if not inplace:
+            return output
 
-            frbs._channels_noise = self.noise
-            frbs.location = self.location
-
-            frbs.frequency_bands = self.frequency_bands
-            frbs._band_widths = self._band_widths
-
-            frbs._frequency = self._frequency
-
-            return frbs
+        self._signal = _signal
+        self.coordinates = coords
+        self._channels_signal = self._channels_signal[idx]
+        self.n_frb = self._signal.shape[0]
 
     def save(self, file):
 
