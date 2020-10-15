@@ -13,6 +13,16 @@ _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
 
 
+def azalt2uvw(az, alt):
+
+    saz = numpy.sin(az).value
+    caz = numpy.cos(az).value
+    salt = numpy.sin(alt).value
+    calt = numpy.cos(alt).value
+
+    return - saz * calt, salt, caz * calt
+
+
 def schechter(x, alpha):
 
     return (x**alpha) * numpy.exp(-x)

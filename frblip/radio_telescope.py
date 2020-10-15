@@ -20,7 +20,7 @@ from .patterns import patterns
 
 from .observed_bursts import ObservedBursts
 
-from .utils import _DATA, angular_separation, simps
+from .utils import _DATA, angular_separation, simps, azalt2uvw
 
 
 class RadioTelescope():
@@ -90,9 +90,9 @@ class RadioTelescope():
         self._load_params(**input_dict)
         self._load_beams(**input_dict)
 
-        if kind == 'grid':
+        if kind == 'uv_grid':
 
-            self._load_grid(**input_dict)
+            self._load_uv_grid(**input_dict)
 
         elif kind in ('tophat', 'bessel', 'gaussian'):
 
@@ -198,7 +198,7 @@ class RadioTelescope():
         self.solid_angle = solid_angle * units.degree**2
         self.reference_frequency = reference_frequency * units.MHz
 
-        self.n_beams = len(solid_angle)
+        self.n_beam = len(solid_angle)
 
         self.reference_wavelength = (constants.c / self.reference_frequency)
         self.reference_wavelength = self.reference_wavelength.to(units.cm)
@@ -219,40 +219,21 @@ class RadioTelescope():
 
         self.radius = radius.to(units.degree)
 
-    def _load_grid(self, pattern, az_range, alt_range, **kwargs):
+    def _load_uv_grid(self, pattern, u_range, v_range, **kwargs):
 
         """
         This is a private function, please do not call it
         directly unless you know exactly what you are doing.
         """
 
-        self.pattern = pattern
+        n_beam, udim, vdim = pattern.shape
 
-        az_min, az_max, naz = az_range
-        alt_min, alt_max, nalt = alt_range
+        u = numpy.linspace(*u_range, udim)
+        v = numpy.linspace(*u_range, vdim)
 
-        self.naz = int(naz)
-        self.nalt = int(nalt)
+        self.Pattern = [RectBivariateSpline(u, v, p) for p in pattern]
 
-        az_grid = numpy.linspace(az_min, az_max, self.naz)
-        alt_grid = numpy.linspace(alt_min, alt_max, self.nalt)
-
-        self.Fs = [
-            numpy.vectorize(
-                RectBivariateSpline(
-                    az_grid, alt_grid, P
-                ),
-                otypes=[numpy.float]
-            )
-            for P in self.pattern
-        ]
-
-        self.az_min = az_min * units.degree
-        self.az_max = az_max * units.degree
-        self.alt_min = alt_min * units.degree
-        self.alt_max = alt_max * units.degree
-
-        self.selection = self._grid
+        self.selection = self._uv_grid
 
     def _load_from_file(self, file):
 
@@ -291,9 +272,8 @@ class RadioTelescope():
             az=numpy.array(data.get('Azimuth (degree)')),
             alt=numpy.array(data.get('Altitude (degree)')),
             solid_angle=numpy.array(data.get('Solid Angle (degree^2)')),
-            gain=numpy.array(data.get('Gain (K/Jy)')),
-            az_range=numpy.array(data.get('Azimuth Range (degree)')),
-            alt_range=numpy.array(data.get('Altitude Range (degree)')),
+            u_range=numpy.array(data.get('U')),
+            v_range=numpy.array(data.get('V')),
         )
 
     def _set_selection(self, kind):
@@ -315,27 +295,24 @@ class RadioTelescope():
 
         self.selection = selection
 
-    def _grid(self, az, alt):
+    def _uv_grid(self, az, alt):
 
         """
         This is a private function, please do not call it
         directly unless you know exactly what you are doing.
         """
 
-        n_frbs = len(az)
+        n_frb = len(az)
 
-        output = numpy.zeros((self.n_beams, n_frbs))
+        u, v, w = azalt2uvw(az, alt)
 
-        az_in = (az > self.az_min) & (az < self.az_max)
-        alt_in = (alt > self.alt_min) & (alt < self.alt_max)
+        output = numpy.zeros((n_frb, self.n_beam))
 
-        idx = az_in & alt_in
+        ipos = (w >= 0).ravel()
 
-        if idx.any():
-
-            output[:, idx] = numpy.row_stack([
-                F(az[idx].value, alt[idx].value)
-                for F in self.Fs
-            ])
+        output[ipos] = numpy.column_stack([
+            Pattern.ev(u[ipos], v[ipos])
+            for Pattern in self.Pattern
+        ])
 
         return output
