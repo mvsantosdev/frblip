@@ -9,18 +9,21 @@ from scipy.stats import rvs_ratio_uniforms
 from scipy.integrate import cumtrapz
 
 
+_all_sky_area = 4 * numpy.pi * units.sr
+
 _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
 
 
 def azalt2uvw(az, alt):
 
-    saz = numpy.sin(az).value
-    caz = numpy.cos(az).value
-    salt = numpy.sin(alt).value
-    calt = numpy.cos(alt).value
+    calt = numpy.cos(alt)
 
-    return - saz * calt, salt, caz * calt
+    u = - calt * numpy.sin(az)
+    v = calt * numpy.cos(az)
+    w = numpy.sin(alt)
+
+    return u, v, w
 
 
 def schechter(x, alpha):

@@ -185,7 +185,6 @@ class CosmicBursts():
 
         print("Computing the FRB rate ...")
 
-        self.sky_area = (4 * numpy.pi * units.sr).to(units.degree**2)
         self.sky_rate = self._sky_rate()
 
         all_ra = self.ra_range != numpy.array([0, 24]) * units.hourangle
@@ -206,7 +205,7 @@ class CosmicBursts():
 
         else:
 
-            self.area = self.sky_area
+            self.area = _all_sky_area
             self.rate = self.sky_rate
 
         self.rate = int(self.rate.value) * self.rate.unit

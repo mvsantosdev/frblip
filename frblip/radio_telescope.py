@@ -20,7 +20,7 @@ from .patterns import patterns
 
 from .observed_bursts import ObservedBursts
 
-from .utils import _DATA, angular_separation, simps, azalt2uvw
+from .utils import _all_sky_area, _DATA, azalt2uvw, angular_separation
 
 
 class RadioTelescope():
@@ -89,6 +89,7 @@ class RadioTelescope():
 
         self._load_params(**input_dict)
         self._load_beams(**input_dict)
+        self._load_rotation(alt_shift, az_shift)
 
         if kind == 'uv_grid':
 
@@ -96,24 +97,35 @@ class RadioTelescope():
 
         elif kind in ('tophat', 'bessel', 'gaussian'):
 
+            u, v, w = azalt2uvw(self.az, self.alt)
+
+            nu = u
+            nv = self.cos_rot * v - self.sin_rot * w
+            nw = self.sin_rot * v + self.cos_rot * w
+
+            r = numpy.sqrt(nu**2 + nv**2)
+
+            self.alt = numpy.arccos(r).to(units.degree)
+            self.az = - numpy.arctan2(nu, nv).to(units.degree)
+
             self._set_selection(kind)
 
         else:
 
             print('Please choose a valid pattern kind')
 
-        self.rotation = rotation * units.degree
-        self.alt_shift = alt_shift * units.degree
-        self.az_shift = az_shift * units.hourangle
+    def __call__(self, frb, coordinates=None):
 
-        self.cos_rot = numpy.cos(self.rotation)
-        self.sin_rot = numpy.sin(self.rotation)
+        if coordinates is None:
 
-    def __call__(self, frb, return_coords=False):
+            coords = frb.get_local_coordinates(self.location)
 
-        coords = frb.get_local_coordinates(self.location)
+        else:
 
-        az, alt = self._shift_and_rotation(coords.az, coords.alt)
+            coords = coordinates
+
+        az = coords.az
+        alt = coords.alt
 
         response = self.selection(az, alt)
 
@@ -131,24 +143,25 @@ class RadioTelescope():
                               self.frequency_bands.value,
                               coords, self.location)
 
-    def _shift_and_rotation(self, az, alt):
+    def _rotation(self, u, v, w):
 
-        """
-        This is a private function, please do not call it
-        directly unless you know exactly what you are doing.
-        """
+        nu = u
+        nv = self.cos_rot * v + self.sin_rot * w
+        nw = - self.sin_rot * v + self.cos_rot * w
 
-        rotated_az = az * self.cos_rot + alt * self.sin_rot
-        rotated_alt = - az * self.sin_rot + alt * self.cos_rot
+        return nu, nv, nw
 
-        shifted_az = rotated_az.reshape(-1, 1) - self.az_shift
-        shifted_alt = rotated_alt.reshape(-1, 1) - self.alt_shift
+    def _load_rotation(self, alt_shift, az_shift):
 
-        return shifted_az, shifted_alt
+        self.alt_shift = alt_shift * units.degree
+        self.az_shift = az_shift * units.hourangle
+
+        self.cos_rot = numpy.cos(self.alt_shift).value
+        self.sin_rot = numpy.sin(self.alt_shift).value
 
     def _load_params(self, frequency_bands, polarizations,
                      system_temperature, sampling_time,
-                     longitude, latitude, elevation,
+                     longitude, latitude, height,
                      degradation_factor, **kwargs):
 
         """
@@ -173,19 +186,16 @@ class RadioTelescope():
 
         lon = coordinates.Angle(longitude, unit=units.degree)
         lat = coordinates.Angle(latitude, unit=units.degree)
-        el = elevation * units.meter
+        h = height * units.meter
 
-        self.location = coordinates.EarthLocation(
-            lon=lon, lat=lat,
-            height=elevation
-        )
+        self.location = coordinates.EarthLocation(lon=lon, lat=lat, height=h)
 
         scaled_time = (self.band_widths * self.sampling_time).to(1)
         noise_scale = numpy.sqrt(polarizations * scaled_time.value)
 
         self.minimum_temperature = self.system_temperature / noise_scale
 
-    def _load_beams(self, az, alt, solid_angle, reference_frequency,
+    def _load_beams(self, az, alt, maximum_gain, reference_frequency,
                     **kwargs):
 
         """
@@ -195,10 +205,13 @@ class RadioTelescope():
 
         self.az = az * units.degree
         self.alt = alt * units.degree
-        self.solid_angle = solid_angle * units.degree**2
+
+        self.solid_angle = _all_sky_area * 10**(- 0.1 * maximum_gain)
+        self.solid_angle = self.solid_angle.to(units.degree**2)
+
         self.reference_frequency = reference_frequency * units.MHz
 
-        self.n_beam = len(solid_angle)
+        self.n_beam = len(maximum_gain)
 
         self.reference_wavelength = (constants.c / self.reference_frequency)
         self.reference_wavelength = self.reference_wavelength.to(units.cm)
@@ -265,13 +278,13 @@ class RadioTelescope():
             reference_frequency=float(data.get('Reference Frequency (MHz)')),
             longitude=str(data.get('Longitude (degree)')),
             latitude=str(data.get('Latitude (degree)')),
-            elevation=float(data.get('Elevation (meter)')),
+            height=float(data.get('Height (meter)')),
             degradation_factor=float(data.get('Degradation Factor')),
             frequency_bands=numpy.array(data.get('Frequency Bands (MHz)')),
             pattern=numpy.array(data.get('Pattern')),
             az=numpy.array(data.get('Azimuth (degree)')),
             alt=numpy.array(data.get('Altitude (degree)')),
-            solid_angle=numpy.array(data.get('Solid Angle (degree^2)')),
+            maximum_gain=numpy.array(data.get('Maximum Gain (dB)')),
             u_range=numpy.array(data.get('U')),
             v_range=numpy.array(data.get('V')),
         )
@@ -283,15 +296,17 @@ class RadioTelescope():
         directly unless you know exactly what you are doing.
         """
 
-        self.pattern = patterns[kind]
+        self.Pattern = patterns[kind]
 
         def selection(az, alt):
 
-            arcs = angular_separation(az, alt, self.az, self.alt)
+            arcs = angular_separation(az.reshape(-1, 1),
+                                      alt.reshape(-1, 1),
+                                      self.az, self.alt)
 
             rescaled_arc = (arcs / self.radius).to(1).value
 
-            return self.pattern(rescaled_arc)
+            return self.Pattern(rescaled_arc)
 
         self.selection = selection
 
@@ -305,6 +320,7 @@ class RadioTelescope():
         n_frb = len(az)
 
         u, v, w = azalt2uvw(az, alt)
+        u, v, w = self._rotation(u, v, w)
 
         output = numpy.zeros((n_frb, self.n_beam))
 
