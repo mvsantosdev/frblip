@@ -12,7 +12,7 @@ from astropy.time import Time
 
 from astropy import cosmology, coordinates, units
 
-from .utils import *
+from .utils import _all_sky_area, _DATA, schechter, rvs_from_cdf
 
 from .dispersion import *
 
