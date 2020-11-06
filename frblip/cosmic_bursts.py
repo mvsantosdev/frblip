@@ -146,7 +146,6 @@ class CosmicBursts():
             frbs.area = self.area
             frbs.rate = self.rate
 
-            frbs.sky_area = self.sky_area
             frbs.sky_rate = self.sky_rate
 
             frbs.n_frb = self.n_frb
