@@ -106,6 +106,10 @@ class CosmicBursts():
 
         return df
 
+    def __len__(self):
+
+        return self.n_frb
+
     def __getitem__(self, idx):
 
         return self.select(idx, inplace=False)
@@ -127,7 +131,10 @@ class CosmicBursts():
         frbs.source_dispersion = self.source_dispersion[idx]
         frbs.dispersion = self.dispersion[idx]
         frbs.spectral_index = self.spectral_index[idx]
-        frbs.time = self.spectral_index[idx]
+        frbs.time = self.time[idx]
+        frbs.S0 = self.S0[idx]
+
+        frbs.n_frb = len(frbs.redshift)
 
         if not inplace:
 
@@ -148,7 +155,6 @@ class CosmicBursts():
 
             frbs.sky_rate = self.sky_rate
 
-            frbs.n_frb = self.n_frb
             frbs.duration = self.duration
 
             return frbs

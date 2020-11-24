@@ -97,11 +97,15 @@ def interferometry(*observations):
 
 class ObservedBursts():
 
-    def __init__(self, signal, noise, frequency_bands,
-                 coordinates=None, location=None):
+    def __init__(self, signal, response, time_factor,
+                 noise, frequency_bands, coordinates=None,
+                 location=None):
 
         self.location = location
         self.coordinates = coordinates
+
+        self.response = response
+        self.time_factor = time_factor
 
         self.frequency_bands = frequency_bands * units.MHz
         mid_frequency = 0.5 * (frequency_bands[1:] + frequency_bands[:-1])
@@ -119,6 +123,10 @@ class ObservedBursts():
 
         self._channels_signal = simps(self._signal)
         self._channels_noise = noise * units.Jy
+
+    def __len__(self):
+
+        return self.n_frb
 
     def __getitem__(self, idx):
 
@@ -143,11 +151,13 @@ class ObservedBursts():
         self._channels_signal = self._channels_signal[idx]
         self.n_frb = self._signal.shape[0]
 
-    def save(self, file):
+    def save(self, file, compressed=True):
 
         output = {
             'Signal (Jy)': self._signal.value,
             'Noise (Jy)': self._channels_noise.value,
+            'Time Factor': self.time_factor,
+            'Beam Response': self.response,
             'Frequency Bands (MHz)': self.frequency_bands.value
         }
 
@@ -179,7 +189,12 @@ class ObservedBursts():
                 'Azimuth (deg)': self.coordinates.az.value,
             })
 
-        numpy.savez(file, **output)
+        if compressed:
+
+            numpy.savez_compressed(file, **output)
+        else:
+
+            numpy.savez(file, **output)
 
     @staticmethod
     def load(name):
@@ -211,7 +226,8 @@ class ObservedBursts():
             )
 
         return ObservedBursts(
-            signal=file['Signal (Jy)'], noise=file['Noise (Jy)'],
+            signal=file['Signal (Jy)'], response=file['Beam Response'],
+            time_factor=file['Time Factor'], noise=file['Noise (Jy)'],
             frequency_bands=file['Frequency Bands (MHz)'],
             coordinates=coords, location=location
         )
@@ -220,11 +236,17 @@ class ObservedBursts():
 
         if channels:
 
-            return self._channels_signal
+            signal = self._channels_signal
+            signal = signal * self.time_factor.reshape(-1, 1)
 
-        return numpy.average(self._channels_signal,
-                             weights=self._band_widths,
-                             axis=-1)
+            return signal[:, numpy.newaxis] * self.response[..., numpy.newaxis]
+
+        signal = numpy.average(self._channels_signal,
+                               weights=self._band_widths,
+                               axis=-1)
+        signal = self.time_factor * signal
+
+        return signal.reshape(-1, 1) * self.response
 
     def noise(self, channels=False):
 

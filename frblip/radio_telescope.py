@@ -114,7 +114,7 @@ class RadioTelescope():
 
             print('Please choose a valid pattern kind')
 
-    def __call__(self, frb, coordinates=None):
+    def __call__(self, frb, coordinates=None, eps=0.0):
 
         if coordinates is None:
 
@@ -129,19 +129,28 @@ class RadioTelescope():
 
         response = self.selection(az, alt)
 
-        time_factor = numpy.sqrt(frb.arrived_pulse_width / self.sampling_time)
+        max_response = response.max(-1)
+        idx = max_response > eps
 
-        signal = frb.specific_flux(self._frequency)
+        nfrb = frb[idx]
 
-        signal = response[:, :, numpy.newaxis] * signal[:, numpy.newaxis]
+        time_factor = numpy.sqrt(nfrb.arrived_pulse_width / self.sampling_time)
+
+        signal = nfrb.specific_flux(self._frequency)
         signal = (signal / units.MHz).to(units.Jy)
 
         noise = self.minimum_temperature / self.gain.reshape(-1, 1)
         noise = noise.to(units.Jy)
 
-        return ObservedBursts(signal.value, noise.value,
-                              self.frequency_bands.value,
-                              coords, self.location)
+        obs = ObservedBursts(signal.value,
+                             response[idx],
+                             time_factor.value.ravel(),
+                             noise.value,
+                             self.frequency_bands.value,
+                             coords,
+                             self.location)
+
+        return nfrb, obs
 
     def _rotation(self, u, v, w):
 
