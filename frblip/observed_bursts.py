@@ -28,24 +28,28 @@ def cross_correlation(obsi, obsj):
     alti = obsi.coordinates.alt
     altj = obsj.coordinates.alt
 
-    arc = .5 * (alti + alti)
+    arc = .5 * (alti + altj)
     optical_path = distance * numpy.cos(arc).reshape(-1, 1)
 
     freq = obsi._frequency
 
     arg = (2 * numpy.pi * freq * optical_path / constants.c).decompose().value
-    cos = numpy.cos(arg[:, numpy.newaxis, numpy.newaxis, :])
 
-    signal = obsi._signal[:, :, numpy.newaxis] * obsj._signal[:, numpy.newaxis]
-    signal = 0.5 * numpy.sqrt(signal) * cos
+    respi = obsi.response
+    respj = obsj.response
+
+    response = numpy.sqrt(respi[..., numpy.newaxis] * respj[:, numpy.newaxis])
+    signal = 0.5 * numpy.sqrt(obsi._signal * obsj._signal) * numpy.cos(arg)
+    time_factor = numpy.sqrt(obsi.time_factor * obsj.time_factor)
 
     noii = obsi.noise(channels=True)
     noij = obsj.noise(channels=True)
 
     noise = numpy.sqrt(0.5 * noii[:, numpy.newaxis] * noij)
 
-    return ObservedBursts(signal, noise, obsi.frequency_bands,
-                          coordinates=obsi.coordinates.obstime)
+    return ObservedBursts(signal.value, response,
+                          time_factor, noise.value,
+                          obsi.frequency_bands.value)
 
 
 def interferometry(*observations):
@@ -74,23 +78,37 @@ def interferometry(*observations):
     n_beam = numpy.concatenate([obs.n_beam for obs in observations])
     shapes[idx_comb, idx_beam] = n_beam[idx_beam]
 
-    _signal = [
-        obs._signal.value.reshape((n_frb, *shape, 2 * n_channel + 1))
+    signal = numpy.stack([obs._signal for obs in obsij]).mean(0)
+
+    response = [
+        obs.response.reshape((n_frb, *shape))
         for shape, obs in zip(shapes, obsij)
     ]
 
-    _signal = sum(_signal, numpy.empty(()))
+    ishape = numpy.ones(n_obs, dtype=int)
 
-    _noise = [
+    time_factor = [
+        obs.time_factor.reshape((n_frb, *ishape))
+        for shape, obs in zip(shapes, obsij)
+    ]
+
+    response = [t * r for t, r in zip(time_factor, response)]
+    response = sum(response, numpy.empty(()))
+
+    noise = [
         1 / obs._channels_noise.value.reshape((*shape, n_channel))**2
         for shape, obs in zip(shapes, obsij)
     ]
 
-    _noise = sum(_noise, numpy.empty(()))
-    _noise = numpy.sqrt(1 / _noise)
+    noise = sum(noise, numpy.empty(()))
+    noise = numpy.sqrt(1 / noise)
 
     return ObservedBursts(
-        _signal, _noise, observations[0].frequency_bands.value,
+        signal=signal.value,
+        response=response,
+        time_factor=numpy.array(1.0),
+        noise=noise,
+        frequency_bands=observations[0].frequency_bands.value,
         coordinates=observations[0].coordinates.obstime
     )
 
@@ -119,7 +137,8 @@ class ObservedBursts():
 
         self._signal = signal * units.Jy
         self.n_frb = numpy.prod(signal.shape[0])
-        self.n_beam = signal.shape[1:-1]
+        self.n_beam = response.shape[1:]
+        self.n_telescopes = len(self.n_beam)
 
         self._channels_signal = simps(self._signal)
         self._channels_noise = noise * units.Jy
@@ -136,9 +155,14 @@ class ObservedBursts():
 
         _signal = self._signal[idx]
         coords = self.coordinates[idx]
+        response = self.response[idx]
+        time_factor = self.time_factor[idx]
 
         output = ObservedBursts(
-            signal=_signal.value, noise=self._channels_noise.value,
+            signal=_signal.value,
+            response=response,
+            time_factor=time_factor,
+            noise=self._channels_noise.value,
             frequency_bands=self.frequency_bands.value,
             coordinates=coords, location=self.location
         )
@@ -234,19 +258,23 @@ class ObservedBursts():
 
     def signal(self, channels=False):
 
+        ishape = numpy.ones(self.n_telescopes, dtype=int)
+
         if channels:
 
             signal = self._channels_signal
             signal = signal * self.time_factor.reshape(-1, 1)
+            signal = signal.reshape(self.n_frb, *ishape, self.n_channel)
 
-            return signal[:, numpy.newaxis] * self.response[..., numpy.newaxis]
+            return self.response[..., numpy.newaxis] * signal
 
         signal = numpy.average(self._channels_signal,
                                weights=self._band_widths,
                                axis=-1)
         signal = self.time_factor * signal
+        signal = signal.reshape(self.n_frb, *ishape)
 
-        return signal.reshape(-1, 1) * self.response
+        return self.response * signal
 
     def noise(self, channels=False):
 

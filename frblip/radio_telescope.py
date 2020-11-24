@@ -114,7 +114,7 @@ class RadioTelescope():
 
             print('Please choose a valid pattern kind')
 
-    def __call__(self, frb, coordinates=None, eps=0.0):
+    def __call__(self, frb, coordinates=None, eps=-1):
 
         if coordinates is None:
 
@@ -150,7 +150,11 @@ class RadioTelescope():
                              coords,
                              self.location)
 
-        return nfrb, obs
+        if eps > 0.0:
+
+            return nfrb, obs
+
+        return obs
 
     def _rotation(self, u, v, w):
 
