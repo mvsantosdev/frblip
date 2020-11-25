@@ -206,7 +206,7 @@ class CosmicBursts():
             )
 
             self.area = self._sky_area()
-            self.rate = self.sky_rate * (self.area / _all_sky_area)
+            self.rate = self.sky_rate * (self.area / _all_sky_area).to(1)
 
         else:
 
