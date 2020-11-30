@@ -14,32 +14,37 @@ from astropy.time import Time
 from .utils import simps
 
 
-def cross_correlation(obsi, obsj):
+def _cross_correlation(obsi, obsj, interference=False):
 
     """
     Compute the cross correlations between two observation sets
     """
 
-    xi, yi, zi = obsi.location.geocentric
-    xj, yj, zj = obsj.location.geocentric
+    arg = 0.0
 
-    distance = numpy.sqrt((xi - xj)**2 + (yi - yj)**2 + (zi - zj)**2)
+    if interference:
 
-    alti = obsi.coordinates.alt
-    altj = obsj.coordinates.alt
+        xi, yi, zi = obsi.location.geocentric
+        xj, yj, zj = obsj.location.geocentric
 
-    arc = .5 * (alti + altj)
-    optical_path = distance * numpy.cos(arc).reshape(-1, 1)
+        distance = numpy.sqrt((xi - xj)**2 + (yi - yj)**2 + (zi - zj)**2)
 
-    freq = obsi._frequency
+        alti = obsi.coordinates.alt
+        altj = obsj.coordinates.alt
 
-    arg = (2 * numpy.pi * freq * optical_path / constants.c).decompose().value
+        arc = .5 * (alti + altj)
+        optical_path = distance * numpy.cos(arc).reshape(-1, 1)
+
+        freq = obsi._frequency
+
+        arg = 2 * numpy.pi * freq * optical_path / constants.c
+        arg = arg.decompose().value
 
     respi = obsi.response
     respj = obsj.response
 
     response = numpy.sqrt(respi[..., numpy.newaxis] * respj[:, numpy.newaxis])
-    signal = 0.5 * numpy.sqrt(obsi._signal * obsj._signal) * numpy.cos(arg)
+    signal = numpy.sqrt(obsi._signal * obsj._signal) * numpy.cos(arg)
     time_factor = numpy.sqrt(obsi.time_factor * obsj.time_factor)
 
     noii = obsi.noise(channels=True)
@@ -60,11 +65,23 @@ def interferometry(*observations):
 
     n_obs = len(observations)
 
+    if n_obs == 1:
+
+        return interferometry(*observations[0].split_beams())
+
+    if n_obs == 2:
+
+        out = _cross_correlation(*observations)
+        out.response = numpy.squeeze(out.response)
+        out._channels_noise = numpy.squeeze(out._channels_noise)
+
+        return out
+
     n_frb = int(numpy.unique([obs.n_frb for obs in observations]))
     n_channel = int(numpy.unique([obs.n_channel for obs in observations]))
 
     obsij = [
-        cross_correlation(obsi, obsj)
+        _cross_correlation(obsi, obsj)
         for obsi, obsj in combinations(observations, 2)
     ]
 
@@ -103,7 +120,7 @@ def interferometry(*observations):
     noise = sum(noise, numpy.empty(()))
     noise = numpy.sqrt(1 / noise)
 
-    return ObservedBursts(
+    out = ObservedBursts(
         signal=signal.value,
         response=response,
         time_factor=numpy.array(1.0),
@@ -111,6 +128,11 @@ def interferometry(*observations):
         frequency_bands=observations[0].frequency_bands.value,
         coordinates=observations[0].coordinates.obstime
     )
+
+    out.response = numpy.squeeze(out.response)
+    out._channels_noise = numpy.squeeze(out._channels_noise)
+
+    return out
 
 
 class ObservedBursts():
@@ -220,6 +242,26 @@ class ObservedBursts():
 
             numpy.savez(file, **output)
 
+    def split_beams(self):
+
+        n_beam = numpy.prod(self.n_beam)
+
+        shape = n_beam, self.n_channel
+        _channels_noise = self._channels_noise.reshape(shape)
+        _channels_noise = numpy.split(_channels_noise, n_beam, 0)
+
+        response = self.response.reshape((self.n_frb, n_beam))
+        response = numpy.split(response, n_beam, -1)
+
+        return [
+            ObservedBursts(self._signal.value, r,
+                           self.time_factor, n.value,
+                           self.frequency_bands.value,
+                           self.coordinates,
+                           self.location)
+            for r, n in zip(response, _channels_noise)
+        ]
+
     @staticmethod
     def load(name):
 
@@ -258,7 +300,8 @@ class ObservedBursts():
 
     def signal(self, channels=False):
 
-        ishape = numpy.ones(self.n_telescopes, dtype=int)
+        nshape = len(self.response.shape) - 1
+        ishape = numpy.ones(nshape, dtype=int)
 
         if channels:
 
