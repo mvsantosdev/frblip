@@ -20,7 +20,8 @@ from .patterns import patterns
 
 from .observed_bursts import ObservedBursts
 
-from .utils import _all_sky_area, _DATA, azalt2uvw, angular_separation
+from .utils import _all_sky_area, _DATA
+from .utils import azalt2uvw, uv2azalt, angular_separation
 
 
 class RadioTelescope():
@@ -89,24 +90,22 @@ class RadioTelescope():
 
         self._load_params(**input_dict)
         self._load_beams(**input_dict)
-        self._load_rotation(alt_shift, az_shift)
 
         if kind == 'uv_grid':
 
             self._load_uv_grid(**input_dict)
+            self._load_rotation(alt_shift, az_shift)
+
+            self.Rotation = numpy.linalg.inv(self.Rotation)
 
         elif kind in ('tophat', 'bessel', 'gaussian'):
 
+            self._load_rotation(alt_shift, az_shift)
+
             u, v, w = azalt2uvw(self.az, self.alt)
+            u, v, w = self._rotation(u, v, w)
 
-            nu = u
-            nv = self.cos_rot * v - self.sin_rot * w
-            nw = self.sin_rot * v + self.cos_rot * w
-
-            r = numpy.sqrt(nu**2 + nv**2)
-
-            self.alt = numpy.arccos(r).to(units.degree)
-            self.az = - numpy.arctan2(nu, nv).to(units.degree)
+            self.az, self.alt = uv2azalt(u, v)
 
             self._set_selection(kind)
 
@@ -158,19 +157,32 @@ class RadioTelescope():
 
     def _rotation(self, u, v, w):
 
-        nu = u
-        nv = self.cos_rot * v + self.sin_rot * w
-        nw = - self.sin_rot * v + self.cos_rot * w
-
-        return nu, nv, nw
+        return self.Rotation @ numpy.row_stack((u, v, w))
 
     def _load_rotation(self, alt_shift, az_shift):
 
         self.alt_shift = alt_shift * units.degree
         self.az_shift = az_shift * units.hourangle
 
-        self.cos_rot = numpy.cos(self.alt_shift).value
-        self.sin_rot = numpy.sin(self.alt_shift).value
+        cos_alt_rot = numpy.cos(self.alt_shift).value
+        sin_alt_rot = numpy.sin(self.alt_shift).value
+
+        Rotx = numpy.array([
+            [1, 0, 0],
+            [0, cos_alt_rot, - sin_alt_rot],
+            [0, sin_alt_rot, cos_alt_rot]
+        ])
+
+        cos_az_rot = numpy.cos(self.az_shift).value
+        sin_az_rot = numpy.sin(self.az_shift).value
+
+        Rotz = numpy.array([
+            [cos_az_rot, - sin_az_rot, 0],
+            [sin_az_rot, cos_az_rot, 0],
+            [0, 0, 1]
+        ])
+
+        self.Rotation = Rotz @ Rotx
 
     def _load_params(self, frequency_bands, polarizations,
                      system_temperature, sampling_time,

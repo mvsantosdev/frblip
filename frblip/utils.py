@@ -15,6 +15,16 @@ _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
 
 
+def uv2azalt(u, v):
+
+    r = numpy.sqrt(u**2 + v**2)
+
+    az = - numpy.arctan2(u, v).to(units.degree)
+    alt = numpy.arccos(r).to(units.degree)
+
+    return az, alt
+
+
 def azalt2uvw(az, alt):
 
     calt = numpy.cos(alt)

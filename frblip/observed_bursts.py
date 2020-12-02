@@ -57,7 +57,7 @@ def _cross_correlation(obsi, obsj, interference=False):
                           obsi.frequency_bands.value)
 
 
-def interferometry(*observations):
+def interferometry(*observations, interference=False):
 
     """
     Perform a interferometry observation by a Radio Telescope array.
@@ -67,11 +67,12 @@ def interferometry(*observations):
 
     if n_obs == 1:
 
-        return interferometry(*observations[0].split_beams())
+        return interferometry(*observations[0].split_beams(),
+                              interference=interference)
 
     if n_obs == 2:
 
-        out = _cross_correlation(*observations)
+        out = _cross_correlation(*observations, interference=interference)
         out.response = numpy.squeeze(out.response)
         out._channels_noise = numpy.squeeze(out._channels_noise)
 
@@ -81,7 +82,7 @@ def interferometry(*observations):
     n_channel = int(numpy.unique([obs.n_channel for obs in observations]))
 
     obsij = [
-        _cross_correlation(obsi, obsj)
+        _cross_correlation(obsi, obsj, interference=interference)
         for obsi, obsj in combinations(observations, 2)
     ]
 
