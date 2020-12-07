@@ -4,6 +4,7 @@ from .cosmic_bursts import CosmicBursts
 from .radio_telescope import RadioTelescope
 from .observed_bursts import ObservedBursts, interferometry
 
+from .utils import uv2azalt, azalt2uvw
 
 warning_message = ''.join([
     '\n\nFRBlip is a beta version yet, and',

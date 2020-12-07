@@ -31,7 +31,7 @@ class RadioTelescope():
     """
 
     def __init__(self, name='bingo', kind='gaussian', start_time=None,
-                 az_shift=0, alt_shift=0, rotation=0, **kwargs):
+                 az_shift=.0, alt_shift=.0, **kwargs):
 
         """
         Creates a Survey object.
@@ -91,21 +91,16 @@ class RadioTelescope():
         self._load_params(**input_dict)
         self._load_beams(**input_dict)
 
+        self.kind = kind
+
+        self.set_rotation(alt_shift * units.degree,
+                          az_shift * units.hourangle)
+
         if kind == 'uv_grid':
 
             self._load_uv_grid(**input_dict)
-            self._load_rotation(alt_shift, az_shift)
-
-            self.Rotation = numpy.linalg.inv(self.Rotation)
 
         elif kind in ('tophat', 'bessel', 'gaussian'):
-
-            self._load_rotation(alt_shift, az_shift)
-
-            u, v, w = azalt2uvw(self.az, self.alt)
-            u, v, w = self._rotation(u, v, w)
-
-            self.az, self.alt = uv2azalt(u, v)
 
             self._set_selection(kind)
 
@@ -159,10 +154,11 @@ class RadioTelescope():
 
         return self.Rotation @ numpy.row_stack((u, v, w))
 
-    def _load_rotation(self, alt_shift, az_shift):
+    @units.quantity_input(alt_shift='angle', az_shift='angle')
+    def set_rotation(self, alt_shift, az_shift):
 
-        self.alt_shift = alt_shift * units.degree
-        self.az_shift = az_shift * units.hourangle
+        self.alt_shift = alt_shift
+        self.az_shift = az_shift
 
         cos_alt_rot = numpy.cos(self.alt_shift).value
         sin_alt_rot = numpy.sin(self.alt_shift).value
@@ -183,6 +179,15 @@ class RadioTelescope():
         ])
 
         self.Rotation = Rotz @ Rotx
+
+        u, v, w = azalt2uvw(self.az0, self.alt0)
+        u, v, w = self._rotation(u, v, w)
+
+        self.az, self.alt = uv2azalt(u, v)
+
+        if self.kind == 'uv_grid':
+
+            self.Rotation = numpy.linalg.inv(self.Rotation)
 
     def _load_params(self, frequency_bands, polarizations,
                      system_temperature, sampling_time,
@@ -228,8 +233,8 @@ class RadioTelescope():
         directly unless you know exactly what you are doing.
         """
 
-        self.az = az * units.degree
-        self.alt = alt * units.degree
+        self.az0 = az * units.degree
+        self.alt0 = alt * units.degree
 
         self.solid_angle = _all_sky_area * 10**(- 0.1 * maximum_gain)
         self.solid_angle = self.solid_angle.to(units.degree**2)
