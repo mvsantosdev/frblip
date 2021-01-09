@@ -16,6 +16,8 @@ from .utils import _all_sky_area, _DATA, schechter, rvs_from_cdf
 
 from .dispersion import *
 
+from .observed_bursts import Observation
+
 
 class CosmicBursts():
 
@@ -381,3 +383,84 @@ class CosmicBursts():
                            alpha=self.alpha)
 
         return self.Lstar * rvs
+
+    def observe(self, Telescope, location=None, start_time=None, name=None):
+
+        if 'observations' not in self.__dict__.keys():
+
+            self.observations = {}
+
+        n_obs = len(self.observations)
+
+        location = Telescope.location if location is None else location
+        start_time = Telescope.start_time if start_time is None else start_time
+
+        coordinates = self.get_local_coordinates(location,
+                                                 start_time=start_time)
+
+        response = Telescope.selection(coordinates.az, coordinates.alt)
+
+        noise = Telescope.minimum_temperature / Telescope.gain.reshape(-1, 1)
+        noise = noise.to(units.Jy)
+
+        obs_name = 'OBS_{}'.format(n_obs) if name is None else name
+        obs_name = obs_name.replace(' ', '_')
+
+        obs = Observation(response, noise, Telescope.frequency_bands,
+                          coordinates)
+
+        self.observations[obs_name] = obs
+
+    def save(self, file):
+
+        out_dict = {
+            'redshift': self.redshift,
+            'comoving_distance': self.comoving_distance.value,
+            'luminosity': self.luminosity.value,
+            'ra': self.sky_coord.ra.value,
+            'dec': self.sky_coord.dec.value,
+            'pulse_width': self.pulse_width.value,
+            'galactic_dispersion': self.galactic_dispersion.value,
+            'host_dispersion': self.host_dispersion.value,
+            'igm_dispersion': self.igm_dispersion.value,
+            'source_dispersion': self.source_dispersion.value,
+            'spectral_index': self.spectral_index,
+            'time': self.time.value,
+            'observations': numpy.array([*self.observations.keys()])
+        }
+
+        for obs in out_dict['observations']:
+
+            lon = self.observations[obs].coordinates.location.lon.value
+            lat = self.observations[obs].coordinates.location.lat.value
+            height = self.observations[obs].coordinates.location.height.value
+
+            out_dict.update({
+                '{}__lon'.format(obs): lon,
+                '{}__lat'.format(obs): lat,
+                '{}__height'.format(obs): height,
+                '{}__response'.format(obs): self.observations[obs].response,
+                '{}__noise'.format(obs): self.observations[obs]._channels_noise
+            })
+
+        numpy.savez(file, **out_dict)
+
+    def load(self, file):
+
+        input_file = np.load(file)
+        udm = units.pc / units.cm**3
+
+        self.redshift = out_dict['redshift']
+        self.comoving_distance = out_dict['comoving_distance'] * units.Mpc
+        self.luminosity.value = out_dict['luminosity'] * units.erg / units.s
+        self.pulse_width = out_dict['pulse_width'] * units.ms
+        self.galactic_dispersion = out_dict['galactic_dispersion'] * udm
+        self.host_dispersion = out_dict['host_dispersion'] * udm
+        self.igm_dispersion = out_dict['igm_dispersion'] * udm
+        self.source_dispersion = out_dict['source_dispersion'] * udm
+        self.time = out_dict['time'] * units.ms
+
+        self.spectral_index = out_dict['spectral_index']
+
+        self.sky_coord = coordinates.SkyCoord(out_dict['ra'], out_dict['dec'],
+                                              frame='icrs')

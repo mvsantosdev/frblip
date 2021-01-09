@@ -136,6 +136,26 @@ def interferometry(*observations, interference=False):
     return out
 
 
+class Observation():
+
+    def __init__(self, response, noise, frequency_bands, coordinates=None):
+
+        self.coordinates = coordinates
+        self.response = response
+
+        self.frequency_bands = frequency_bands
+        mid_frequency = 0.5 * (frequency_bands[1:] + frequency_bands[:-1])
+        self.n_channel = len(frequency_bands) - 11
+        self._band_widths = self.frequency_bands.diff()
+        self._frequency = numpy.concatenate((frequency_bands, mid_frequency))
+        self._frequency = numpy.sort(self._frequency)
+
+        self.n_beam = response.shape[1:]
+        self.n_telescopes = len(self.n_beam)
+
+        self._channels_noise = noise
+
+
 class ObservedBursts():
 
     def __init__(self, signal, response, time_factor,
