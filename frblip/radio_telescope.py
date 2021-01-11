@@ -18,8 +18,6 @@ from scipy.integrate import cumtrapz
 
 from .patterns import patterns
 
-from .observed_bursts import ObservedBursts
-
 from .utils import _all_sky_area, _DATA
 from .utils import azalt2uvw, uv2azalt, angular_separation
 
@@ -107,49 +105,6 @@ class RadioTelescope():
         else:
 
             print('Please choose a valid pattern kind')
-
-    def __call__(self, frb, coordinates=None, start_time=None, eps=-1):
-
-        if start_time is not None:
-
-            self.start_time = start_time
-
-        if coordinates is None:
-
-            coordinates = frb.get_local_coordinates(self.location,
-                                                    start_time=self.start_time)
-
-        az = coordinates.az
-        alt = coordinates.alt
-
-        response = self.selection(az, alt)
-
-        max_response = response.max(-1)
-        idx = max_response > eps
-
-        nfrb = frb[idx]
-
-        time_factor = numpy.sqrt(nfrb.arrived_pulse_width / self.sampling_time)
-
-        signal = nfrb.specific_flux(self._frequency)
-        signal = (signal / units.MHz).to(units.Jy)
-
-        noise = self.minimum_temperature / self.gain.reshape(-1, 1)
-        noise = noise.to(units.Jy)
-
-        obs = ObservedBursts(signal.value,
-                             response[idx],
-                             time_factor.value.ravel(),
-                             noise.value,
-                             self.frequency_bands.value,
-                             coordinates,
-                             self.location)
-
-        if eps > 0.0:
-
-            return nfrb, obs
-
-        return obs
 
     def _rotation(self, u, v, w):
 

@@ -6,20 +6,24 @@ from numpy import random
 
 import pandas
 
+from scipy.special import comb
+
+from itertools import combinations
+
 from scipy.integrate import quad, cumtrapz
 
 from astropy.time import Time
 
 from astropy import cosmology, coordinates, units
 
-from .utils import _all_sky_area, _DATA, schechter, rvs_from_cdf
+from .utils import _all_sky_area, _DATA, schechter, rvs_from_cdf, simps
 
 from .dispersion import *
 
-from .observed_bursts import Observation
+from .observation import Observation
 
 
-class CosmicBursts():
+class FastRadioBursts():
 
     """
     Class which defines a Fast Radio Burst population
@@ -136,6 +140,11 @@ class CosmicBursts():
         frbs.time = self.time[idx]
         frbs.S0 = self.S0[idx]
 
+        frbs.oobservations = {
+            name: obs[idx]
+            for name, obs in self.observations
+        }
+
         frbs.n_frb = len(frbs.redshift)
 
         if not inplace:
@@ -154,7 +163,6 @@ class CosmicBursts():
 
             frbs.area = self.area
             frbs.rate = self.rate
-
             frbs.sky_rate = self.sky_rate
 
             frbs.duration = self.duration
@@ -384,7 +392,8 @@ class CosmicBursts():
 
         return self.Lstar * rvs
 
-    def observe(self, Telescope, location=None, start_time=None, name=None):
+    def observe(self, Telescope, location=None, start_time=None,
+                name=None, local_coordinates=None):
 
         if 'observations' not in self.__dict__.keys():
 
@@ -395,10 +404,13 @@ class CosmicBursts():
         location = Telescope.location if location is None else location
         start_time = Telescope.start_time if start_time is None else start_time
 
-        coordinates = self.get_local_coordinates(location,
-                                                 start_time=start_time)
+        if local_coordinates is None:
 
-        response = Telescope.selection(coordinates.az, coordinates.alt)
+            local_coordinates = self.get_local_coordinates(location,
+                                                           start_time)
+
+        response = Telescope.selection(local_coordinates.az,
+                                       local_coordinates.alt)
 
         noise = Telescope.minimum_temperature / Telescope.gain.reshape(-1, 1)
         noise = noise.to(units.Jy)
@@ -407,60 +419,328 @@ class CosmicBursts():
         obs_name = obs_name.replace(' ', '_')
 
         obs = Observation(response, noise, Telescope.frequency_bands,
-                          coordinates)
+                          Telescope.sampling_time, local_coordinates)
 
         self.observations[obs_name] = obs
+
+    def split_beams(self, name):
+
+        observation = self.observations.pop(name)
+        splitted = observation.split_beams()
+
+        self.observations.update({
+            '{}_BEAM_{}'.format(name, beam): obs
+            for beam, obs in enumerate(splitted)
+        })
 
     def save(self, file):
 
         out_dict = {
+            'L_0': self.L_0,
+            'Lstar': self.Lstar,
+            'phistar': self.phistar,
+            'ra_range': self.ra_range,
+            'dec_range': self.dec_range,
+            'lower_frequency': self.lower_frequency,
+            'higher_frequency': self.higher_frequency,
+            'sky_rate': self.sky_rate,
+            'area': self.area,
+            'rate': self.rate,
+            'duration': self.duration,
             'redshift': self.redshift,
-            'comoving_distance': self.comoving_distance.value,
-            'luminosity': self.luminosity.value,
-            'ra': self.sky_coord.ra.value,
-            'dec': self.sky_coord.dec.value,
-            'pulse_width': self.pulse_width.value,
-            'galactic_dispersion': self.galactic_dispersion.value,
-            'host_dispersion': self.host_dispersion.value,
-            'igm_dispersion': self.igm_dispersion.value,
-            'source_dispersion': self.source_dispersion.value,
+            'comoving_distance': self.comoving_distance,
+            'luminosity': self.luminosity,
+            'ra': self.sky_coord.ra,
+            'dec': self.sky_coord.dec,
+            'pulse_width': self.pulse_width,
+            'galactic_dispersion': self.galactic_dispersion,
+            'host_dispersion': self.host_dispersion,
+            'igm_dispersion': self.igm_dispersion,
+            'source_dispersion': self.source_dispersion,
             'spectral_index': self.spectral_index,
-            'time': self.time.value,
+            'time': self.time,
             'observations': numpy.array([*self.observations.keys()])
         }
 
         for obs in out_dict['observations']:
 
-            lon = self.observations[obs].coordinates.location.lon.value
-            lat = self.observations[obs].coordinates.location.lat.value
-            height = self.observations[obs].coordinates.location.height.value
+            lon = self.observations[obs].coordinates.location.lon
+            lat = self.observations[obs].coordinates.location.lat
+            height = self.observations[obs].coordinates.location.height
+
+            az = self.observations[obs].coordinates.az
+            alt = self.observations[obs].coordinates.alt
+
+            obstime = self.observations[obs].coordinates.obstime.iso
+
+            response = self.observations[obs].response
+            noise = self.observations[obs].noise
+            sampling_time = self.observations[obs].sampling_time
+            frequency_bands = self.observations[obs].frequency_bands
 
             out_dict.update({
+                '{}__az'.format(obs): az,
+                '{}__alt'.format(obs): alt,
+                '{}__obstime'.format(obs): obstime,
                 '{}__lon'.format(obs): lon,
                 '{}__lat'.format(obs): lat,
                 '{}__height'.format(obs): height,
-                '{}__response'.format(obs): self.observations[obs].response,
-                '{}__noise'.format(obs): self.observations[obs]._channels_noise
+                '{}__response'.format(obs): response,
+                '{}__noise'.format(obs): noise,
+                '{}__sampling_time'.format(obs): sampling_time,
+                '{}__frequency_bands'.format(obs): frequency_bands
             })
 
         numpy.savez(file, **out_dict)
 
-    def load(self, file):
+    @staticmethod
+    def load(file):
 
-        input_file = np.load(file)
+        output = FastRadioBursts(n_frb=0, verbose=False)
+
+        input_file = numpy.load(file)
         udm = units.pc / units.cm**3
+        ergs = units.erg / units.s
 
-        self.redshift = out_dict['redshift']
-        self.comoving_distance = out_dict['comoving_distance'] * units.Mpc
-        self.luminosity.value = out_dict['luminosity'] * units.erg / units.s
-        self.pulse_width = out_dict['pulse_width'] * units.ms
-        self.galactic_dispersion = out_dict['galactic_dispersion'] * udm
-        self.host_dispersion = out_dict['host_dispersion'] * udm
-        self.igm_dispersion = out_dict['igm_dispersion'] * udm
-        self.source_dispersion = out_dict['source_dispersion'] * udm
-        self.time = out_dict['time'] * units.ms
+        output.L_0 = input_file['L_0'] * ergs
+        output.Lstar = input_file['Lstar'] * ergs
+        output.phistar = input_file['phistar'] * output.phistar.unit
+        output.ra_range = input_file['ra_range'] * output.ra_range.unit
+        output.dec_range = input_file['dec_range'] * output.dec_range.unit
+        output.lower_frequency = input_file['lower_frequency'] * units.MHz
+        output.higher_frequency = input_file['higher_frequency'] * units.MHz
+        output.sky_rate = input_file['sky_rate'] / units.day
+        output.area = input_file['area'] * units.degree**2
+        output.rate = input_file['rate'] / units.day
+        output.duration = input_file['duration'] * output.duration.unit
 
-        self.spectral_index = out_dict['spectral_index']
+        ra = input_file['ra'] * units.degree
+        dec = input_file['dec'] * units.degree
 
-        self.sky_coord = coordinates.SkyCoord(out_dict['ra'], out_dict['dec'],
-                                              frame='icrs')
+        output.sky_coord = coordinates.SkyCoord(ra, dec, frame='icrs')
+
+        output.redshift = input_file['redshift']
+        output.comoving_distance = input_file['comoving_distance'] * units.Mpc
+        output.luminosity = input_file['luminosity'] * ergs
+        output.pulse_width = input_file['pulse_width'] * units.ms
+        output.time = input_file['time'] * units.ms
+        output.spectral_index = input_file['spectral_index']
+
+        output.n_frb = len(output.redshift)
+
+        _zp1 = 1 + output.redshift
+        _sip1 = 1 + output.spectral_index
+
+        output.arrived_pulse_width = output.pulse_width * _zp1
+        output.luminosity_distance = output.comoving_distance * _zp1
+
+        surface = 4 * numpy.pi * output.luminosity_distance**2
+
+        output.flux = (output.luminosity / surface).to(units.Jy * units.MHz)
+
+        nu_low = input_file['lower_frequency']**_sip1
+        nu_high = input_file['higher_frequency']**_sip1
+
+        output.S0 = _sip1 * output.flux / (nu_high - nu_low)
+
+        gal_DM = input_file['galactic_dispersion'] * udm
+        host_DM = input_file['host_dispersion'] * udm
+        src_DM = input_file['source_dispersion'] * udm
+        igm_DM = input_file['igm_dispersion'] * udm
+
+        egal_DM = igm_DM + (src_DM + host_DM) / _zp1
+
+        output.galactic_dispersion = gal_DM
+        output.host_dispersion = host_DM
+        output.source_dispersion = src_DM
+        output.igm_dispersion = igm_DM
+
+        output.extra_galactic_dispersion = egal_DM
+        output.dispersion = gal_DM + egal_DM
+
+        if 'observations' in input_file.files:
+
+            output.observations = {}
+
+            for obs in input_file['observations']:
+
+                lon = input_file['{}__lon'.format(obs)] * units.degree
+                lat = input_file['{}__lat'.format(obs)] * units.degree
+                height = input_file['{}__height'.format(obs)] * units.meter
+
+                location = coordinates.EarthLocation(lon=lon, lat=lat,
+                                                     height=height)
+
+                az = input_file['{}__az'.format(obs)] * units.degree
+                alt = input_file['{}__alt'.format(obs)] * units.degree
+                obstime = Time(input_file['{}__obstime'.format(obs)])
+
+                local_coordinates = coordinates.AltAz(az=az, alt=alt,
+                                                      location=location,
+                                                      obstime=obstime)
+
+                frequency_bands = input_file['{}__frequency_bands'.format(obs)]
+                frequency_bands = frequency_bands * units.MHz
+
+                sampling_time = input_file['{}__sampling_time'.format(obs)]
+                sampling_time = sampling_time * units.ms
+
+                response = input_file['{}__response'.format(obs)]
+                noise = input_file['{}__noise'.format(obs)] * units.Jy
+
+                output.observations[obs] = Observation(response, noise,
+                                                       frequency_bands,
+                                                       sampling_time,
+                                                       local_coordinates)
+
+        return output
+
+    def _signal(self, name, channels=False):
+
+        obs = self.observations[name]
+
+        signal = self.specific_flux(obs._frequency)
+        signal = simps(signal) / units.MHz
+
+        nshape = len(obs.response.shape) - 1
+        ishape = numpy.ones(nshape, dtype=int)
+
+        if channels:
+
+            signal = signal.reshape(self.n_frb, *ishape, obs.n_channel)
+
+            return obs.response[..., numpy.newaxis] * signal
+
+        signal = numpy.average(signal, weights=obs._band_widths, axis=-1)
+
+        signal = signal.reshape(self.n_frb, *ishape)
+
+        return obs.response * signal
+
+    def signal(self, channels=False):
+
+        return {
+            obs: self._signal(obs, channels)
+            for obs in self.observations
+        }
+
+    def _noise(self, name, channels=False):
+
+        obs = self.observations[name]
+
+        if channels:
+
+            return obs.noise
+
+        inoise = (1 / obs.noise**2).sum(-1)
+
+        return 1 / numpy.sqrt(inoise)
+
+    def noise(self, channels=False):
+
+        return {
+            obs: self._noise(obs, channels)
+            for obs in self.observations
+        }
+
+    def _signal_to_noise(self, observation, channels=False):
+
+        signal = self._signal(observation, channels)
+        noise = self._noise(observation, channels)
+
+        return signal / noise
+
+    def signal_to_noise(self, channels=False):
+
+        return {
+            obs: self._signal_to_noise(obs, channels)
+            for obs in self.observations
+        }
+
+    def _cross_correlation(self, namei, namej):
+
+        """
+        #Compute the cross correlations between two observation sets
+        """
+
+        obsi = self.observations[namei]
+        obsj = self.observations[namej]
+
+        respi = obsi.response[..., numpy.newaxis]
+        respj = obsj.response[:, numpy.newaxis]
+
+        noii = obsi.noise[:, numpy.newaxis]
+        noij = obsj.noise
+
+        response = numpy.sqrt(respi * respj)
+        noise = numpy.sqrt(0.5 * noii * noij)
+
+        return Observation(response, noise, obsi.frequency_bands)
+
+    def interferometry(self, *names):
+
+        """
+        #Perform a interferometry observation by a Radio Telescope array.
+        """
+
+        n_obs = len(names)
+
+        if n_obs == 2:
+
+            out = self._cross_correlation(*names, interference)
+            out.response = numpy.squeeze(out.response)
+            out.noise = numpy.squeeze(out.noise)
+
+            self.observations['INTF_{}_{}'.format(*names)] = out
+
+        elif n_obs > 2:
+
+            n_channel = numpy.unique([
+                self.observations[name].n_channel
+                for name in names
+            ]).astype(numpy.int).item(0)
+
+            n_beam = numpy.concatenate([
+                self.observations[name].n_beam
+                for name in names
+            ]).astype(numpy.int)
+
+            obsij = [
+                self._cross_correlation(namei, namej)
+                for namei, namej in combinations(names, 2)
+            ]
+
+            n_comb = comb(n_obs, 2, exact=True)
+
+            shapes = numpy.ones((n_comb, n_obs), dtype=numpy.int)
+
+            idx_beam = numpy.row_stack([*combinations(range(n_obs), 2)])
+            idx_comb = numpy.tile(numpy.arange(n_comb).reshape(-1, 1), (1, 2))
+
+            shapes[idx_comb, idx_beam] = n_beam[idx_beam]
+
+            response = [
+                obs.response.reshape((self.n_frb, *shape))
+                for shape, obs in zip(shapes, obsij)
+            ]
+
+            response = sum(response, numpy.empty(()))
+
+            noise = [
+                1 / obs.noise.value.reshape((*shape, n_channel))**2
+                for shape, obs in zip(shapes, obsij)
+            ]
+
+            noise = sum(noise, numpy.empty(()))
+            noise = numpy.sqrt(1 / noise)
+
+            frequency_bands = self.observations[names[0]].frequency_bands
+
+            obs = Observation(response, noise, frequency_bands)
+
+            obs.response = numpy.squeeze(obs.response)
+            obs.noise = numpy.squeeze(obs.noise)
+
+            key = 'INTF_{}'.format('_'.join(names))
+
+            self.observations[key] = obs
