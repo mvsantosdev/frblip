@@ -122,7 +122,7 @@ class FastRadioBursts():
 
     def select(self, idx, inplace=False):
 
-        frbs = self if inplace else CosmicBursts(verbose=False)
+        frbs = self if inplace else FastRadioBursts(verbose=False)
 
         frbs.redshift = self.redshift[idx]
         frbs.comoving_distance = self.comoving_distance[idx]
@@ -139,11 +139,13 @@ class FastRadioBursts():
         frbs.spectral_index = self.spectral_index[idx]
         frbs.time = self.time[idx]
         frbs.S0 = self.S0[idx]
+        
+        if 'observations' in self.__dict__.keys():
 
-        frbs.oobservations = {
-            name: obs[idx]
-            for name, obs in self.observations
-        }
+            frbs.observations = {
+                name: obs[idx]
+                for name, obs in self.observations.items()
+            }
 
         frbs.n_frb = len(frbs.redshift)
 
@@ -292,6 +294,7 @@ class FastRadioBursts():
         nu_high = higher_frequency**_sip1
 
         self.S0 = _sip1 * self.flux / (nu_high - nu_low)
+        self.S0 = self.S0 / units.MHz
 
     def _sky_area(self):
 
@@ -423,199 +426,23 @@ class FastRadioBursts():
 
         self.observations[obs_name] = obs
 
-    def split_beams(self, name):
-
-        observation = self.observations.pop(name)
-        splitted = observation.split_beams()
-
-        self.observations.update({
-            '{}_BEAM_{}'.format(name, beam): obs
-            for beam, obs in enumerate(splitted)
-        })
-
-    def save(self, file):
-
-        out_dict = {
-            'L_0': self.L_0,
-            'Lstar': self.Lstar,
-            'phistar': self.phistar,
-            'ra_range': self.ra_range,
-            'dec_range': self.dec_range,
-            'lower_frequency': self.lower_frequency,
-            'higher_frequency': self.higher_frequency,
-            'sky_rate': self.sky_rate,
-            'area': self.area,
-            'rate': self.rate,
-            'duration': self.duration,
-            'redshift': self.redshift,
-            'comoving_distance': self.comoving_distance,
-            'luminosity': self.luminosity,
-            'ra': self.sky_coord.ra,
-            'dec': self.sky_coord.dec,
-            'pulse_width': self.pulse_width,
-            'galactic_dispersion': self.galactic_dispersion,
-            'host_dispersion': self.host_dispersion,
-            'igm_dispersion': self.igm_dispersion,
-            'source_dispersion': self.source_dispersion,
-            'spectral_index': self.spectral_index,
-            'time': self.time,
-            'observations': numpy.array([*self.observations.keys()])
-        }
-
-        for obs in out_dict['observations']:
-
-            lon = self.observations[obs].coordinates.location.lon
-            lat = self.observations[obs].coordinates.location.lat
-            height = self.observations[obs].coordinates.location.height
-
-            az = self.observations[obs].coordinates.az
-            alt = self.observations[obs].coordinates.alt
-
-            obstime = self.observations[obs].coordinates.obstime.iso
-
-            response = self.observations[obs].response
-            noise = self.observations[obs].noise
-            sampling_time = self.observations[obs].sampling_time
-            frequency_bands = self.observations[obs].frequency_bands
-
-            out_dict.update({
-                '{}__az'.format(obs): az,
-                '{}__alt'.format(obs): alt,
-                '{}__obstime'.format(obs): obstime,
-                '{}__lon'.format(obs): lon,
-                '{}__lat'.format(obs): lat,
-                '{}__height'.format(obs): height,
-                '{}__response'.format(obs): response,
-                '{}__noise'.format(obs): noise,
-                '{}__sampling_time'.format(obs): sampling_time,
-                '{}__frequency_bands'.format(obs): frequency_bands
-            })
-
-        numpy.savez(file, **out_dict)
-
-    @staticmethod
-    def load(file):
-
-        output = FastRadioBursts(n_frb=0, verbose=False)
-
-        input_file = numpy.load(file)
-        udm = units.pc / units.cm**3
-        ergs = units.erg / units.s
-
-        output.L_0 = input_file['L_0'] * ergs
-        output.Lstar = input_file['Lstar'] * ergs
-        output.phistar = input_file['phistar'] * output.phistar.unit
-        output.ra_range = input_file['ra_range'] * output.ra_range.unit
-        output.dec_range = input_file['dec_range'] * output.dec_range.unit
-        output.lower_frequency = input_file['lower_frequency'] * units.MHz
-        output.higher_frequency = input_file['higher_frequency'] * units.MHz
-        output.sky_rate = input_file['sky_rate'] / units.day
-        output.area = input_file['area'] * units.degree**2
-        output.rate = input_file['rate'] / units.day
-        output.duration = input_file['duration'] * output.duration.unit
-
-        ra = input_file['ra'] * units.degree
-        dec = input_file['dec'] * units.degree
-
-        output.sky_coord = coordinates.SkyCoord(ra, dec, frame='icrs')
-
-        output.redshift = input_file['redshift']
-        output.comoving_distance = input_file['comoving_distance'] * units.Mpc
-        output.luminosity = input_file['luminosity'] * ergs
-        output.pulse_width = input_file['pulse_width'] * units.ms
-        output.time = input_file['time'] * units.ms
-        output.spectral_index = input_file['spectral_index']
-
-        output.n_frb = len(output.redshift)
-
-        _zp1 = 1 + output.redshift
-        _sip1 = 1 + output.spectral_index
-
-        output.arrived_pulse_width = output.pulse_width * _zp1
-        output.luminosity_distance = output.comoving_distance * _zp1
-
-        surface = 4 * numpy.pi * output.luminosity_distance**2
-
-        output.flux = (output.luminosity / surface).to(units.Jy * units.MHz)
-
-        nu_low = input_file['lower_frequency']**_sip1
-        nu_high = input_file['higher_frequency']**_sip1
-
-        output.S0 = _sip1 * output.flux / (nu_high - nu_low)
-
-        gal_DM = input_file['galactic_dispersion'] * udm
-        host_DM = input_file['host_dispersion'] * udm
-        src_DM = input_file['source_dispersion'] * udm
-        igm_DM = input_file['igm_dispersion'] * udm
-
-        egal_DM = igm_DM + (src_DM + host_DM) / _zp1
-
-        output.galactic_dispersion = gal_DM
-        output.host_dispersion = host_DM
-        output.source_dispersion = src_DM
-        output.igm_dispersion = igm_DM
-
-        output.extra_galactic_dispersion = egal_DM
-        output.dispersion = gal_DM + egal_DM
-
-        if 'observations' in input_file.files:
-
-            output.observations = {}
-
-            for obs in input_file['observations']:
-
-                lon = input_file['{}__lon'.format(obs)] * units.degree
-                lat = input_file['{}__lat'.format(obs)] * units.degree
-                height = input_file['{}__height'.format(obs)] * units.meter
-
-                location = coordinates.EarthLocation(lon=lon, lat=lat,
-                                                     height=height)
-
-                az = input_file['{}__az'.format(obs)] * units.degree
-                alt = input_file['{}__alt'.format(obs)] * units.degree
-                obstime = Time(input_file['{}__obstime'.format(obs)])
-
-                local_coordinates = coordinates.AltAz(az=az, alt=alt,
-                                                      location=location,
-                                                      obstime=obstime)
-
-                frequency_bands = input_file['{}__frequency_bands'.format(obs)]
-                frequency_bands = frequency_bands * units.MHz
-
-                sampling_time = input_file['{}__sampling_time'.format(obs)]
-                sampling_time = sampling_time * units.ms
-
-                response = input_file['{}__response'.format(obs)]
-                noise = input_file['{}__noise'.format(obs)] * units.Jy
-
-                output.observations[obs] = Observation(response, noise,
-                                                       frequency_bands,
-                                                       sampling_time,
-                                                       local_coordinates)
-
-        return output
-
     def _signal(self, name, channels=False):
 
         obs = self.observations[name]
 
         signal = self.specific_flux(obs._frequency)
-        signal = simps(signal) / units.MHz
+        signal = simps(signal)
 
         nshape = len(obs.response.shape) - 1
         ishape = numpy.ones(nshape, dtype=int)
 
+        signal = obs.response[..., numpy.newaxis] * signal[:, numpy.newaxis]
+
         if channels:
 
-            signal = signal.reshape(self.n_frb, *ishape, obs.n_channel)
+            return signal
 
-            return obs.response[..., numpy.newaxis] * signal
-
-        signal = numpy.average(signal, weights=obs._band_widths, axis=-1)
-
-        signal = signal.reshape(self.n_frb, *ishape)
-
-        return obs.response * signal
+        return numpy.average(signal, weights=obs._band_widths, axis=-1)
 
     def signal(self, channels=False):
 
@@ -648,7 +475,7 @@ class FastRadioBursts():
         signal = self._signal(observation, channels)
         noise = self._noise(observation, channels)
 
-        return signal / noise
+        return (signal / noise).value
 
     def signal_to_noise(self, channels=False):
 
@@ -741,6 +568,186 @@ class FastRadioBursts():
             obs.response = numpy.squeeze(obs.response)
             obs.noise = numpy.squeeze(obs.noise)
 
-            key = 'INTF_{}'.format('_'.join(names))
+            labels, counts = np.unique(names, return_counts=True)
+
+            key = ['{}x{}'.format(c, l) for c, l in zip(counts, labels)]
+            key = '_'.join(key).replace('1x', '')
+            key = 'INTF_{}'.format(key)
 
             self.observations[key] = obs
+
+    def split_beams(self, name):
+
+        observation = self.observations.pop(name)
+        splitted = observation.split_beams()
+
+        self.observations.update({
+            '{}_BEAM_{}'.format(name, beam): obs
+            for beam, obs in enumerate(splitted)
+        })
+
+    def save(self, file):
+
+        out_dict = {
+            'L_0': self.L_0,
+            'Lstar': self.Lstar,
+            'phistar': self.phistar,
+            'ra_range': self.ra_range,
+            'dec_range': self.dec_range,
+            'lower_frequency': self.lower_frequency,
+            'higher_frequency': self.higher_frequency,
+            'sky_rate': self.sky_rate,
+            'area': self.area,
+            'rate': self.rate,
+            'duration': self.duration,
+            'redshift': self.redshift,
+            'comoving_distance': self.comoving_distance,
+            'luminosity': self.luminosity,
+            'ra': self.sky_coord.ra,
+            'dec': self.sky_coord.dec,
+            'pulse_width': self.pulse_width,
+            'galactic_dispersion': self.galactic_dispersion,
+            'host_dispersion': self.host_dispersion,
+            'igm_dispersion': self.igm_dispersion,
+            'source_dispersion': self.source_dispersion,
+            'spectral_index': self.spectral_index,
+            'time': self.time,
+        }
+
+        if 'observations' in self.__dict__.keys():
+
+            out_dict['observations'] = numpy.array([*self.observations.keys()])
+
+            for obs in out_dict['observations']:
+
+                lon = self.observations[obs].coordinates.location.lon
+                lat = self.observations[obs].coordinates.location.lat
+                height = self.observations[obs].coordinates.location.height
+
+                az = self.observations[obs].coordinates.az
+                alt = self.observations[obs].coordinates.alt
+
+                obstime = self.observations[obs].coordinates.obstime.iso
+
+                response = self.observations[obs].response
+                noise = self.observations[obs].noise
+                sampling_time = self.observations[obs].sampling_time
+                frequency_bands = self.observations[obs].frequency_bands
+
+                out_dict.update({
+                    '{}__az'.format(obs): az,
+                    '{}__alt'.format(obs): alt,
+                    '{}__obstime'.format(obs): obstime,
+                    '{}__lon'.format(obs): lon,
+                    '{}__lat'.format(obs): lat,
+                    '{}__height'.format(obs): height,
+                    '{}__response'.format(obs): response,
+                    '{}__noise'.format(obs): noise,
+                    '{}__sampling_time'.format(obs): sampling_time,
+                    '{}__frequency_bands'.format(obs): frequency_bands
+                })
+
+        numpy.savez(file, **out_dict)
+
+    @staticmethod
+    def load(file):
+
+        output = FastRadioBursts(n_frb=0, verbose=False)
+
+        input_file = numpy.load(file)
+        udm = units.pc / units.cm**3
+        ergs = units.erg / units.s
+
+        output.L_0 = input_file['L_0'] * ergs
+        output.Lstar = input_file['Lstar'] * ergs
+        output.phistar = input_file['phistar'] * output.phistar.unit
+        output.ra_range = input_file['ra_range'] * output.ra_range.unit
+        output.dec_range = input_file['dec_range'] * output.dec_range.unit
+        output.lower_frequency = input_file['lower_frequency'] * units.MHz
+        output.higher_frequency = input_file['higher_frequency'] * units.MHz
+        output.sky_rate = input_file['sky_rate'] / units.day
+        output.area = input_file['area'] * units.degree**2
+        output.rate = input_file['rate'] / units.day
+        output.duration = input_file['duration'] * output.duration.unit
+
+        ra = input_file['ra'] * units.degree
+        dec = input_file['dec'] * units.degree
+
+        output.sky_coord = coordinates.SkyCoord(ra, dec, frame='icrs')
+
+        output.redshift = input_file['redshift']
+        output.comoving_distance = input_file['comoving_distance'] * units.Mpc
+        output.luminosity = input_file['luminosity'] * ergs
+        output.pulse_width = input_file['pulse_width'] * units.ms
+        output.time = input_file['time'] * units.ms
+        output.spectral_index = input_file['spectral_index']
+
+        output.n_frb = len(output.redshift)
+
+        _zp1 = 1 + output.redshift
+        _sip1 = 1 + output.spectral_index
+
+        output.arrived_pulse_width = output.pulse_width * _zp1
+        output.luminosity_distance = output.comoving_distance * _zp1
+
+        surface = 4 * numpy.pi * output.luminosity_distance**2
+
+        output.flux = (output.luminosity / surface).to(units.Jy * units.MHz)
+
+        nu_low = input_file['lower_frequency']**_sip1
+        nu_high = input_file['higher_frequency']**_sip1
+
+        output.S0 = _sip1 * output.flux / (nu_high - nu_low)
+        output.S0 = output.S0 / units.MHz
+
+        gal_DM = input_file['galactic_dispersion'] * udm
+        host_DM = input_file['host_dispersion'] * udm
+        src_DM = input_file['source_dispersion'] * udm
+        igm_DM = input_file['igm_dispersion'] * udm
+
+        egal_DM = igm_DM + (src_DM + host_DM) / _zp1
+
+        output.galactic_dispersion = gal_DM
+        output.host_dispersion = host_DM
+        output.source_dispersion = src_DM
+        output.igm_dispersion = igm_DM
+
+        output.extra_galactic_dispersion = egal_DM
+        output.dispersion = gal_DM + egal_DM
+
+        if 'observations' in input_file.files:
+
+            output.observations = {}
+
+            for obs in input_file['observations']:
+
+                lon = input_file['{}__lon'.format(obs)] * units.degree
+                lat = input_file['{}__lat'.format(obs)] * units.degree
+                height = input_file['{}__height'.format(obs)] * units.meter
+
+                location = coordinates.EarthLocation(lon=lon, lat=lat,
+                                                     height=height)
+
+                az = input_file['{}__az'.format(obs)] * units.degree
+                alt = input_file['{}__alt'.format(obs)] * units.degree
+                obstime = Time(input_file['{}__obstime'.format(obs)])
+
+                local_coordinates = coordinates.AltAz(az=az, alt=alt,
+                                                      location=location,
+                                                      obstime=obstime)
+
+                frequency_bands = input_file['{}__frequency_bands'.format(obs)]
+                frequency_bands = frequency_bands * units.MHz
+
+                sampling_time = input_file['{}__sampling_time'.format(obs)]
+                sampling_time = sampling_time * units.ms
+
+                response = input_file['{}__response'.format(obs)]
+                noise = input_file['{}__noise'.format(obs)] * units.Jy
+
+                output.observations[obs] = Observation(response, noise,
+                                                       frequency_bands,
+                                                       sampling_time,
+                                                       local_coordinates)
+
+        return output
