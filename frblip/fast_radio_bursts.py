@@ -9,12 +9,17 @@ import pandas
 from scipy.special import comb
 
 from itertools import combinations
+from collections import namedtuple
 
 from scipy.integrate import quad, cumtrapz
 
 from astropy.time import Time
 
 from astropy import cosmology, coordinates, units
+
+from astropy.coordinates.erfa_astrom import erfa_astrom
+from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
+
 
 from .utils import _all_sky_area, _DATA, schechter, rvs_from_cdf, simps
 
@@ -139,7 +144,7 @@ class FastRadioBursts():
         frbs.spectral_index = self.spectral_index[idx]
         frbs.time = self.time[idx]
         frbs.S0 = self.S0[idx]
-        
+
         if 'observations' in self.__dict__.keys():
 
             frbs.observations = {
@@ -171,17 +176,25 @@ class FastRadioBursts():
 
             return frbs
 
-    def get_local_coordinates(self, location, start_time=None):
+    def observation_time(self, start_time=None):
 
         if start_time is None:
             start_time = Time.now()
 
-        date_time = start_time + self.time.ravel()
+        return start_time + self.time.ravel()
 
-        AltAzCoords = coordinates.AltAz(location=location,
-                                        obstime=date_time)
+    def get_local_coordinates(self, location, start_time=None):
 
-        return self.sky_coord.transform_to(AltAzCoords)
+        obstime = self.observation_time(start_time)
+
+        AltAzFrame = coordinates.AltAz(location=location,
+                                       obstime=obstime)
+
+        with erfa_astrom.set(ErfaAstromInterpolator(300 * units.s)):
+
+            AltAzCoords = self.sky_coord.transform_to(AltAzFrame)
+
+        return AltAzCoords
 
     def specific_flux(self, nu):
 
@@ -395,36 +408,72 @@ class FastRadioBursts():
 
         return self.Lstar * rvs
 
-    def observe(self, Telescope, location=None, start_time=None,
-                name=None, local_coordinates=None):
+    def _observe(self, Telescope, location=None, start_time=None,
+                 name=None, local_coordinates=None, full=True):
 
         if 'observations' not in self.__dict__.keys():
 
             self.observations = {}
 
-        n_obs = len(self.observations)
+        noise = Telescope.minimum_temperature / Telescope.gain.reshape(-1, 1)
+        noise = noise.to(units.Jy)
 
         location = Telescope.location if location is None else location
         start_time = Telescope.start_time if start_time is None else start_time
 
-        if local_coordinates is None:
+        if full:
 
-            local_coordinates = self.get_local_coordinates(location,
-                                                           start_time)
+            if local_coordinates is None:
 
-        response = Telescope.selection(local_coordinates.az,
-                                       local_coordinates.alt)
+                local_coordinates = self.get_local_coordinates(location,
+                                                               start_time)
 
-        noise = Telescope.minimum_temperature / Telescope.gain.reshape(-1, 1)
-        noise = noise.to(units.Jy)
+            response = Telescope.selection(local_coordinates.az,
+                                           local_coordinates.alt)
+        else:
 
+            response = numpy.array([[1.0]])
+            noise = noise.min(-1)
+
+            local_coordinates = namedtuple('local_coordinates',
+                                           [
+                                               'location', 'obstime',
+                                               'az', 'alt'
+                                           ])
+
+            local_coordinates.location = location
+            local_coordinates.obstime = self.observation_time(start_time)
+            local_coordinates.alt = numpy.nan
+            local_coordinates.az = numpy.nan
+
+        n_obs = len(self.observations)
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
         obs_name = obs_name.replace(' ', '_')
 
         obs = Observation(response, noise, Telescope.frequency_bands,
-                          Telescope.sampling_time, local_coordinates)
+                          Telescope.sampling_time, local_coordinates,
+                          full=full)
 
         self.observations[obs_name] = obs
+
+    def observe(self, Telescopes, location=None, start_time=None,
+                name=None, local_coordinates=None, full=True):
+
+        if type(Telescopes) is dict:
+
+            for Name, Telescope in Telescopes.items():
+
+                self._observe(Telescope, location, start_time,
+                              Name, local_coordinates, full)
+
+        else:
+
+            self._observe(Telescopes, location, start_time,
+                          name, local_coordinates, full)
+
+    def clear(self):
+
+        del self.observations
 
     def _signal(self, name, channels=False):
 
@@ -633,6 +682,7 @@ class FastRadioBursts():
                 noise = self.observations[obs].noise
                 sampling_time = self.observations[obs].sampling_time
                 frequency_bands = self.observations[obs].frequency_bands
+                full = self.observations[obs].full
 
                 out_dict.update({
                     '{}__az'.format(obs): az,
@@ -644,7 +694,8 @@ class FastRadioBursts():
                     '{}__response'.format(obs): response,
                     '{}__noise'.format(obs): noise,
                     '{}__sampling_time'.format(obs): sampling_time,
-                    '{}__frequency_bands'.format(obs): frequency_bands
+                    '{}__frequency_bands'.format(obs): frequency_bands,
+                    '{}__full'.format(obs): full
                 })
 
         numpy.savez(file, **out_dict)
@@ -654,7 +705,7 @@ class FastRadioBursts():
 
         output = FastRadioBursts(n_frb=0, verbose=False)
 
-        input_file = numpy.load(file)
+        input_file = numpy.load(file, allow_pickle=True)
         udm = units.pc / units.cm**3
         ergs = units.erg / units.s
 
@@ -721,6 +772,8 @@ class FastRadioBursts():
 
             for obs in input_file['observations']:
 
+                full = input_file['{}__full'.format(obs)]
+
                 lon = input_file['{}__lon'.format(obs)] * units.degree
                 lat = input_file['{}__lat'.format(obs)] * units.degree
                 height = input_file['{}__height'.format(obs)] * units.meter
@@ -732,9 +785,29 @@ class FastRadioBursts():
                 alt = input_file['{}__alt'.format(obs)] * units.degree
                 obstime = Time(input_file['{}__obstime'.format(obs)])
 
-                local_coordinates = coordinates.AltAz(az=az, alt=alt,
-                                                      location=location,
-                                                      obstime=obstime)
+                az_nan = numpy.isnan(az)
+                alt_nan = numpy.isnan(alt)
+
+                is_nan = numpy.logical_or(az_nan, alt_nan).all()
+
+                if is_nan:
+
+                    local_coordinates = namedtuple('local_coordinates',
+                                                   [
+                                                       'location', 'obstime',
+                                                       'az', 'alt'
+                                                   ])
+
+                    local_coordinates.location = location
+                    local_coordinates.obstime = obstime
+                    local_coordinates.alt = alt
+                    local_coordinates.az = az
+
+                else:
+
+                    local_coordinates = coordinates.AltAz(az=az, alt=alt,
+                                                          location=location,
+                                                          obstime=obstime)
 
                 frequency_bands = input_file['{}__frequency_bands'.format(obs)]
                 frequency_bands = frequency_bands * units.MHz
@@ -748,6 +821,7 @@ class FastRadioBursts():
                 output.observations[obs] = Observation(response, noise,
                                                        frequency_bands,
                                                        sampling_time,
-                                                       local_coordinates)
+                                                       local_coordinates,
+                                                       full=full)
 
         return output

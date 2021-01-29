@@ -141,7 +141,7 @@ class RadioTelescope():
 
         self.az, self.alt = uv2azalt(u, v)
 
-        if self.kind == 'uv_grid':
+        if self.kind in ('uv_grid', 'uv_linear_grid'):
 
             self.Rotation = numpy.linalg.inv(self.Rotation)
 
@@ -161,7 +161,8 @@ class RadioTelescope():
         self.frequency_bands = frequency_bands * units.MHz
         mid_frequency = 0.5 * (frequency_bands[1:] + frequency_bands[:-1])
 
-        self._frequency = numpy.concatenate((frequency_bands, mid_frequency))
+        self._frequency = numpy.concatenate((frequency_bands,
+                                             mid_frequency))
         self._frequency = numpy.sort(self._frequency) * units.MHz
 
         self.band_widths = numpy.diff(self.frequency_bands)
@@ -174,7 +175,8 @@ class RadioTelescope():
         lat = coordinates.Angle(latitude, unit=units.degree)
         h = height * units.meter
 
-        self.location = coordinates.EarthLocation(lon=lon, lat=lat, height=h)
+        self.location = coordinates.EarthLocation(lon=lon, lat=lat,
+                                                  height=h)
 
         scaled_time = (self.band_widths * self.sampling_time).to(1)
         noise_scale = numpy.sqrt(polarizations * scaled_time.value)
@@ -218,7 +220,8 @@ class RadioTelescope():
 
         self.radius = radius.to(units.degree)
 
-    def _load_uv_grid(self, pattern, u_range, v_range, **kwargs):
+    def _load_uv_grid(self, pattern, u_range, v_range,
+                      **kwargs):
 
         """
         This is a private function, please do not call it
@@ -230,9 +233,14 @@ class RadioTelescope():
         u = numpy.linspace(*u_range, udim)
         v = numpy.linspace(*u_range, vdim)
 
-        self.Pattern = [RectBivariateSpline(u, v, p) for p in pattern]
-
         self.selection = self._uv_grid
+
+        self.Pattern = [
+            RectBivariateSpline(u, v, p)
+            for p in pattern
+        ]
+
+        self._uv_order = self._uv_spline
 
     def _load_from_file(self, file):
 
@@ -296,6 +304,13 @@ class RadioTelescope():
 
         self.selection = selection
 
+    def _uv_spline(self, u, v):
+
+        return numpy.column_stack([
+            Pattern.ev(u, v)
+            for Pattern in self.Pattern
+        ])
+
     def _uv_grid(self, az, alt):
 
         """
@@ -312,9 +327,6 @@ class RadioTelescope():
 
         ipos = (w >= 0).ravel()
 
-        output[ipos] = numpy.column_stack([
-            Pattern.ev(u[ipos], v[ipos])
-            for Pattern in self.Pattern
-        ])
+        output[ipos] = self._uv_order(u[ipos], v[ipos])
 
         return output

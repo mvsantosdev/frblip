@@ -17,7 +17,10 @@ from .utils import simps
 class Observation():
 
     def __init__(self, response, noise, frequency_bands,
-                 sampling_time=0, coordinates=None):
+                 sampling_time=0, coordinates=None,
+                 full=True):
+
+        self.full = full
 
         self.sampling_time = sampling_time
         self.coordinates = coordinates
@@ -59,8 +62,9 @@ class Observation():
 
         idx = idx.ravel() if idx.ndim == 2 else idx
 
-        coords = self.coordinates[idx]
-        response = self.response[idx]
+        coords = self.coordinates[idx] if self.full else self.coordinates
+        response = self.response[idx] if self.full else self.response
+
         noise = self.noise
         sampling_time = self.sampling_time
         frequency_bands = self.frequency_bands
