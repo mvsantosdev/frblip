@@ -2,6 +2,8 @@ import os
 
 import numpy
 
+from collections import namedtuple
+
 from astropy import coordinates, units
 
 from scipy.stats import rvs_ratio_uniforms
@@ -13,6 +15,11 @@ _all_sky_area = 4 * numpy.pi * units.sr
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
+
+null_coordinates = namedtuple('null_coordinates',
+                              ['az', 'alt', 'obstime', 'location'])
+null_location = namedtuple('null_location', ['lon', 'lat', 'height'])
+null_obstime = namedtuple('null_obstime', ['iso'])
 
 
 def uv2azalt(u, v):
