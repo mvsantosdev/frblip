@@ -471,9 +471,17 @@ class FastRadioBursts():
             self._observe(Telescopes, location, start_time,
                           name, local_coordinates, full)
 
-    def clear(self):
+    def clear(self, names=None):
 
-        del self.observations
+        if names is None:
+
+            del self.observations
+
+        else:
+
+            for name in list(names):
+
+                del self.observations[name]
 
     def _signal(self, name, channels=False):
 
@@ -548,10 +556,13 @@ class FastRadioBursts():
         noii = obsi.noise[:, numpy.newaxis]
         noij = obsj.noise
 
-        response = numpy.sqrt(respi * respj)
+        response = numpy.sqrt(0.5 * respi * respj)
         noise = numpy.sqrt(0.5 * noii * noij)
 
-        return Observation(response, noise, obsi.frequency_bands)
+        frequency_bands = obsi.frequency_bands
+
+        return Observation(response, noise, frequency_bands,
+                           full=False)
 
     def interferometry(self, **telescopes):
 
@@ -617,7 +628,7 @@ class FastRadioBursts():
 
             frequency_bands = self.observations[names[0]].frequency_bands
 
-            obs = Observation(response, noise, frequency_bands)
+            obs = Observation(response, noise, frequency_bands, full=False)
 
             obs.response = numpy.squeeze(obs.response)
             obs.noise = numpy.squeeze(obs.noise)

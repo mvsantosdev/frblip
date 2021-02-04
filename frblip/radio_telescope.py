@@ -74,13 +74,13 @@ class RadioTelescope():
 
         name_ = '{}/{}.npz'.format(_DATA, name)
 
-        if os.path.exists(name):
-
-            input_dict = self._load_from_file(name)
-
-        elif os.path.exists(name_):
+        if os.path.exists(name_):
 
             input_dict = self._load_from_file(name_)
+
+        elif os.path.exists(name):
+
+            input_dict = self._load_from_file(name)
 
         else:
 

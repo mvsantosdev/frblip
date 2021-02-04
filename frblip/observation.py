@@ -21,9 +21,23 @@ class Observation():
                  full=True):
 
         self.full = full
-
         self.sampling_time = sampling_time
-        self.coordinates = coordinates
+
+        if coordinates is None:
+
+            obstime = null_obstime(iso=numpy.nan)
+            location = null_location(lon=numpy.nan, lat=numpy.nan,
+                                     height=numpy.nan)
+
+            self.coordinates = null_coordinates(az=numpy.nan,
+                                                alt=numpy.nan,
+                                                obstime=obstime,
+                                                location=location)
+
+        else:
+
+            self.coordinates = coordinates
+
         self.response = response
 
         self.frequency_bands = frequency_bands
