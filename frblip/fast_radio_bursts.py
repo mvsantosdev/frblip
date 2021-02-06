@@ -556,7 +556,7 @@ class FastRadioBursts():
         noii = obsi.noise[:, numpy.newaxis]
         noij = obsj.noise
 
-        response = numpy.sqrt(0.5 * respi * respj)
+        response = 0.5 * numpy.sqrt(respi * respj)
         noise = numpy.sqrt(0.5 * noii * noij)
 
         frequency_bands = obsi.frequency_bands
@@ -582,6 +582,10 @@ class FastRadioBursts():
             out = self._cross_correlation(*names, interference)
             out.response = numpy.squeeze(out.response)
             out.noise = numpy.squeeze(out.noise)
+
+            if out.response.ndim == 1:
+                out.response = out.response.reshape(-1, 1)
+                out.noise = out.noise.reshape(1, -1)
 
             self.observations['INTF_{}_{}'.format(*names)] = out
 
@@ -632,6 +636,10 @@ class FastRadioBursts():
 
             obs.response = numpy.squeeze(obs.response)
             obs.noise = numpy.squeeze(obs.noise)
+
+            if obs.response.ndim == 1:
+                obs.response = obs.response.reshape(-1, 1)
+                obs.noise = obs.noise.reshape(1, -1)
 
             labels, counts = numpy.unique(names, return_counts=True)
 
