@@ -28,7 +28,7 @@ from .dispersion import *
 from .observation import Observation
 
 
-class FastRadioBursts():
+class FastRadioBursts(object):
 
     """
     Class which defines a Fast Radio Burst population
@@ -431,8 +431,7 @@ class FastRadioBursts():
                 local_coordinates = self.get_local_coordinates(location,
                                                                start_time)
 
-            response = Telescope.selection(local_coordinates.az,
-                                           local_coordinates.alt)
+            response = Telescope.selection(local_coordinates)
 
         else:
 

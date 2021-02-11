@@ -13,23 +13,22 @@ from astropy import coordinates, units, constants
 
 from scipy.special import j1
 
-from scipy.interpolate import RectBivariateSpline
 from scipy.integrate import cumtrapz
 
-from .patterns import patterns
+from .grid import CartesianGrid
+from .pattern import FunctionalPattern
 
 from .utils import _all_sky_area, _DATA
-from .utils import azalt2uvw, uv2azalt, angular_separation
 
 
-class RadioTelescope():
+class RadioTelescope(object):
 
     """
     Class which defines a Radio Surveynp
     """
 
-    def __init__(self, name='bingo', kind='gaussian', start_time=None,
-                 az_shift=.0, alt_shift=.0, **kwargs):
+    def __init__(self, name='bingo', kind='gaussian',
+                 start_time=None, **kwargs):
 
         """
         Creates a Survey object.
@@ -91,59 +90,17 @@ class RadioTelescope():
 
         self.kind = kind
 
-        self.set_rotation(alt_shift * units.degree,
-                          az_shift * units.hourangle)
+        if kind == 'grid':
 
-        if kind == 'uv_grid':
-
-            self._load_uv_grid(**input_dict)
+            self.selection = CartesianGrid(**input_dict)
 
         elif kind in ('tophat', 'bessel', 'gaussian'):
 
-            self._set_selection(kind)
+            self.selection = FunctionalPattern(kind, **input_dict)
 
         else:
 
             print('Please choose a valid pattern kind')
-
-    def _rotation(self, u, v, w):
-
-        return self.Rotation @ numpy.row_stack((u, v, w))
-
-    @units.quantity_input(alt_shift='angle', az_shift='angle')
-    def set_rotation(self, alt_shift, az_shift):
-
-        self.alt_shift = alt_shift
-        self.az_shift = az_shift
-
-        cos_alt_rot = numpy.cos(self.alt_shift).value
-        sin_alt_rot = numpy.sin(self.alt_shift).value
-
-        Rotx = numpy.array([
-            [1, 0, 0],
-            [0, cos_alt_rot, - sin_alt_rot],
-            [0, sin_alt_rot, cos_alt_rot]
-        ])
-
-        cos_az_rot = numpy.cos(self.az_shift).value
-        sin_az_rot = numpy.sin(self.az_shift).value
-
-        Rotz = numpy.array([
-            [cos_az_rot, - sin_az_rot, 0],
-            [sin_az_rot, cos_az_rot, 0],
-            [0, 0, 1]
-        ])
-
-        self.Rotation = Rotz @ Rotx
-
-        u, v, w = azalt2uvw(self.az0, self.alt0)
-        u, v, w = self._rotation(u, v, w)
-
-        self.az, self.alt = uv2azalt(u, v)
-
-        if self.kind in ('uv_grid', 'uv_linear_grid'):
-
-            self.Rotation = numpy.linalg.inv(self.Rotation)
 
     def _load_params(self, frequency_bands, polarizations,
                      system_temperature, sampling_time,
@@ -191,8 +148,8 @@ class RadioTelescope():
         directly unless you know exactly what you are doing.
         """
 
-        self.az0 = az * units.degree
-        self.alt0 = alt * units.degree
+        self.az = az * units.degree
+        self.alt = alt * units.degree
 
         self.solid_angle = _all_sky_area * 10**(- 0.1 * maximum_gain)
         self.solid_angle = self.solid_angle.to(units.degree**2)
@@ -219,28 +176,6 @@ class RadioTelescope():
         radius = numpy.arccos(arg) * units.rad
 
         self.radius = radius.to(units.degree)
-
-    def _load_uv_grid(self, pattern, u_range, v_range,
-                      **kwargs):
-
-        """
-        This is a private function, please do not call it
-        directly unless you know exactly what you are doing.
-        """
-
-        n_beam, udim, vdim = pattern.shape
-
-        u = numpy.linspace(*u_range, udim)
-        v = numpy.linspace(*u_range, vdim)
-
-        self.selection = self._uv_grid
-
-        self.Pattern = [
-            RectBivariateSpline(u, v, p)
-            for p in pattern
-        ]
-
-        self._uv_order = self._uv_spline
 
     def _load_from_file(self, file):
 
@@ -275,58 +210,10 @@ class RadioTelescope():
             height=float(data.get('Height (meter)')),
             degradation_factor=float(data.get('Degradation Factor')),
             frequency_bands=numpy.array(data.get('Frequency Bands (MHz)')),
-            pattern=numpy.array(data.get('Pattern')),
+            grid=numpy.array(data.get('Pattern')),
             az=numpy.array(data.get('Azimuth (degree)')),
             alt=numpy.array(data.get('Altitude (degree)')),
             maximum_gain=numpy.array(data.get('Maximum Gain (dB)')),
-            u_range=numpy.array(data.get('U')),
-            v_range=numpy.array(data.get('V')),
+            xrange=numpy.array(data.get('U')),
+            yrange=numpy.array(data.get('V')),
         )
-
-    def _set_selection(self, kind):
-
-        """
-        This is a private function, please do not call it
-        directly unless you know exactly what you are doing.
-        """
-
-        self.Pattern = patterns[kind]
-
-        def selection(az, alt):
-
-            arcs = angular_separation(az.reshape(-1, 1),
-                                      alt.reshape(-1, 1),
-                                      self.az, self.alt)
-
-            rescaled_arc = (arcs / self.radius).to(1).value
-
-            return self.Pattern(rescaled_arc)
-
-        self.selection = selection
-
-    def _uv_spline(self, u, v):
-
-        return numpy.column_stack([
-            Pattern.ev(u, v)
-            for Pattern in self.Pattern
-        ])
-
-    def _uv_grid(self, az, alt):
-
-        """
-        This is a private function, please do not call it
-        directly unless you know exactly what you are doing.
-        """
-
-        n_frb = len(az)
-
-        u, v, w = azalt2uvw(az, alt)
-        u, v, w = self._rotation(u, v, w)
-
-        output = numpy.zeros((n_frb, self.n_beam))
-
-        ipos = (w >= 0).ravel()
-
-        output[ipos] = self._uv_order(u[ipos], v[ipos])
-
-        return output

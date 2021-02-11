@@ -1,5 +1,7 @@
 import warnings
 
+from .grid import CartesianGrid
+from .pattern import FunctionalPattern
 from .fast_radio_bursts import FastRadioBursts
 from .radio_telescope import RadioTelescope
 
