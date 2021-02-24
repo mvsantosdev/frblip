@@ -57,18 +57,31 @@ class Observation():
         n_beam = numpy.prod(self.n_beam)
         shape = n_beam, self.n_channel
 
-        noises = numpy.split(self.noise, n_beam, 0)
-
         responses = numpy.split(self.response, n_beam, -1)
 
-        return [
-            Observation(response, noise,
-                        self.frequency_bands,
-                        self.sampling_time,
-                        self.coordinates,
-                        self.full)
-            for response, noise in zip(responses, noises)
-        ]
+        if self.noise.shape == (*self.n_beam, self.n_channel):
+
+            noises = numpy.split(self.noise, n_beam, 0)
+
+            return [
+                Observation(response, noise,
+                            self.frequency_bands,
+                            self.sampling_time,
+                            self.coordinates,
+                            self.full)
+                for response, noise in zip(responses, noises)
+            ]
+
+        elif self.noise.shape == (1, self.n_channel):
+
+            return [
+                Observation(response, self.noise,
+                            self.frequency_bands,
+                            self.sampling_time,
+                            self.coordinates,
+                            self.full)
+                for response in responses
+            ]
 
     def __getitem__(self, idx):
 
