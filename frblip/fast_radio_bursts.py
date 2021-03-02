@@ -492,7 +492,11 @@ class FastRadioBursts(object):
         nshape = len(obs.response.shape) - 1
         ishape = numpy.ones(nshape, dtype=int)
 
-        signal = obs.response[..., numpy.newaxis] * signal[:, numpy.newaxis]
+        response = obs.response[..., numpy.newaxis]
+        signal = signal.reshape((self.n_frb, *ishape,
+                                 obs.n_channel))
+
+        signal = response * signal
 
         if channels:
 
