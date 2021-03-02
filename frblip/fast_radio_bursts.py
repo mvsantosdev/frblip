@@ -21,7 +21,7 @@ from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
 
 from .utils import _all_sky_area, _DATA, schechter, rvs_from_cdf, simps
-from .utils import null_coordinates, null_location, null_obstime
+from .utils import null_coordinates, null_location, null_obstime, super_zip
 
 from .dispersion import *
 
@@ -560,78 +560,109 @@ class FastRadioBursts(object):
 
         frequency_bands = obsi.frequency_bands
 
-        return Observation(response, noise, frequency_bands,
+        return Observation(response, noise,
+                           frequency_bands,
                            full=False)
 
     def interferometry(self, **telescopes):
 
-        """
-        #Perform a interferometry observation by a Radio Telescope array.
-        """
+        names = numpy.array([*telescopes.keys()])
+        iterator = super_zip(*telescopes.values())
 
-        names = sum([
-            [telescope] * number
-            for telescope, number in telescopes.items()
-        ], [])
+        n_scopes = len(names)
 
-        n_obs = len(names)
+        observations = self.observations
 
-        if n_obs == 2:
-
-            out = self._cross_correlation(*names, interference)
-            out.response = numpy.squeeze(out.response)
-            out.noise = numpy.squeeze(out.noise)
-
-            if out.response.ndim == 1:
-                out.response = out.response.reshape(-1, 1)
-                out.noise = out.noise.reshape(1, -1)
-
-            self.observations['INTF_{}_{}'.format(*names)] = out
-
-        elif n_obs > 2:
-
-            n_channel = numpy.unique([
-                self.observations[name].n_channel
+        n_channel = numpy.unique([
+                observations[name].n_channel
                 for name in names
-            ]).astype(numpy.int).item(0)
+            ]).astype(numpy.int32).item(0)
 
-            n_beam = numpy.concatenate([
-                self.observations[name].n_beam
+        n_beam = numpy.concatenate([
+                observations[name].n_beam
                 for name in names
-            ]).astype(numpy.int)
+            ]).astype(numpy.int32)
 
-            obsij = [
-                self._cross_correlation(namei, namej)
-                for namei, namej in combinations(names, 2)
+        shapes = numpy.diag(n_beam - 1)
+        shapes = shapes + numpy.ones_like(shapes)
+
+        responses = [
+            0.5 * observations[name].response.reshape((self.n_frb, *shape))
+            for name, shape in zip(names, shapes)
+        ]
+
+        inoises = [
+            0.5 / observations[name].noise.reshape((*shape, n_channel))**2
+            for name, shape in zip(names, shapes)
+        ]
+
+        if n_scopes > 1:
+
+            xobservations = [
+                self._cross_correlation(names[i], names[j])
+                for i, j in combinations(range(n_scopes), 2)
             ]
 
-            n_comb = comb(n_obs, 2, exact=True)
+            shapes = numpy.row_stack([
+                    shapes[i] * shapes[j]
+                    for i, j in combinations(range(n_scopes), 2)
+                ])
 
-            shapes = numpy.ones((n_comb, n_obs), dtype=numpy.int)
-
-            idx_beam = numpy.row_stack([*combinations(range(n_obs), 2)])
-            idx_comb = numpy.tile(numpy.arange(n_comb).reshape(-1, 1), (1, 2))
-
-            shapes[idx_comb, idx_beam] = n_beam[idx_beam]
-
-            response = [
-                obs.response.reshape((self.n_frb, *shape))
-                for shape, obs in zip(shapes, obsij)
+            xresponses = [
+                0.5 * xobs.response.reshape((self.n_frb, *shape))
+                for xobs, shape in zip(xobservations, shapes)
             ]
 
-            response = sum(response, numpy.empty(()))
-
-            noise = [
-                1 / obs.noise.value.reshape((*shape, n_channel))**2
-                for shape, obs in zip(shapes, obsij)
+            xinoises = [
+                0.5 / xobs.noise.reshape((*shape, n_channel))**2
+                for xobs, shape in zip(xobservations, shapes)
             ]
 
-            noise = sum(noise, numpy.empty(()))
-            noise = numpy.sqrt(1 / noise)
+        for icounts in iterator:
 
-            frequency_bands = self.observations[names[0]].frequency_bands
+            counts = numpy.array(icounts)
 
-            obs = Observation(response, noise, frequency_bands, full=False)
+            factors = (counts * (counts - 1)) // 2
+
+            Responses = [
+                factor * response
+                for factor, response in zip(factors, responses)
+            ]
+
+            iNoises = [
+                factor * inoise
+                for factor, inoise in zip(factors, inoises)
+            ]
+
+            if n_scopes > 1:
+
+                factors = numpy.array([
+                    counts[i] * counts[j]
+                    for i, j in combinations(range(n_scopes), 2)
+                ])
+
+                Responses += [
+                    factor * xresponse
+                    for factor, xresponse in zip(factors, xresponses)
+                ]
+
+                iNoises += [
+                    factor * xinoise
+                    for factor, xinoise in zip(factors, xinoises)
+                ]
+
+            nunit = numpy.unique([noise.unit for noise in iNoises]).item(0)
+
+            response = sum(Responses, numpy.empty(()))
+            noise = sum(iNoises, numpy.empty(()) * nunit)
+
+            noise = 1 / numpy.sqrt(noise)
+
+            frequency_bands = observations[names[0]].frequency_bands
+
+            obs = Observation(response=response, noise=noise,
+                              frequency_bands=frequency_bands,
+                              full=False)
 
             obs.response = numpy.squeeze(obs.response)
             obs.noise = numpy.squeeze(obs.noise)
@@ -640,11 +671,8 @@ class FastRadioBursts(object):
                 obs.response = obs.response.reshape(-1, 1)
                 obs.noise = obs.noise.reshape(1, -1)
 
-            labels, counts = numpy.unique(names, return_counts=True)
-
-            key = ['{}x{}'.format(c, l) for c, l in zip(counts, labels)]
-            key = '_'.join(key).replace('1x', '')
-            key = 'INTF_{}'.format(key)
+            keys = ['{}x{}'.format(c, l) for c, l in zip(counts, names)]
+            key = 'INTF_{}'.format('_'.join(keys).replace('1x', ''))
 
             self.observations[key] = obs
 

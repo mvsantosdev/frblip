@@ -4,6 +4,8 @@ import numpy
 
 from collections import namedtuple
 
+from itertools import repeat, cycle
+
 from astropy import coordinates, units
 
 from scipy.stats import rvs_ratio_uniforms
@@ -98,3 +100,36 @@ def rvs_from_cdf(pdf, xmin, xmax, precision=1e-5, size=1, **kwargs):
     U = numpy.random.random(size)
 
     return numpy.interp(x=U, xp=cdf, fp=x)
+
+
+def super_zip(*args):
+
+    sizes = numpy.array([numpy.size(arg) for arg in args])
+
+    max_size = sizes.max()
+
+    if max_size == 1:
+
+        return iter([numpy.array([*args])])
+
+    iterators = []
+
+    for size, arg in zip(sizes, args):
+
+        size = numpy.size(arg)
+
+        if size == max_size:
+
+            it = iter(arg)
+
+        elif size == 1:
+
+            it = repeat(arg)
+
+        else:
+
+            it = cycle(arg)
+
+        iterators.append(it)
+
+    return zip(*iterators)

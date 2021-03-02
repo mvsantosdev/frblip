@@ -1,6 +1,6 @@
 # Test files
-test.ipynb
-FRBOHD.ipynb
+*.ipynb
+*.pdf
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
