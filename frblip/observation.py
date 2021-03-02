@@ -50,7 +50,14 @@ class Observation():
         self.n_beam = response.shape[1:]
         self.n_telescopes = len(self.n_beam)
 
-        self.noise = noise
+        if noise.shape == (*self.n_beam, self.n_channel):
+
+            self.noise = noise
+
+        elif noise.shape == (1, self.n_channel):
+
+            self.noise = numpy.tile(noise, (*self.n_beam, 1))
+            self.unique_beam = True
 
     def split_beams(self):
 
@@ -91,11 +98,15 @@ class Observation():
 
         out_dict = {
             '{}__response'.format(key): self.response,
-            '{}__noise'.format(key): self.noise,
             '{}__sampling_time'.format(key): self.sampling_time,
             '{}__frequency_bands'.format(key): self.frequency_bands,
             '{}__full'.format(key): self.full
         }
+
+        if self.__dict__.get('unique_beam'):
+            out_dict['{}__noise'.format(key)] = self.noise[0]
+        else:
+            out_dict['{}__noise'.format(key)] = self.noise
 
         if self.coordinates is not None:
 
