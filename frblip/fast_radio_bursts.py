@@ -544,123 +544,73 @@ class FastRadioBursts(object):
             for obs in self.observations
         }
 
-    def _cross_correlation(self, namei, namej):
-
-        """
-        #Compute the cross correlations between two observation sets
-        """
-
-        obsi = self.observations[namei]
-        obsj = self.observations[namej]
-
-        respi = obsi.response[..., numpy.newaxis]
-        respj = obsj.response[:, numpy.newaxis]
-
-        noii = obsi.noise[:, numpy.newaxis]
-        noij = obsj.noise
-
-        response = 0.5 * numpy.sqrt(respi * respj)
-        noise = numpy.sqrt(0.5 * noii * noij)
-
-        frequency_bands = obsi.frequency_bands
-
-        return Observation(response, noise,
-                           frequency_bands,
-                           full=False)
-
     def interferometry(self, **telescopes):
 
+        observations = self.observations
+
         names = numpy.array([*telescopes.keys()])
-        iterator = super_zip(*telescopes.values())
 
         n_scopes = len(names)
-
-        observations = self.observations
+        n_frb = self.n_frb
 
         n_channel = numpy.unique([
                 observations[name].n_channel
                 for name in names
-            ]).astype(numpy.int32).item(0)
+            ]).item(0)
 
         n_beam = numpy.concatenate([
                 observations[name].n_beam
                 for name in names
-            ]).astype(numpy.int32)
+            ])
 
         shapes = numpy.diag(n_beam - 1)
         shapes = shapes + numpy.ones_like(shapes)
 
         responses = [
-            0.5 * observations[name].response.reshape((self.n_frb, *shape))
+            0.5 * observations[name].response.reshape((n_frb, *shape))
             for name, shape in zip(names, shapes)
         ]
 
-        inoises = [
-            0.5 / observations[name].noise.reshape((*shape, n_channel))**2
+        responses += [
+            numpy.sqrt(ri * rj)
+            for ri, rj in combinations(responses, 2)
+        ]
+
+        inoises_sq = [
+            2 / observations[name].noise.reshape((*shape, n_channel))**2
             for name, shape in zip(names, shapes)
         ]
 
-        if n_scopes > 1:
+        inoises_sq += [
+            numpy.sqrt(ni * nj)
+            for ni, nj in combinations(inoises_sq, 2)
+        ]
 
-            xobservations = [
-                self._cross_correlation(names[i], names[j])
-                for i, j in combinations(range(n_scopes), 2)
-            ]
+        iterator = super_zip(*telescopes.values())
 
-            shapes = numpy.row_stack([
-                    shapes[i] * shapes[j]
-                    for i, j in combinations(range(n_scopes), 2)
-                ])
-
-            xresponses = [
-                0.5 * xobs.response.reshape((self.n_frb, *shape))
-                for xobs, shape in zip(xobservations, shapes)
-            ]
-
-            xinoises = [
-                0.5 / xobs.noise.reshape((*shape, n_channel))**2
-                for xobs, shape in zip(xobservations, shapes)
-            ]
-
-        for icounts in iterator:
-
-            counts = numpy.array(icounts)
+        for counts in iterator:
 
             factors = (counts * (counts - 1)) // 2
+            xfactors = numpy.array([ci * cj for ci, cj
+                                    in combinations(counts, 2)])
+            factors = numpy.concatenate((factors, xfactors))
 
-            Responses = [
-                factor * response
-                for factor, response in zip(factors, responses)
+            response = [
+                factor * resp
+                for factor, resp in zip(factors, responses)
             ]
 
-            iNoises = [
-                factor * inoise
-                for factor, inoise in zip(factors, inoises)
+            inoise_sq = [
+                factor * in_sq
+                for factor, in_sq in zip(factors, inoises_sq)
             ]
 
-            if n_scopes > 1:
+            nunit = numpy.unique([q.unit for q in inoise_sq]).item(0)
 
-                factors = numpy.array([
-                    counts[i] * counts[j]
-                    for i, j in combinations(range(n_scopes), 2)
-                ])
+            response = sum(response, numpy.empty(()))
+            inoise_sq = sum(inoise_sq, numpy.empty(()) * nunit)
 
-                Responses += [
-                    factor * xresponse
-                    for factor, xresponse in zip(factors, xresponses)
-                ]
-
-                iNoises += [
-                    factor * xinoise
-                    for factor, xinoise in zip(factors, xinoises)
-                ]
-
-            nunit = numpy.unique([noise.unit for noise in iNoises]).item(0)
-
-            response = sum(Responses, numpy.empty(()))
-            noise = sum(iNoises, numpy.empty(()) * nunit)
-
-            noise = 1 / numpy.sqrt(noise)
+            noise = 1 / numpy.sqrt(inoise_sq)
 
             frequency_bands = observations[names[0]].frequency_bands
 

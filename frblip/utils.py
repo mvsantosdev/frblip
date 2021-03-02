@@ -132,4 +132,6 @@ def super_zip(*args):
 
         iterators.append(it)
 
-    return zip(*iterators)
+    iterators = numpy.array([*zip(*iterators)])
+
+    return iter(iterators)
