@@ -28,7 +28,8 @@ class RadioTelescope(object):
     """
 
     def __init__(self, name='bingo', kind='gaussian',
-                 start_time=None, **kwargs):
+                 start_time=None, offset=(90.0, 0.0),
+                 **kwargs):
 
         """
         Creates a Survey object.
@@ -92,15 +93,34 @@ class RadioTelescope(object):
 
         if kind == 'grid':
 
-            self.selection = CartesianGrid(**input_dict)
+            self._response = CartesianGrid(**input_dict)
 
         elif kind in ('tophat', 'bessel', 'gaussian'):
 
-            self.selection = FunctionalPattern(kind, **input_dict)
+            input_dict['kind'] = kind
+
+            self._response = FunctionalPattern(**input_dict)
 
         else:
 
             print('Please choose a valid pattern kind')
+
+        alt, az = offset
+        alt = alt - 90
+
+        AltAz = coordinates.AltAz(alt=alt * units.degree,
+                                  az=az * units.degree)
+
+        self.Offset = coordinates.SkyOffsetFrame(origin=AltAz)
+
+    def response(self, AltAz):
+
+        OffAltAz = AltAz.transform_to(self.Offset)
+
+        AltAz = coordinates.AltAz(alt=OffAltAz.lat,
+                                  az=OffAltAz.lon)
+
+        return self._response(AltAz)
 
     def _load_params(self, frequency_bands, polarizations,
                      system_temperature, sampling_time,

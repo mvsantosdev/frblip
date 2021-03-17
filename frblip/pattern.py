@@ -2,18 +2,22 @@ import numpy
 
 from scipy.special import j1
 
-from astropy import units
+from astropy import units, coordinates
 
 from .utils import _all_sky_area, angular_separation
 
 
 class FunctionalPattern(object):
 
-    def __init__(self, kind, az, alt,
-                 maximum_gain, **kwargs):
+    def __init__(self, maximum_gain, alt=90.0, az=0.0,
+                 kind='gaussian', **kwargs):
 
-        self.az = az * units.degree
-        self.alt = alt * units.degree
+        self.n_beam = numpy.size(az)
+
+        AltAz = coordinates.AltAz(alt=alt * units.degree,
+                                  az=az * units.degree)
+
+        self.Offsets = coordinates.SkyOffsetFrame(origin=AltAz)
 
         solid_angle = 10**(- 0.1 * maximum_gain)
         solid_angle = _all_sky_area * solid_angle
@@ -21,24 +25,27 @@ class FunctionalPattern(object):
 
         arg = 1 - solid_angle / (2 * numpy.pi)
 
-        radius = numpy.arccos(arg) * units.rad
-
-        self.radius = radius.to(units.degree)
+        self.radius = numpy.arccos(arg) * units.rad
 
         self.response = self.__getattribute__(kind)
 
-    def __call__(self, azalt):
+    def __call__(self, AltAz):
 
-        az = azalt.az
-        alt = azalt.alt
+        AltAzOffs = [
+            AltAz.transform_to(self.Offsets[i])
+            for i in range(self.n_beam)
+        ]
 
-        arcs = angular_separation(az.reshape(-1, 1),
-                                  alt.reshape(-1, 1),
-                                  self.az, self.alt)
+        cossines = numpy.column_stack([
+            AltAzOff.cartesian.x
+            for AltAzOff in AltAzOffs
+        ])
 
-        rescaled_arc = (arcs / self.radius).to(1).value
+        arcs = numpy.arccos(cossines)
 
-        return self.response(rescaled_arc)
+        rescaled_arc = arcs / self.radius
+
+        return self.response(rescaled_arc).to(1).value
 
     def tophat(self, x):
 

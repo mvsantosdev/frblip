@@ -183,14 +183,16 @@ class FastRadioBursts(object):
 
         return start_time + self.time.ravel()
 
-    def get_local_coordinates(self, location, start_time=None):
+    def get_local_coordinates(self, location, start_time=None, interp=300):
 
         obstime = self.observation_time(start_time)
 
         AltAzFrame = coordinates.AltAz(location=location,
                                        obstime=obstime)
 
-        with erfa_astrom.set(ErfaAstromInterpolator(300 * units.s)):
+        interp_time = interp * units.s
+
+        with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
 
             AltAzCoords = self.sky_coord.transform_to(AltAzFrame)
 

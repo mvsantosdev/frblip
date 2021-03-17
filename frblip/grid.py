@@ -1,31 +1,31 @@
 import numpy
 
-from scipy.interpolate import RectBivariateSpline
+from astropy import units, coordinates
 
-from astropy.coordinates import CartesianRepresentation
-from astropy.coordinates.matrix_utilities import rotation_matrix
+from scipy.interpolate import RectBivariateSpline
 
 
 class CartesianGrid(object):
 
-    def __init__(self, xrange, yrange, grid, az=None, alt=None,
-                 rotation=None, **kwargs):
+    def __init__(self, grid, xrange, yrange, alt=90, az=0.0,
+                 **kwargs):
+
+        self._min = grid.min()
 
         if grid.ndim == 3:
 
-            n_beams, xdim, ydim = grid.shape
+            self.n_beam, xdim, ydim = grid.shape
 
             x = numpy.linspace(*xrange, xdim)
             y = numpy.linspace(*yrange, ydim)
 
             self.patterns = [
                 RectBivariateSpline(y, x, g,
-                                    kx=1, ky=1)
+                                    kx=3, ky=3)
                 for g in grid
             ]
 
             self.response = self._multiple_grids
-            self.mesh = self._mesh_multiple_grids
 
         elif grid.ndim == 2:
 
@@ -35,89 +35,46 @@ class CartesianGrid(object):
             y = numpy.linspace(*yrange, ydim)
 
             self.pattern = RectBivariateSpline(y, x, grid,
-                                               kx=1, ky=1)
+                                               kx=3, ky=3)
 
-            if (az is None) and (alt is None):
+            self.response = self._unique_grid
 
-                self.response = self._unique_grid
-                self.mesh = self._mesh_unique_grid
+            self.n_beam = numpy.size(alt)
 
-            else:
+            AltAz = coordinates.AltAz(alt=alt * units.degree,
+                                      az=az * units.degree)
 
-                self.response = self._shifted_unique_grid
-                self.mesh = self._mesh_shifted_unique_grid
+            self.Offsets = coordinates.SkyOffsetFrame(origin=AltAz)
 
-                self.rotations = []
+    def __call__(self, AltAz):
 
-                for iaz, ialt in zip(az, alt):
+        return self.response(AltAz).clip(self._min)
 
-                    rot180z = rotation_matrix(180, axis='z')
-                    rot90y = rotation_matrix(90, axis='y')
+    def _unique_grid(self, AltAz):
 
-                    az_shift = rot180z @ rotation_matrix(iaz, axis='z')
-                    alt_shift = rot90y @ rotation_matrix(-ialt, axis='y')
+        AltAzOffs = [
+            AltAz.transform_to(self.Offsets[i])
+            for i in range(self.n_beam)
+        ]
 
-                    shift = az_shift @ alt_shift
-                    shift = numpy.linalg.inv(shift)
+        x = numpy.column_stack([
+            AltAzOff.cartesian.y
+            for AltAzOff in AltAzOffs
+        ])
 
-                    self.rotations.append(shift)
+        y = numpy.column_stack([
+            AltAzOff.cartesian.z
+            for AltAzOff in AltAzOffs
+        ])
 
-    def __call__(self, azalt):
+        return self.pattern.ev(y, x)
 
-        xyz = azalt.represent_as('cartesian')
+    def _multiple_grids(self, AltAz):
 
-        return self.response(xyz)
-
-    def _unique_grid(self, xyz):
-
-        return self.pattern.ev(xyz.y.value,
-                               xyz.x.value)
-
-    def _multiple_grids(self, xyz):
-
-        return numpy.column_stack([
-                pattern.ev(xyz.y.value,
-                           xyz.x.value)
-                for pattern in self.patterns
-            ])
-
-    def _shifted_unique_grid(self, xyz):
+        x = AltAz.cartesian.x
+        y = AltAz.cartesian.y
 
         return numpy.column_stack([
-                self._unique_grid(xyz.transform(rotation))
-                for rotation in self.rotations
-            ])
-
-    def _mesh_unique_grid(self, x, y):
-
-        return self.pattern(y, x)
-
-    def _mesh_multiple_grids(self, x, y):
-
-        return numpy.stack([
-                pattern(y, x)
+                pattern.ev(y, x)
                 for pattern in self.patterns
             ])
-
-    def _mesh_shifted_unique_grid(self, x, y):
-
-        X, Y = numpy.meshgrid(x, y)
-        Z = numpy.sqrt(1 - X**2 - Y**2)
-
-        xyz0 = CartesianRepresentation(x=X.ravel(),
-                                       y=Y.ravel(),
-                                       z=Z.ravel())
-
-        responses = []
-
-        for rotation in self.rotations:
-
-            xyz = xyz0.transform(rotation)
-
-            response = self.pattern.ev(xyz.y.value,
-                                       xyz.x.value)
-            response = response.reshape(Z.shape)
-
-            responses.append(response)
-
-        return numpy.stack(responses)
