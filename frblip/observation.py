@@ -54,7 +54,7 @@ class Observation():
 
             self.noise = noise
 
-        elif noise.shape == (1, self.n_channel):
+        elif noise.shape == (self.n_channel, ):
 
             self.noise = numpy.tile(noise, (*self.n_beam, 1))
             self.unique_beam = True

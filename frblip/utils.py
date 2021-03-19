@@ -4,7 +4,7 @@ import numpy
 
 from collections import namedtuple
 
-from itertools import repeat, cycle
+from itertools import repeat, cycle, product
 
 from astropy import coordinates, units
 
@@ -24,27 +24,6 @@ null_location = namedtuple('null_location', ['lon', 'lat', 'height'])
 null_obstime = namedtuple('null_obstime', ['iso'])
 
 
-def uv2azalt(u, v):
-
-    r = numpy.sqrt(u**2 + v**2)
-
-    az = - numpy.arctan2(u, v).to(units.degree)
-    alt = numpy.arccos(r).to(units.degree)
-
-    return az, alt
-
-
-def azalt2uvw(az, alt):
-
-    calt = numpy.cos(alt)
-
-    u = - calt * numpy.sin(az)
-    v = calt * numpy.cos(az)
-    w = numpy.sin(alt)
-
-    return u, v, w
-
-
 def schechter(x, alpha):
 
     return (x**alpha) * numpy.exp(-x)
@@ -57,16 +36,6 @@ def simps(y):
     b = y[..., 2::2]
 
     return (a + b + 4*m) / 6
-
-
-def angular_separation(lon1, lat1, lon2, lat2):
-
-    s1, s2 = numpy.sin(lat1), numpy.sin(lat2)
-    c1, c2 = numpy.cos(lat1), numpy.cos(lat2)
-
-    cosu = s1 * s2 + c1 * c2 * numpy.cos(lon1 - lon2)
-
-    return numpy.arccos(cosu).to(units.degree)
 
 
 def rvs_from_pdf(pdf, xmin, xmax, size=1):
@@ -100,38 +69,3 @@ def rvs_from_cdf(pdf, xmin, xmax, precision=1e-5, size=1, **kwargs):
     U = numpy.random.random(size)
 
     return numpy.interp(x=U, xp=cdf, fp=x)
-
-
-def super_zip(*args):
-
-    sizes = numpy.array([numpy.size(arg) for arg in args])
-
-    max_size = sizes.max()
-
-    if max_size == 1:
-
-        return iter([numpy.array([*args])])
-
-    iterators = []
-
-    for size, arg in zip(sizes, args):
-
-        size = numpy.size(arg)
-
-        if size == max_size:
-
-            it = iter(arg)
-
-        elif size == 1:
-
-            it = repeat(arg)
-
-        else:
-
-            it = cycle(arg)
-
-        iterators.append(it)
-
-    iterators = numpy.array([*zip(*iterators)])
-
-    return iter(iterators)

@@ -8,7 +8,7 @@ import pandas
 
 from scipy.special import comb
 
-from itertools import combinations
+from itertools import combinations, product
 
 from scipy.integrate import quad, cumtrapz
 
@@ -19,9 +19,8 @@ from astropy import cosmology, coordinates, units
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
-
+from .utils import null_coordinates, null_location, null_obstime
 from .utils import _all_sky_area, _DATA, schechter, rvs_from_cdf, simps
-from .utils import null_coordinates, null_location, null_obstime, super_zip
 
 from .dispersion import *
 
@@ -37,7 +36,8 @@ class FastRadioBursts(object):
     def __init__(self, n_frb=None, days=1, Lstar=2.9e44, L_0=9.1e41,
                  phistar=339, alpha=-1.79, wint=(.13, .33), si=(-15, 15),
                  ra=(0, 24), dec=(-90, 90), zmax=6, cosmo=None, verbose=True,
-                 lower_frequency=400, higher_frequency=1400):
+                 lower_frequency=400, higher_frequency=1400, dispersion=True,
+                 width=True):
 
         """
         Creates a FRB population object.
@@ -83,7 +83,11 @@ class FastRadioBursts(object):
 
         self._coordinates()
 
-        self._dispersion()
+        self._primary()
+        self._derived()
+
+        if dispersion:
+            self._dispersion()
 
         sys.stdout = old_target
 
@@ -127,23 +131,25 @@ class FastRadioBursts(object):
 
     def select(self, idx, inplace=False):
 
-        frbs = self if inplace else FastRadioBursts(verbose=False)
+        frbs = self if inplace else FastRadioBursts(n_frb=0, verbose=False)
 
-        frbs.redshift = self.redshift[idx]
-        frbs.comoving_distance = self.comoving_distance[idx]
-        frbs.luminosity = self.luminosity[idx]
-        frbs.flux = self.flux[idx]
-        frbs.sky_coord = self.sky_coord[idx]
-        frbs.pulse_width = self.pulse_width[idx]
-        frbs.arrived_pulse_width = self.arrived_pulse_width[idx]
-        frbs.galactic_dispersion = self.galactic_dispersion[idx]
-        frbs.host_dispersion = self.host_dispersion[idx]
-        frbs.igm_dispersion = self.igm_dispersion[idx]
-        frbs.source_dispersion = self.source_dispersion[idx]
-        frbs.dispersion = self.dispersion[idx]
-        frbs.spectral_index = self.spectral_index[idx]
-        frbs.time = self.time[idx]
-        frbs.S0 = self.S0[idx]
+        update_dict = {
+            'sky_coord': self.sky_coord[idx],
+            'dec_range': self.dec_range,
+            'ra_range': self.ra_range
+        }
+
+        keys = [*update_dict.keys()]
+
+        update_dict.update({
+            key: value[idx] if numpy.size(value) > 1 else value
+            for key, value in self.__dict__.items()
+            if key not in keys
+        })
+
+        frbs.__dict__.update(update_dict)
+
+        frbs.n_frb = frbs.redshift.size
 
         if 'observations' in self.__dict__.keys():
 
@@ -152,27 +158,7 @@ class FastRadioBursts(object):
                 for name, obs in self.observations.items()
             }
 
-        frbs.n_frb = len(frbs.redshift)
-
         if not inplace:
-
-            frbs.zmax = self.zmax
-            frbs.L_0 = self.L_0
-            frbs.Lstar = self.Lstar
-            frbs.phistar = self.phistar
-            frbs.alpha = self.alpha
-
-            frbs.ra_range = self.ra_range
-            frbs.dec_range = self.dec_range
-
-            frbs.lower_frequency = self.lower_frequency
-            frbs.higher_frequency = self.higher_frequency
-
-            frbs.area = self.area
-            frbs.rate = self.rate
-            frbs.sky_rate = self.sky_rate
-
-            frbs.duration = self.duration
 
             return frbs
 
@@ -200,18 +186,11 @@ class FastRadioBursts(object):
 
     def specific_flux(self, nu):
 
-        return self.S0 * (nu.value**self.spectral_index)
+        nut = nu.value.reshape(-1, 1)
 
-    def peak_density_flux(self, survey):
+        S = self.__S0 * (nut**self.spectral_index)
 
-        _sip1 = self.spectral_index + 1
-
-        num = survey.frequency_bands.value**_sip1
-        num = numpy.diff(num, axis=0)
-
-        Speak = self.flux * num / (self.dnu * survey.band_widths)
-
-        return Speak.T
+        return S.T
 
     def _frb_rate(self, n_frb, days):
 
@@ -219,7 +198,7 @@ class FastRadioBursts(object):
 
         self.sky_rate = self._sky_rate()
 
-        all_ra = self.ra_range != numpy.array([0, 24]) * units.hourangle
+        all_ra = self.ra_range != numpy.array([0, 360]) * units.degree
         all_dec = self.dec_range != numpy.array([-90, 90]) * units.degree
 
         if all_ra.all() or all_dec.all():
@@ -268,6 +247,9 @@ class FastRadioBursts(object):
         self.phistar = phistar / (units.Gpc**3 * units.year)
         self.alpha = alpha
 
+        self.w_mean, self.w_std = wint
+        self.si_min, self.si_max = si
+
         self.ra_range = numpy.array(ra) * units.hourangle
         self.dec_range = numpy.array(dec) * units.degree
 
@@ -278,38 +260,43 @@ class FastRadioBursts(object):
 
         self._frb_rate(n_frb, days)
 
+    def _primary(self):
+
         z, co = self._z_dist()
 
         self.redshift = z
         self.comoving_distance = co
 
-        _zp1 = 1 + z
-
-        self.luminosity_distance = _zp1 * co
-
         self.luminosity = self._luminosity()
-
-        surface = 4 * numpy.pi * self.luminosity_distance**2
-
-        self.flux = (self.luminosity / surface).to(units.Jy * units.MHz)
-
-        self.pulse_width = random.lognormal(*wint, (self.n_frb, 1)) * units.ms
-
-        self.arrived_pulse_width = _zp1 * self.pulse_width
+        self.pulse_width = random.lognormal(self.w_mean, self.w_std,
+                                            size=self.n_frb) * units.ms
 
         time_ms = int(self.duration.to(units.ms).value)
+        self.time = random.randint(time_ms, size=self.n_frb) * units.ms
 
-        self.time = random.randint(time_ms, size=(self.n_frb, 1)) * units.ms
+        self.spectral_index = random.uniform(self.si_min,
+                                             self.si_max,
+                                             self.n_frb)
 
-        self.spectral_index = random.uniform(*si, (self.n_frb, 1))
+    def _derived(self):
+
+        _zp1 = 1 + self.redshift
+
+        self.__luminosity_distance = _zp1 * self.comoving_distance
+
+        surface = 4 * numpy.pi * self.__luminosity_distance**2
+
+        self.__flux = (self.luminosity / surface).to(units.Jy * units.MHz)
+
+        self.__arrived_pulse_width = _zp1 * self.pulse_width
 
         _sip1 = self.spectral_index + 1
 
-        nu_low = lower_frequency**_sip1
-        nu_high = higher_frequency**_sip1
+        nu_low = self.lower_frequency.value**_sip1
+        nu_high = self.higher_frequency.value**_sip1
 
-        self.S0 = _sip1 * self.flux / (nu_high - nu_low)
-        self.S0 = self.S0 / units.MHz
+        self.__S0 = _sip1 * self.__flux / (nu_high - nu_low)
+        self.__S0 = self.__S0 / units.MHz
 
     def _sky_area(self):
 
@@ -362,28 +349,28 @@ class FastRadioBursts(object):
 
         _zp1 = 1 + self.redshift
 
-        lon = self.sky_coord.galactic.l.reshape(-1, 1)
-        lat = self.sky_coord.galactic.b.reshape(-1, 1)
+        lon = self.sky_coord.galactic.l
+        lat = self.sky_coord.galactic.b
 
         gal_DM = galactic_dispersion(lon, lat)
         host_DM = host_galaxy_dispersion(self.redshift)
-        src_DM = source_dispersion((self.n_frb, 1))
+        src_DM = source_dispersion(self.n_frb)
         igm_DM = igm_dispersion(self.redshift, zmax=self.zmax)
 
         egal_DM = igm_DM + (src_DM + host_DM) / _zp1
 
-        self.galactic_dispersion = gal_DM
-        self.host_dispersion = host_DM
-        self.source_dispersion = src_DM
-        self.igm_dispersion = igm_DM
+        self.__galactic_dispersion = gal_DM
+        self.__host_dispersion = host_DM
+        self.__source_dispersion = src_DM
+        self.__igm_dispersion = igm_DM
 
-        self.extra_galactic_dispersion = egal_DM
+        self.__extra_galactic_dispersion = egal_DM
 
-        self.dispersion = gal_DM + egal_DM
+        self.__dispersion = gal_DM + egal_DM
 
     def _z_dist(self):
 
-        U = random.random((self.n_frb, 1))
+        U = random.random(self.n_frb)
 
         zs = numpy.linspace(.0, self.zmax, 100)
 
@@ -405,7 +392,7 @@ class FastRadioBursts(object):
         xmin = (self.L_0 / self.Lstar).value
 
         rvs = rvs_from_cdf(schechter, xmin, 3,
-                           size=(self.n_frb, 1),
+                           size=self.n_frb,
                            alpha=self.alpha)
 
         return self.Lstar * rvs
@@ -433,12 +420,12 @@ class FastRadioBursts(object):
                 local_coordinates = self.get_local_coordinates(location,
                                                                start_time)
 
-            response = Telescope.selection(local_coordinates)
+            response = Telescope.response(local_coordinates)
 
         else:
 
+            noise = noise.min(0)
             response = numpy.array([[1.0]])
-            noise = noise.min(-1)
 
             obstime = self.observation_time(start_time)
 
@@ -588,13 +575,19 @@ class FastRadioBursts(object):
             for ni, nj in combinations(inoises_sq, 2)
         ]
 
-        iterator = super_zip(*telescopes.values())
+        telescopes.update({
+            name: [count]
+            for name, count in telescopes.items()
+            if type(count) is int
+        })
 
-        for counts in iterator:
+        for counts in product(*telescopes.values()):
 
-            factors = (counts * (counts - 1)) // 2
+            arr = numpy.array(counts)
+
+            factors = (arr * (arr - 1)) // 2
             xfactors = numpy.array([ci * cj for ci, cj
-                                    in combinations(counts, 2)])
+                                    in combinations(arr, 2)])
             factors = numpy.concatenate((factors, xfactors))
 
             response = [
@@ -645,40 +638,33 @@ class FastRadioBursts(object):
     def save(self, file):
 
         out_dict = {
-            'L_0': self.L_0,
-            'Lstar': self.Lstar,
-            'phistar': self.phistar,
-            'ra_range': self.ra_range,
-            'dec_range': self.dec_range,
-            'lower_frequency': self.lower_frequency,
-            'higher_frequency': self.higher_frequency,
-            'sky_rate': self.sky_rate,
-            'area': self.area,
-            'rate': self.rate,
-            'duration': self.duration,
-            'redshift': self.redshift,
-            'comoving_distance': self.comoving_distance,
-            'luminosity': self.luminosity,
-            'ra': self.sky_coord.ra,
-            'dec': self.sky_coord.dec,
-            'pulse_width': self.pulse_width,
-            'galactic_dispersion': self.galactic_dispersion,
-            'host_dispersion': self.host_dispersion,
-            'igm_dispersion': self.igm_dispersion,
-            'source_dispersion': self.source_dispersion,
-            'spectral_index': self.spectral_index,
-            'time': self.time,
+            key: name
+            for key, name in self.__dict__.items()
+            if '_FastRadioBursts__' not in key
         }
 
-        if 'observations' in self.__dict__.keys():
+        sky_coord = out_dict.pop('sky_coord')
 
-            out_dict['observations'] = numpy.array([*self.observations.keys()])
+        out_dict['ra'] = sky_coord.ra
+        out_dict['dec'] = sky_coord.dec
+
+        if 'observations' in out_dict:
+
+            observations = out_dict.pop('observations')
+
+            out_dict['observations'] = numpy.array([*observations.keys()])
 
             for obs in out_dict['observations']:
 
                 out_dict.update(
-                    self.observations[obs].to_dict(key=obs)
+                    observations[obs].to_dict(key=obs)
                 )
+
+        out_dict.update({
+            'u_{}'.format(key): value.unit.to_string()
+            for key, value in out_dict.items()
+            if hasattr(value, 'unit')
+        })
 
         numpy.savez(file, **out_dict)
 
@@ -688,73 +674,51 @@ class FastRadioBursts(object):
         output = FastRadioBursts(n_frb=0, verbose=False)
 
         input_file = numpy.load(file, allow_pickle=True)
-        udm = units.pc / units.cm**3
-        ergs = units.erg / units.s
+        input_dict = dict(input_file)
 
-        output.L_0 = input_file['L_0'] * ergs
-        output.Lstar = input_file['Lstar'] * ergs
-        output.phistar = input_file['phistar'] * output.phistar.unit
-        output.ra_range = input_file['ra_range'] * output.ra_range.unit
-        output.dec_range = input_file['dec_range'] * output.dec_range.unit
-        output.lower_frequency = input_file['lower_frequency'] * units.MHz
-        output.higher_frequency = input_file['higher_frequency'] * units.MHz
-        output.sky_rate = input_file['sky_rate'] / units.day
-        output.area = input_file['area'] * units.degree**2
-        output.rate = input_file['rate'] / units.day
-        output.duration = input_file['duration'] * output.duration.unit
+        u_keys = [key for key in input_dict if 'u_' in key]
+        keys = [key.replace('u_', '') for key in u_keys]
 
-        ra = input_file['ra'] * units.degree
-        dec = input_file['dec'] * units.degree
+        input_units = {
+            key: units.Unit(input_dict[u_key].item())
+            for u_key, key in zip(u_keys, keys)
+        }
 
-        output.sky_coord = coordinates.SkyCoord(ra, dec, frame='icrs')
+        filtered = filter(input_dict.__contains__, u_keys)
+        [*map(input_dict.__delitem__, filtered)]
 
-        output.redshift = input_file['redshift']
-        output.comoving_distance = input_file['comoving_distance'] * units.Mpc
-        output.luminosity = input_file['luminosity'] * ergs
-        output.pulse_width = input_file['pulse_width'] * units.ms
-        output.time = input_file['time'] * units.ms
-        output.spectral_index = input_file['spectral_index']
+        input_dict.update({
+            key: input_dict[key] * input_units[key]
+            for key in keys
+        })
 
-        output.n_frb = len(output.redshift)
+        input_dict.update({
+            key: value.item()
+            for key, value in input_dict.items()
+            if value.ndim == 0
+        })
 
-        _zp1 = 1 + output.redshift
-        _sip1 = 1 + output.spectral_index
+        if 'observations' in input_dict.keys():
 
-        output.arrived_pulse_width = output.pulse_width * _zp1
-        output.luminosity_distance = output.comoving_distance * _zp1
-
-        surface = 4 * numpy.pi * output.luminosity_distance**2
-
-        output.flux = (output.luminosity / surface).to(units.Jy * units.MHz)
-
-        nu_low = input_file['lower_frequency']**_sip1
-        nu_high = input_file['higher_frequency']**_sip1
-
-        output.S0 = _sip1 * output.flux / (nu_high - nu_low)
-        output.S0 = output.S0 / units.MHz
-
-        gal_DM = input_file['galactic_dispersion'] * udm
-        host_DM = input_file['host_dispersion'] * udm
-        src_DM = input_file['source_dispersion'] * udm
-        igm_DM = input_file['igm_dispersion'] * udm
-
-        egal_DM = igm_DM + (src_DM + host_DM) / _zp1
-
-        output.galactic_dispersion = gal_DM
-        output.host_dispersion = host_DM
-        output.source_dispersion = src_DM
-        output.igm_dispersion = igm_DM
-
-        output.extra_galactic_dispersion = egal_DM
-        output.dispersion = gal_DM + egal_DM
-
-        if 'observations' in input_file.files:
+            observations = input_dict.pop('observations')
 
             output.observations = {}
 
-            for obs in input_file['observations']:
+            for obs in observations:
 
-                output.observations[obs] = Observation.from_dict(key=obs,
-                                                                 **input_file)
+                observation = Observation.from_dict(key=obs, **input_file)
+
+                output.observations[obs] = observation
+
+        ra = input_dict.pop('ra')
+        dec = input_dict.pop('dec')
+
+        sky_coords = coordinates.SkyCoord(ra, dec,
+                                          frame='icrs')
+
+        input_dict['sky_coord'] = sky_coords
+
+        output.__dict__.update(input_dict)
+        output._derived()
 
         return output
