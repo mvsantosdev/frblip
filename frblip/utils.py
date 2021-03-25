@@ -18,10 +18,53 @@ _all_sky_area = 4 * numpy.pi * units.sr
 _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
 
-null_coordinates = namedtuple('null_coordinates',
-                              ['az', 'alt', 'obstime', 'location'])
-null_location = namedtuple('null_location', ['lon', 'lat', 'height'])
-null_obstime = namedtuple('null_obstime', ['iso'])
+
+def load(file):
+
+    output = numpy.load(file, allow_pickle=True)
+    output = dict(output)
+
+    output.update({
+            key: value.item()
+            for key, value in output.items()
+            if value.ndim == 0
+        })
+
+    return output
+
+
+def sub_dict(kwargs, keys=None, flag='', pop=False,
+             replace_flag='', apply=lambda x: x):
+
+    dict_func = (lambda x: kwargs.pop(x, None)) if pop else kwargs.get
+
+    def func(x):
+        return apply(dict_func(x))
+
+    keys = [*kwargs.keys()] if keys is None else keys
+    keys = [key for key in keys if flag in key]
+
+    output = {
+        key.replace(flag, replace_flag): func(key)
+        for key in keys
+    }
+
+    return {k: v for k, v in output.items() if v is not None}
+
+
+def load_params(file):
+
+    input_dict = load(file)
+
+    input_units = sub_dict(input_dict, flag='u_', pop=True,
+                           apply=units.Unit)
+
+    input_dict.update({
+        key: input_dict[key] * units.Unit(input_units[key])
+        for key in input_units
+    })
+
+    return input_dict
 
 
 def schechter(x, alpha):

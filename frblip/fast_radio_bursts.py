@@ -19,7 +19,7 @@ from astropy import cosmology, coordinates, units
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
-from .utils import null_coordinates, null_location, null_obstime
+from .utils import load_params, sub_dict
 from .utils import _all_sky_area, _DATA, schechter, rvs_from_cdf, simps
 
 from .dispersion import *
@@ -44,7 +44,7 @@ class FastRadioBursts(object):
 
         Parameters
         ----------
-        ngen : int
+        n_frb : int
             Number of generated FRBs.
         days : float
             Number of days of observation.
@@ -70,7 +70,7 @@ class FastRadioBursts(object):
 
         Returns
         -------
-        out: FRB object.
+        out: FastRadioBursts object.
 
         """
 
@@ -169,20 +169,20 @@ class FastRadioBursts(object):
 
         return start_time + self.time.ravel()
 
-    def get_local_coordinates(self, location, start_time=None, interp=300):
+    def altaz(self, location, start_time=None, interp=300):
 
         obstime = self.observation_time(start_time)
 
-        AltAzFrame = coordinates.AltAz(location=location,
-                                       obstime=obstime)
+        frame = coordinates.AltAz(location=location,
+                                  obstime=obstime)
 
         interp_time = interp * units.s
 
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
 
-            AltAzCoords = self.sky_coord.transform_to(AltAzFrame)
+            altaz = self.sky_coord.transform_to(frame)
 
-        return AltAzCoords
+        return altaz
 
     def specific_flux(self, nu):
 
@@ -397,46 +397,37 @@ class FastRadioBursts(object):
 
         return self.Lstar * rvs
 
-    def _observe(self, Telescope, location=None, start_time=None,
-                 name=None, local_coordinates=None, full=True):
+    def _observe(self, Telescope, location=None, start=None,
+                 name=None, altaz=None, full=True):
 
         if 'observations' not in self.__dict__.keys():
 
             self.observations = {}
 
-        noise = Telescope.minimum_temperature / Telescope.gain.reshape(-1, 1)
-        noise = noise.to(units.Jy)
+        noise = Telescope.noise()
 
         location = Telescope.location if location is None else location
-        start_time = Telescope.start_time if start_time is None else start_time
+        start_time = Telescope.start_time if start is None else start
 
         frequency_bands = Telescope.frequency_bands
         sampling_time = Telescope.sampling_time
 
         if full:
 
-            if local_coordinates is None:
-
-                local_coordinates = self.get_local_coordinates(location,
-                                                               start_time)
-
-            response = Telescope.response(local_coordinates)
+            altaz = self.altaz(location, start) if altaz is None else altaz
+            response = Telescope.response(altaz)
 
         else:
 
             noise = noise.min(0)
             response = numpy.array([[1.0]])
 
-            obstime = self.observation_time(start_time)
+            obstime = self.observation_time(start)
 
-            local_coordinates = null_coordinates(az=numpy.nan,
-                                                 alt=numpy.nan,
-                                                 obstime=obstime,
-                                                 location=location)
+            altaz = coordinates.AltAz(location=location, obstime=obstime)
 
         obs = Observation(response, noise, frequency_bands,
-                          sampling_time, local_coordinates,
-                          full)
+                          sampling_time, altaz)
 
         n_obs = len(self.observations)
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
@@ -444,20 +435,20 @@ class FastRadioBursts(object):
 
         self.observations[obs_name] = obs
 
-    def observe(self, Telescopes, location=None, start_time=None,
-                name=None, local_coordinates=None, full=True):
+    def observe(self, Telescopes, location=None, start=None,
+                name=None, altaz=None, full=True):
 
         if type(Telescopes) is dict:
 
             for Name, Telescope in Telescopes.items():
 
-                self._observe(Telescope, location, start_time,
-                              Name, local_coordinates, full)
+                self._observe(Telescope, location, start,
+                              Name, altaz, full)
 
         else:
 
-            self._observe(Telescopes, location, start_time,
-                          name, local_coordinates, full)
+            self._observe(Telescopes, location, start,
+                          name, altaz, full)
 
     def clear(self, names=None):
 
@@ -475,7 +466,7 @@ class FastRadioBursts(object):
 
         obs = self.observations[name]
 
-        signal = self.specific_flux(obs._frequency)
+        signal = self.specific_flux(obs._Observation__frequency)
         signal = simps(signal)
 
         nshape = len(obs.response.shape) - 1
@@ -483,7 +474,7 @@ class FastRadioBursts(object):
 
         response = obs.response[..., numpy.newaxis]
         signal = signal.reshape((self.n_frb, *ishape,
-                                 obs.n_channel))
+                                 obs._Observation__n_channel))
 
         signal = response * signal
 
@@ -491,7 +482,8 @@ class FastRadioBursts(object):
 
             return signal
 
-        return numpy.average(signal, weights=obs._band_widths, axis=-1)
+        return numpy.average(signal, weights=obs._Observation__band_widths,
+                             axis=-1)
 
     def signal(self, channels=False):
 
@@ -543,12 +535,12 @@ class FastRadioBursts(object):
         n_frb = self.n_frb
 
         n_channel = numpy.unique([
-                observations[name].n_channel
+                observations[name]._Observation__n_channel
                 for name in names
             ]).item(0)
 
         n_beam = numpy.concatenate([
-                observations[name].n_beam
+                observations[name]._Observation__n_beam
                 for name in names
             ])
 
@@ -610,8 +602,7 @@ class FastRadioBursts(object):
             frequency_bands = observations[names[0]].frequency_bands
 
             obs = Observation(response=response, noise=noise,
-                              frequency_bands=frequency_bands,
-                              full=False)
+                              frequency_bands=frequency_bands)
 
             obs.response = numpy.squeeze(obs.response)
             obs.noise = numpy.squeeze(obs.noise)
@@ -654,11 +645,12 @@ class FastRadioBursts(object):
 
             out_dict['observations'] = numpy.array([*observations.keys()])
 
-            for obs in out_dict['observations']:
+            for name in out_dict['observations']:
 
-                out_dict.update(
-                    observations[obs].to_dict(key=obs)
-                )
+                flag = '{}__'.format(name)
+                observation = observations[name].to_dict(flag)
+
+                out_dict.update(observation)
 
         out_dict.update({
             'u_{}'.format(key): value.unit.to_string()
@@ -671,51 +663,23 @@ class FastRadioBursts(object):
     @staticmethod
     def load(file):
 
+        input_dict = load_params(file)
         output = FastRadioBursts(n_frb=0, verbose=False)
-
-        input_file = numpy.load(file, allow_pickle=True)
-        input_dict = dict(input_file)
-
-        u_keys = [key for key in input_dict if 'u_' in key]
-        keys = [key.replace('u_', '') for key in u_keys]
-
-        input_units = {
-            key: units.Unit(input_dict[u_key].item())
-            for u_key, key in zip(u_keys, keys)
-        }
-
-        filtered = filter(input_dict.__contains__, u_keys)
-        [*map(input_dict.__delitem__, filtered)]
-
-        input_dict.update({
-            key: input_dict[key] * input_units[key]
-            for key in keys
-        })
-
-        input_dict.update({
-            key: value.item()
-            for key, value in input_dict.items()
-            if value.ndim == 0
-        })
 
         if 'observations' in input_dict.keys():
 
             observations = input_dict.pop('observations')
-
             output.observations = {}
 
-            for obs in observations:
+            for name in observations:
 
-                observation = Observation.from_dict(key=obs, **input_file)
-
-                output.observations[obs] = observation
+                obs = sub_dict(input_dict, flag='{}__'.format(name))
+                observation = Observation.from_dict(obs)
+                output.observations[name] = observation
 
         ra = input_dict.pop('ra')
         dec = input_dict.pop('dec')
-
-        sky_coords = coordinates.SkyCoord(ra, dec,
-                                          frame='icrs')
-
+        sky_coords = coordinates.SkyCoord(ra, dec, frame='icrs')
         input_dict['sky_coord'] = sky_coords
 
         output.__dict__.update(input_dict)

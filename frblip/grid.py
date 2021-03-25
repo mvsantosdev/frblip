@@ -7,10 +7,9 @@ from scipy.interpolate import RectBivariateSpline
 
 class CartesianGrid(object):
 
-    def __init__(self, grid, xrange, yrange, alt=90, az=0.0,
-                 **kwargs):
+    def __init__(self, grid, xrange, yrange, alt=90, az=0.0):
 
-        self._min = grid.min()
+        self.__min = grid.min()
 
         if grid.ndim == 3:
 
@@ -41,38 +40,37 @@ class CartesianGrid(object):
 
             self.n_beam = numpy.size(alt)
 
-            AltAz = coordinates.AltAz(alt=alt * units.degree,
-                                      az=az * units.degree)
+            altaz = coordinates.AltAz(alt=alt, az=az)
 
-            self.Offsets = coordinates.SkyOffsetFrame(origin=AltAz)
+            self.offsets = coordinates.SkyOffsetFrame(origin=altaz)
 
-    def __call__(self, AltAz):
+    def __call__(self, altaz):
 
-        return self.response(AltAz).clip(self._min)
+        return self.response(altaz).clip(self.__min)
 
-    def _unique_grid(self, AltAz):
+    def _unique_grid(self, altaz):
 
-        AltAzOffs = [
-            AltAz.transform_to(self.Offsets[i])
+        altazoffs = [
+            altaz.transform_to(self.offsets[i])
             for i in range(self.n_beam)
         ]
 
         x = numpy.column_stack([
-            AltAzOff.cartesian.y
-            for AltAzOff in AltAzOffs
+            altazoff.cartesian.y
+            for altazoff in altazoffs
         ])
 
         y = numpy.column_stack([
-            AltAzOff.cartesian.z
-            for AltAzOff in AltAzOffs
+            altazoff.cartesian.z
+            for altazoff in altazoffs
         ])
 
         return self.pattern.ev(y, x)
 
-    def _multiple_grids(self, AltAz):
+    def _multiple_grids(self, altaz):
 
-        x = AltAz.cartesian.x
-        y = AltAz.cartesian.y
+        x = altaz.cartesian.x
+        y = altaz.cartesian.y
 
         return numpy.column_stack([
                 pattern.ev(y, x)

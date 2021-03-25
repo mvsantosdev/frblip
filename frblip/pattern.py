@@ -9,23 +9,18 @@ from .utils import _all_sky_area
 
 class FunctionalPattern(object):
 
-    def __init__(self, maximum_gain, alt=90.0, az=0.0,
-                 kind='gaussian', **kwargs):
+    def __init__(self, directivity, alt=90.0, az=0.0, kind='gaussian'):
 
         self.n_beam = numpy.size(az)
 
-        AltAz = coordinates.AltAz(alt=alt * units.degree,
-                                  az=az * units.degree)
+        altaz = coordinates.AltAz(alt=alt, az=az)
 
-        self.Offsets = coordinates.SkyOffsetFrame(origin=AltAz)
+        self.Offsets = coordinates.SkyOffsetFrame(origin=altaz)
 
-        solid_angle = 10**(- 0.1 * maximum_gain)
-        solid_angle = _all_sky_area * solid_angle
-        solid_angle = solid_angle.to(units.sr).value
+        solid_angle = 4 * numpy.pi / directivity.to(1 / units.sr)
+        arg = 1 - solid_angle / (2 * numpy.pi * units.sr)
 
-        arg = 1 - solid_angle / (2 * numpy.pi)
-
-        self.radius = numpy.arccos(arg) * units.rad
+        self.radius = numpy.arccos(arg)
 
         self.response = self.__getattribute__(kind)
 
@@ -43,9 +38,9 @@ class FunctionalPattern(object):
 
         arcs = numpy.arccos(cossines)
 
-        rescaled_arc = arcs / self.radius
+        rescaled_arc = (arcs / self.radius).to(1).value
 
-        return self.response(rescaled_arc).to(1).value
+        return self.response(rescaled_arc)
 
     def tophat(self, x):
 
