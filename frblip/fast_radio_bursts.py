@@ -594,8 +594,8 @@ class FastRadioBursts(object):
 
             nunit = numpy.unique([q.unit for q in inoise_sq]).item(0)
 
-            response = sum(response, numpy.empty(()))
-            inoise_sq = sum(inoise_sq, numpy.empty(()) * nunit)
+            response = sum(response, numpy.zeros(()))
+            inoise_sq = sum(inoise_sq, numpy.zeros(()) * nunit)
 
             noise = 1 / numpy.sqrt(inoise_sq)
 

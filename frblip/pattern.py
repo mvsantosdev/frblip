@@ -12,22 +12,26 @@ class FunctionalPattern(object):
     def __init__(self, directivity, alt=90.0, az=0.0, kind='gaussian'):
 
         self.n_beam = numpy.size(az)
+        self.response = self.__getattribute__(kind)
+        self.set_radius(directivity)
+        self.set_offset(alt, az)
 
-        altaz = coordinates.AltAz(alt=alt, az=az)
-
-        self.Offsets = coordinates.SkyOffsetFrame(origin=altaz)
+    def set_radius(self, directivity):
 
         solid_angle = 4 * numpy.pi / directivity.to(1 / units.sr)
         arg = 1 - solid_angle / (2 * numpy.pi * units.sr)
-
         self.radius = numpy.arccos(arg)
 
-        self.response = self.__getattribute__(kind)
+    def set_offset(self, alt, az):
+
+        altaz = coordinates.AltAz(alt=alt, az=az)
+        self.offsets = coordinates.SkyOffsetFrame(origin=altaz)
+        self.n_beam = az.size
 
     def __call__(self, AltAz):
 
         AltAzOffs = [
-            AltAz.transform_to(self.Offsets[i])
+            AltAz.transform_to(self.offsets[i])
             for i in range(self.n_beam)
         ]
 
@@ -37,7 +41,6 @@ class FunctionalPattern(object):
         ])
 
         arcs = numpy.arccos(cossines)
-
         rescaled_arc = (arcs / self.radius).to(1).value
 
         return self.response(rescaled_arc)
@@ -52,4 +55,4 @@ class FunctionalPattern(object):
 
     def bessel(self, x):
 
-        return (j1(2 * x) / x)**2
+        return numpy.nan_to_num(j1(2 * x) / x, nan=1.0)**2

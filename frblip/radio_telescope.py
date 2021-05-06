@@ -59,70 +59,56 @@ class RadioTelescope(object):
         """
 
         self.start_time = Time.now() if start_time is None else start_time
-
         name_ = '{}/{}.npz'.format(_DATA, name)
-
         name_ = name_ if os.path.exists(name_) else name
-
         input_dict = load_params(name_)
-
         input_dict['kind'] = kind
-
         keys = ['grid', 'xrange', 'yrange']
         grid_params = sub_dict(input_dict, keys=keys, pop=True)
 
         if kind == 'grid':
-
             coords = sub_dict(input_dict, keys=['alt', 'az'])
             grid_params.update(coords)
-
             input_dict['_response'] = CartesianGrid(**grid_params)
-
         elif kind in ('tophat', 'bessel', 'gaussian'):
-
             keys = ['kind', 'directivity', 'alt', 'az']
             pattern_params = sub_dict(input_dict, keys=keys)
-
             input_dict['_response'] = FunctionalPattern(**pattern_params)
-
         else:
-
             print('Please choose a valid pattern kind')
 
         self.__dict__.update(input_dict)
         self._derived()
 
-        self._set_offset(offset)
+        self.set_offset(*offset)
 
-    def _set_offset(self, offset):
+    def set_offset(self, alt, az):
 
-        alt, az = offset
-        alt = alt - 90
-
-        altaz = coordinates.AltAz(alt=alt * units.degree,
-                                  az=az * units.degree)
-
+        alt = (alt - 90) * units.degree
+        az = az * units.degree
+        altaz = coordinates.AltAz(alt=alt, az=az)
         self.offset = coordinates.SkyOffsetFrame(origin=altaz)
+        self.response = self._offset_response
+        self.n_beam = self.directivity.size
 
     def noise(self):
 
         band_widths = numpy.diff(self.frequency_bands)
-
         scaled_time = band_widths * self.sampling_time
         noise_scale = numpy.sqrt(self.polarizations * scaled_time)
-
         minimum_temperature = self.system_temperature / noise_scale
-
         noise = minimum_temperature / self.gain.reshape(-1, 1)
 
         return self.noise_performance * noise.to(units.Jy)
 
-    def response(self, altaz):
+    def _no_offset_response(self, altaz):
+
+        return self._response(altaz)
+
+    def _offset_response(self, altaz):
 
         altazoff = altaz.transform_to(self.offset)
-
-        altaz = coordinates.AltAz(alt=altazoff.lat,
-                                  az=altazoff.lon)
+        altaz = coordinates.AltAz(alt=altazoff.lat, az=altazoff.lon)
 
         return self._response(altaz)
 
@@ -131,18 +117,20 @@ class RadioTelescope(object):
         lon = self.__dict__.pop('lon')
         lat = self.__dict__.pop('lat')
         height = self.__dict__.pop('height')
-
         self.location = coordinates.EarthLocation(lon=lon, lat=lat,
                                                   height=height)
-
         self.noise_performance = noise_performance[self.receiver_type]
+        self.set_directivity(self.directivity)
 
-        self.solid_angle = 4 * numpy.pi / self.directivity.to(1 / units.sr)
+    def set_directivity(self, directivity):
 
+        self.directivity = directivity
+        self.solid_angle = 4 * numpy.pi / directivity.to(1 / units.sr)
         reference_wavelength = (constants.c / self.reference_frequency)
-
         self.effective_area = reference_wavelength**2 / self.solid_angle.value
         self.effective_area = self.effective_area.to(units.meter**2)
-
         self.gain = 0.5 * (self.effective_area / constants.k_B)
         self.gain = self.gain.to(units.K / units.Jy)
+
+        if self.kind in ('tophat', 'bessel', 'gaussian'):
+            self._response.set_radius(directivity)
