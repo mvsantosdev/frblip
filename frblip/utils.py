@@ -41,8 +41,9 @@ def sub_dict(kwargs, keys=None, flag='', pop=False,
     def func(x):
         return apply(dict_func(x))
 
+    flag_len = len(flag)
     keys = [*kwargs.keys()] if keys is None else keys
-    keys = [key for key in keys if flag in key]
+    keys = [key for key in keys if flag == key[:flag_len]]
 
     output = {
         key.replace(flag, replace_flag): func(key)

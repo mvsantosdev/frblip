@@ -673,7 +673,8 @@ class FastRadioBursts(object):
 
             for name in observations:
 
-                obs = sub_dict(input_dict, flag='{}__'.format(name))
+                flag = '{}__'.format(name)
+                obs = sub_dict(input_dict, flag=flag, pop=True)
                 observation = Observation.from_dict(obs)
                 output.observations[name] = observation
 
