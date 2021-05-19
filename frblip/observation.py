@@ -80,10 +80,6 @@ class Observation():
             for response, noise in zip(responses, noises)
         ]
 
-    def __getitem__(self, idx):
-
-        return self.select(idx, inplace=False)
-
     def to_dict(self, flag=''):
 
         out_dict = {
@@ -129,6 +125,11 @@ class Observation():
         output._set_response()
 
         return output
+
+    def __getitem__(self, idx):
+
+        idx = numpy.array(idx)
+        return self.select(idx)
 
     def select(self, idx, inplace=False):
 

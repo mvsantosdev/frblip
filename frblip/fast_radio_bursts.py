@@ -2,6 +2,8 @@ import sys
 
 import numpy
 
+from operator import itemgetter
+
 from numpy import random
 
 import pandas
@@ -127,7 +129,14 @@ class FastRadioBursts(object):
 
     def __getitem__(self, idx):
 
-        return self.select(idx, inplace=False)
+        if isinstance(idx, str):
+            return self.observations[idx]
+        idx = numpy.array(idx)
+        if numpy.issubdtype(idx.dtype, numpy.signedinteger):
+            return self.select(idx, inplace=False)
+        if numpy.issubdtype(idx.dtype, numpy.str_):
+            return itemgetter(*idx)(self.observations)
+        return None
 
     def select(self, idx, inplace=False):
 
