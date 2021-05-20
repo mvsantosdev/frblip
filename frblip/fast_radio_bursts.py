@@ -134,7 +134,9 @@ class FastRadioBursts(object):
         if isinstance(idx, str):
             return self.observations[idx]
         idx = numpy.array(idx)
-        if numpy.issubdtype(idx.dtype, numpy.signedinteger):
+        numeric = numpy.issubdtype(idx.dtype, numpy.signedinteger)
+        boolean = numpy.issubdtype(idx.dtype, numpy.bool_)
+        if numeric or boolean:
             return self.select(idx, inplace=False)
         if numpy.issubdtype(idx.dtype, numpy.str_):
             return itemgetter(*idx)(self.observations)
