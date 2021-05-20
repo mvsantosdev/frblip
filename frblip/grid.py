@@ -31,7 +31,6 @@ class CartesianGrid(object):
 
             x = numpy.linspace(*xrange, xdim)
             y = numpy.linspace(*yrange, ydim)
-            
             z = numpy.sqrt(1 - x**2 - y**2) * grid
 
             self.pattern = RectBivariateSpline(y, x, z, kx=3, ky=3)

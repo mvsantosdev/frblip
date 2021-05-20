@@ -642,7 +642,12 @@ class FastRadioBursts(object):
 
             observations = out_dict.pop('observations')
 
-            out_dict['observations'] = numpy.array([*observations.keys()])
+            keys = [*observations.keys()]
+
+            out_dict['observations'] = numpy.array([
+                key for key in keys if isinstance(key, str)
+                and 'INTF' not in key
+            ])
 
             for name in out_dict['observations']:
 
