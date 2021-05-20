@@ -19,8 +19,7 @@ class CartesianGrid(object):
             y = numpy.linspace(*yrange, ydim)
 
             self.patterns = [
-                RectBivariateSpline(y, x, g,
-                                    kx=3, ky=3)
+                RectBivariateSpline(y, x, g, kx=3, ky=3)
                 for g in grid
             ]
 
@@ -32,14 +31,16 @@ class CartesianGrid(object):
 
             x = numpy.linspace(*xrange, xdim)
             y = numpy.linspace(*yrange, ydim)
+            
+            z = numpy.sqrt(1 - x**2 - y**2) * grid
 
-            self.pattern = RectBivariateSpline(y, x, grid,
-                                               kx=3, ky=3)
+            self.pattern = RectBivariateSpline(y, x, z, kx=3, ky=3)
 
             self.response = self._unique_grid
 
             self.n_beam = numpy.size(alt)
 
+            alt = alt - 90.0 * units.deg
             altaz = coordinates.AltAz(alt=alt, az=az)
 
             self.offsets = coordinates.SkyOffsetFrame(origin=altaz)
@@ -56,12 +57,12 @@ class CartesianGrid(object):
         ]
 
         x = numpy.column_stack([
-            altazoff.cartesian.y
+            altazoff.cartesian.x
             for altazoff in altazoffs
         ])
 
         y = numpy.column_stack([
-            altazoff.cartesian.z
+            altazoff.cartesian.y
             for altazoff in altazoffs
         ])
 
