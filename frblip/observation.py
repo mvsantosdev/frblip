@@ -135,7 +135,7 @@ class Observation():
 
         idx = idx.ravel() if idx.ndim == 2 else idx
 
-        altaz = self.altaz[idx] if len(self.altaz) > 0 else self.altaz
+        altaz = self.altaz[idx] if self.altaz is not None else self.altaz
         response = self.response[idx]
 
         noise = self.noise

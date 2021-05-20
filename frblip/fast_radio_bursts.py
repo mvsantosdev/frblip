@@ -613,7 +613,7 @@ class FastRadioBursts(object):
                                       frequency_bands=frequency)
 
             keys = ['{}x{}'.format(c, l) for c, l in zip(count, names)]
-            key = 'INTF_{}'.format('_'.join(keys).replace('1x', ''))
+            key = 'INTF_{}'.format('_'.join(keys).replace('_1x', '_'))
 
             self.observations[key] = observation
 
