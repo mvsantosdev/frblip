@@ -2,6 +2,8 @@ import sys
 
 import numpy
 
+from functools import partial
+
 from operator import itemgetter
 
 from numpy import random
@@ -21,7 +23,7 @@ from astropy import cosmology, coordinates, units
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
-from .utils import load_params, sub_dict
+from .utils import load_params, sub_dict, xfactors
 from .utils import _all_sky_area, _DATA, schechter, rvs_from_cdf, simps
 
 from .dispersion import *
@@ -499,6 +501,7 @@ class FastRadioBursts(object):
         return {
             obs: self._signal(obs, channels)
             for obs in self.observations
+            if isinstance(obs, str)
         }
 
     def _noise(self, name, channels=False):
@@ -518,6 +521,7 @@ class FastRadioBursts(object):
         return {
             obs: self._noise(obs, channels)
             for obs in self.observations
+            if isinstance(obs, str)
         }
 
     def _signal_to_noise(self, observation, channels=False):
@@ -532,98 +536,84 @@ class FastRadioBursts(object):
         return {
             obs: self._signal_to_noise(obs, channels)
             for obs in self.observations
+            if isinstance(obs, str)
         }
+
+    def cross_correlation(self, namei, namej):
+
+        freqi = self.observations[namei].frequency_bands
+        freqj = self.observations[namei].frequency_bands
+
+        freq = numpy.row_stack((freqi, freqj))
+        freq = numpy.unique(freq, axis=0).ravel()
+
+        respi = self.observations[namei].response
+        respj = self.observations[namej].response
+        respi, respj = numpy.broadcast_arrays(respi, respj)
+        response = numpy.sqrt(respi * respj)
+
+        noisei = self.observations[namei].noise.to(units.Jy)
+        noisej = self.observations[namej].noise.to(units.Jy)
+        noisei, noisej = numpy.broadcast_arrays(noisei, noisej)
+        noise = numpy.sqrt(noisei * noisej) * units.Jy
+
+        observation = Observation(response=response, noise=noise,
+                                  frequency_bands=freq)
+
+        self.observations[(namei, namej)] = observation
 
     def interferometry(self, **telescopes):
 
-        observations = self.observations
+        names = [*telescopes.keys()]
 
-        names = numpy.array([*telescopes.keys()])
+        freqs = numpy.stack([
+            self.observations.get(name).frequency_bands
+            for name in names
+        ])
 
-        n_scopes = len(names)
-        n_frb = self.n_frb
+        frequency = numpy.unique(freqs, axis=0).ravel()
 
-        n_channel = numpy.unique([
-                observations[name]._Observation__n_channel
-                for name in names
-            ]).item(0)
+        xnames = [*combinations(names, 2)]
 
-        n_beam = numpy.concatenate([
-                observations[name]._Observation__n_beam
-                for name in names
-            ])
+        for xname in xnames:
+            if xname not in self.observations:
+                self.cross_correlation(*xname)
 
-        shapes = numpy.diag(n_beam - 1)
-        shapes = shapes + numpy.ones_like(shapes)
+        names += xnames
 
-        responses = [
-            0.5 * observations[name].response.reshape((n_frb, *shape))
-            for name, shape in zip(names, shapes)
+        responses = numpy.broadcast_arrays(*[
+            self.observations.get(name).response
+            for name in names
+        ])
+
+        responses = numpy.stack(responses, axis=-1)
+
+        noises = [
+            self.observations.get(name).noise.to(units.Jy)
+            for name in names
         ]
 
-        responses += [
-            numpy.sqrt(ri * rj)
-            for ri, rj in combinations(responses, 2)
-        ]
+        noises = numpy.broadcast_arrays(*noises)
+        noises = numpy.stack(noises, axis=-1)
 
-        inoises_sq = [
-            2 / observations[name].noise.reshape((*shape, n_channel))**2
-            for name, shape in zip(names, shapes)
-        ]
+        array = partial(numpy.array, ndmin=1)
+        counts = map(array, telescopes.values())
+        counts = numpy.row_stack([*product(*counts)])
+        factors = numpy.apply_along_axis(xfactors, 1, counts)
 
-        inoises_sq += [
-            numpy.sqrt(ni * nj)
-            for ni, nj in combinations(inoises_sq, 2)
-        ]
+        for count, factor in zip(counts, factors):
 
-        telescopes.update({
-            name: [count]
-            for name, count in telescopes.items()
-            if type(count) is int
-        })
+            response = (factor * responses / 2).sum(-1)
+            inoise = (2 * factor / noises**2).sum(-1)
+            noise = units.Jy / numpy.sqrt(inoise)
 
-        for counts in product(*telescopes.values()):
+            observation = Observation(response=response, noise=noise,
+                                      frequency_bands=frequency)
 
-            arr = numpy.array(counts)
-
-            factors = (arr * (arr - 1)) // 2
-            xfactors = numpy.array([ci * cj for ci, cj
-                                    in combinations(arr, 2)])
-            factors = numpy.concatenate((factors, xfactors))
-
-            response = [
-                factor * resp
-                for factor, resp in zip(factors, responses)
-            ]
-
-            inoise_sq = [
-                factor * in_sq
-                for factor, in_sq in zip(factors, inoises_sq)
-            ]
-
-            nunit = numpy.unique([q.unit for q in inoise_sq]).item(0)
-
-            response = sum(response, numpy.zeros(()))
-            inoise_sq = sum(inoise_sq, numpy.zeros(()) * nunit)
-
-            noise = 1 / numpy.sqrt(inoise_sq)
-
-            frequency_bands = observations[names[0]].frequency_bands
-
-            obs = Observation(response=response, noise=noise,
-                              frequency_bands=frequency_bands)
-
-            obs.response = numpy.squeeze(obs.response)
-            obs.noise = numpy.squeeze(obs.noise)
-
-            if obs.response.ndim == 1:
-                obs.response = obs.response.reshape(-1, 1)
-                obs.noise = obs.noise.reshape(1, -1)
-
-            keys = ['{}x{}'.format(c, l) for c, l in zip(counts, names)]
+            keys = ['{}x{}'.format(c, l) for c, l in zip(count, names)]
             key = 'INTF_{}'.format('_'.join(keys).replace('1x', ''))
 
-            self.observations[key] = obs
+            self.observations[key] = observation
 
     def split_beams(self, name, key='BEAM'):
 

@@ -19,6 +19,19 @@ _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
 
 
+def xfactors(*n):
+
+    N = numpy.array(n)
+    factor = N * N.reshape(-1, 1)
+    factor = factor - N * numpy.eye(N.size, dtype=numpy.int8)
+    diag_idx = numpy.diag_indices_from(factor)
+    tril_idx = numpy.triu_indices_from(factor, k=1)
+    diag = factor[diag_idx] // 2
+    triu = factor[tril_idx]
+
+    return numpy.concatenate((diag, triu))
+
+
 def load(file):
 
     output = numpy.load(file, allow_pickle=True)
