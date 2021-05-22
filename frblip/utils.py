@@ -25,6 +25,9 @@ def paired_shapes(shape):
 
     nscopes = shape.size
 
+    if nscopes < 2:
+        return numpy.atleast_2d(shape)
+
     diag_shape = numpy.diag(shape - 1).astype(numpy.int32)
     self_shapes = numpy.ones_like(diag_shape, dtype=numpy.int32) + diag_shape
 
