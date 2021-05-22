@@ -23,7 +23,7 @@ from astropy import cosmology, coordinates, units
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
-from .utils import load_params, sub_dict, xfactors
+from .utils import load_params, load_file, sub_dict, xfactors, paired_shapes
 from .utils import _all_sky_area, _DATA, schechter, rvs_from_cdf, simps
 
 from .dispersion import *
@@ -133,14 +133,31 @@ class FastRadioBursts(object):
 
         if isinstance(idx, str):
             return self.observations[idx]
+        if isinstance(idx, slice):
+            return self.select(idx, inplace=False)
+
         idx = numpy.array(idx)
         numeric = numpy.issubdtype(idx.dtype, numpy.signedinteger)
         boolean = numpy.issubdtype(idx.dtype, numpy.bool_)
-        if numeric or boolean:
+        if numeric or boolean or islice:
             return self.select(idx, inplace=False)
         if numpy.issubdtype(idx.dtype, numpy.str_):
             return itemgetter(*idx)(self.observations)
         return None
+
+    def iterfrbs(self, start=0, stop=None, step=1):
+
+        stop = self.n_frb if stop is None else stop
+
+        for i in range(start, stop, step):
+            yield self[i]
+
+    def iterchunks(self, size=1, start=0, stop=None):
+
+        stop = self.n_frb if stop is None else stop
+
+        for i in range(start, stop, size):
+            yield self[i:i + size]
 
     def select(self, idx, inplace=False):
 
@@ -549,15 +566,13 @@ class FastRadioBursts(object):
         freq = numpy.row_stack((freqi, freqj))
         freq = numpy.unique(freq, axis=0).ravel()
 
-        respi = self.observations[namei].response
-        respj = self.observations[namej].response
-        respi, respj = numpy.broadcast_arrays(respi, respj)
+        respi = self.observations[namei].response[..., numpy.newaxis]
+        respj = self.observations[namej].response[:, numpy.newaxis]
         response = numpy.sqrt(respi * respj)
 
-        noisei = self.observations[namei].noise.to(units.Jy)
-        noisej = self.observations[namej].noise.to(units.Jy)
-        noisei, noisej = numpy.broadcast_arrays(noisei, noisej)
-        noise = numpy.sqrt(noisei * noisej) * units.Jy
+        noisei = self.observations[namei].noise[:, numpy.newaxis].to(units.Jy)
+        noisej = self.observations[namej].noise[numpy.newaxis].to(units.Jy)
+        noise = numpy.sqrt(noisei * noisej)
 
         observation = Observation(response=response, noise=noise,
                                   frequency_bands=freq)
@@ -567,6 +582,7 @@ class FastRadioBursts(object):
     def interferometry(self, **telescopes):
 
         names = [*telescopes.keys()]
+        n_scopes = len(names)
 
         freqs = numpy.stack([
             self.observations.get(name).frequency_bands
@@ -583,19 +599,27 @@ class FastRadioBursts(object):
 
         names += xnames
 
+        observations = [self.observations[name] for name in names]
+
+        shapes = [
+            observation._Observation__n_beam
+            for observation in observations
+        ]
+
+        shape = numpy.concatenate(shapes[:n_scopes])
+        shapes = paired_shapes(shape)
+
         responses = numpy.broadcast_arrays(*[
-            self.observations.get(name).response
-            for name in names
+            observation.response.reshape(-1, *shape)
+            for shape, observation in zip(shapes, observations)
+        ])
+
+        noises = numpy.broadcast_arrays(*[
+            observation.noise.reshape(*shape, -1).to(units.Jy)
+            for shape, observation in zip(shapes, observations)
         ])
 
         responses = numpy.stack(responses, axis=-1)
-
-        noises = [
-            self.observations.get(name).noise.to(units.Jy)
-            for name in names
-        ]
-
-        noises = numpy.broadcast_arrays(*noises)
         noises = numpy.stack(noises, axis=-1)
 
         array = partial(numpy.array, ndmin=1)
@@ -613,7 +637,7 @@ class FastRadioBursts(object):
                                       frequency_bands=frequency)
 
             keys = ['{}x{}'.format(c, l) for c, l in zip(count, names)]
-            key = 'INTF_{}'.format('_'.join(keys).replace('_1x', '_'))
+            key = 'INTF_{}'.format('_'.join(keys)).replace('_1x', '_')
 
             self.observations[key] = observation
 
@@ -627,7 +651,7 @@ class FastRadioBursts(object):
             for beam, obs in enumerate(splitted)
         })
 
-    def save(self, file):
+    def to_dict(self):
 
         out_dict = {
             key: name
@@ -664,32 +688,54 @@ class FastRadioBursts(object):
             if hasattr(value, 'unit')
         })
 
-        numpy.savez(file, **out_dict)
+        out_dict.update({
+            key: value.value
+            for key, value in out_dict.items()
+            if hasattr(value, 'unit')
+        })
+
+        return out_dict
+
+    def save(self, file, compressed=True):
+
+        out_dict = self.to_dict()
+
+        if compressed:
+            numpy.savez_compressed(file, **out_dict)
+        else:
+            numpy.savez(file, **out_dict)
 
     @staticmethod
-    def load(file):
+    def from_dict(input_dict):
 
-        input_dict = load_params(file)
+        params = load_params(input_dict)
         output = FastRadioBursts(n_frb=0, verbose=False)
 
         if 'observations' in input_dict.keys():
 
-            observations = input_dict.pop('observations')
+            observations = params.pop('observations')
             output.observations = {}
 
             for name in observations:
 
                 flag = '{}__'.format(name)
-                obs = sub_dict(input_dict, flag=flag, pop=True)
+                obs = sub_dict(params, flag=flag, pop=True)
                 observation = Observation.from_dict(obs)
                 output.observations[name] = observation
 
-        ra = input_dict.pop('ra')
-        dec = input_dict.pop('dec')
-        sky_coords = coordinates.SkyCoord(ra, dec, frame='icrs')
-        input_dict['sky_coord'] = sky_coords
+        ra = params.pop('ra')
+        dec = params.pop('dec')
 
-        output.__dict__.update(input_dict)
+        sky_coords = coordinates.SkyCoord(ra, dec, frame='icrs')
+        params['sky_coord'] = sky_coords
+
+        output.__dict__.update(params)
         output._derived()
 
         return output
+
+    @staticmethod
+    def load(file):
+
+        input_dict = load_file(file)
+        return FastRadioBursts.from_dict(input_dict)

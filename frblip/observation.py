@@ -128,19 +128,18 @@ class Observation():
 
     def __getitem__(self, idx):
 
+        if isinstance(idx, slice):
+            return self.select(idx)
         idx = numpy.array(idx)
         return self.select(idx)
 
     def select(self, idx, inplace=False):
 
-        idx = idx.ravel() if idx.ndim == 2 else idx
-
-        altaz = self.altaz[idx] if self.altaz is not None else self.altaz
-        response = self.response[idx]
-
         noise = self.noise
         sampling_time = self.sampling_time
         frequency_bands = self.frequency_bands
+        response = self.response[idx]
+        altaz = self.altaz[idx] if self.altaz is not None else self.altaz
 
         if not inplace:
 
