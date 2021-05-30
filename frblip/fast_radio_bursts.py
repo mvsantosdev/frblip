@@ -351,7 +351,7 @@ class FastRadioBursts(object):
     def _observe(self, Telescope, location=None, start=None,
                  name=None, altaz=None):
 
-        if 'observations' not in self.__dict__.keys():
+        if 'observations' not in self.__dict__:
             self.observations = {}
 
         noise = Telescope.noise()
@@ -474,7 +474,10 @@ class FastRadioBursts(object):
         observation = Observation(response=response, noise=noise,
                                   frequency_bands=freq)
 
-        self.observations[(namei, namej)] = observation
+        if "_FastRadioBursts__xcorr" not in self.__dict__:
+            self.__xcorr = {}
+
+        self.__xcorr[(namei, namej)] = observation
 
     def interferometry(self, **telescopes):
 
@@ -488,14 +491,6 @@ class FastRadioBursts(object):
 
         frequency = numpy.unique(freqs, axis=0).ravel()
 
-        xnames = [*combinations(names, 2)]
-
-        for xname in xnames:
-            if xname not in self.observations:
-                self.cross_correlation(*xname)
-
-        names += xnames
-
         observations = [self.observations[name] for name in names]
 
         shapes = [
@@ -505,6 +500,14 @@ class FastRadioBursts(object):
 
         shape = numpy.concatenate(shapes[:n_scopes])
         shapes = paired_shapes(shape)
+
+        xnames = [*combinations(names, 2)]
+
+        for xname in xnames:
+            if xname not in self.observations:
+                self.cross_correlation(*xname)
+
+        observations += [self.__xcorr[name] for name in xnames]
 
         responses = numpy.broadcast_arrays(*[
             observation.response.reshape(-1, *shape)
@@ -568,8 +571,7 @@ class FastRadioBursts(object):
             keys = [*observations.keys()]
 
             out_dict['observations'] = numpy.array([
-                key for key in keys if isinstance(key, str)
-                and 'INTF' not in key
+                key for key in keys if 'INTF' not in key
             ])
 
             for name in out_dict['observations']:
