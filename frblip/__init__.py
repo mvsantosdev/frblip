@@ -6,6 +6,7 @@ from .fast_radio_bursts import FastRadioBursts
 from .radio_telescope import RadioTelescope
 from .observation import Observation
 
+
 warning_message = ''.join([
     '\n\nFRBlip is a beta version yet, and',
     'is available only for BINGO members.',
