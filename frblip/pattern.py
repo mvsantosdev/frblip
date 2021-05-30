@@ -4,8 +4,6 @@ from scipy.special import j1
 
 from astropy import units, coordinates
 
-from .utils import _all_sky_area
-
 
 class FunctionalPattern(object):
 

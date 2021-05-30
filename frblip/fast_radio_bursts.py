@@ -35,9 +35,10 @@ class FastRadioBursts(object):
 
     def __init__(self, n_frb=None, days=1, log_Lstar=44.46, log_L0=41.96,
                  phistar=339, alpha=-1.79, wint=(.13, .33), si=(-15, 15),
-                 ra=(0, 24), dec=(-90, 90), zmin=0, zmax=6, cosmo=None,
-                 width=True, dispersion=True, verbose=True,
-                 lower_frequency=400, higher_frequency=1400):
+                 ra=(0, 24), dec=(-90, 90), zmin=0, zmax=6,
+                 cosmo='Planck18_arXiv_v2', lower_frequency=400,
+                 higher_frequency=1400, width=True, dispersion=True,
+                 verbose=True):
 
         """
         Creates a FRB population object.
@@ -128,41 +129,27 @@ class FastRadioBursts(object):
 
     def select(self, idx, inplace=False):
 
-        frbs = self if inplace else FastRadioBursts(n_frb=0, verbose=False)
+        out_dict = self.to_dict()
+        n_frb = out_dict['n_frb']
 
-        update_dict = {
-            'sky_coord': self.sky_coord[idx],
-            'dec_range': self.dec_range,
-            'ra_range': self.ra_range
-        }
-
-        keys = [*update_dict.keys()]
-
-        update_dict.update({
-            key: value[idx] if numpy.size(value) > 1 else value
-            for key, value in self.__dict__.items()
-            if key not in keys
+        out_dict.update({
+            k: v[idx] for k, v in out_dict.items()
+            if numpy.ndim(v) and 'noise' not in k
+            and 'frequency_bands' not in k
+            and itemgetter(0)(v.shape) == n_frb
         })
 
-        frbs.__dict__.update(update_dict)
-
-        frbs.n_frb = frbs.redshift.size
-
-        if 'observations' in self.__dict__.keys():
-
-            frbs.observations = {
-                name: obs[idx]
-                for name, obs in self.observations.items()
-            }
+        out_dict['n_frb'] = out_dict['redshift'].size
 
         if not inplace:
+            return FastRadioBursts.from_dict(out_dict)
 
-            return frbs
+        self.__dict__.update(out_dict)
 
     def observation_time(self, start_time=None):
 
         if start_time is None:
-            start_time = Time.now()
+            start_time = Time(Time.now().mjd, format='mjd')
 
         return start_time + self.time.ravel()
 
@@ -253,16 +240,15 @@ class FastRadioBursts(object):
         self.lower_frequency = lower_frequency * units.MHz
         self.higher_frequency = higher_frequency * units.MHz
 
-        if cosmo is None:
-            self.cosmology = cosmology.Planck18_arXiv_v2
-        else:
-            self.cosmology = cosmo
+        self.cosmology = cosmo
 
     def _derived_params(self):
 
+        self.__cosmology = cosmology.__dict__.get(self.cosmology)
+
         self.__xmin = self.log_L0 - self.log_Lstar
         self.__zdist = Redshift(zmin=self.zmin, zmax=self.zmax,
-                                cosmology=self.cosmology)
+                                cosmology=self.__cosmology)
         xmin = (self.log_L0 - self.log_Lstar).to(1).value
         self.__lumdist = Schechter(xmin, self.alpha)
 
@@ -290,17 +276,15 @@ class FastRadioBursts(object):
     def _derived_random(self):
 
         z = self.redshift
-        _zp1 = 1 + z
-
-        self.__comoving_distance = self.cosmology.comoving_distance(z)
-        self.__luminosity_distance = _zp1 * self.__comoving_distance
+        lumdist = self.__cosmology.luminosity_distance(z)
+        self.__luminosity_distance = lumdist
 
         surface = 4 * numpy.pi * self.__luminosity_distance**2
 
         self.__luminosity = self.log_luminosity.to(units.erg / units.s)
         self.__flux = (self.__luminosity / surface).to(units.Jy * units.MHz)
 
-        self.__arrived_pulse_width = _zp1 * self.pulse_width
+        self.__arrived_pulse_width = (1 + self.redshift) * self.pulse_width
 
         _sip1 = self.spectral_index + 1
 
@@ -622,7 +606,7 @@ class FastRadioBursts(object):
     def from_dict(input_dict):
 
         params = load_params(input_dict)
-        output = FastRadioBursts(n_frb=0, verbose=False)
+        output = FastRadioBursts.__new__(FastRadioBursts)
 
         if 'observations' in input_dict.keys():
 

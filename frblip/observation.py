@@ -8,8 +8,8 @@ from scipy.special import comb
 
 from itertools import combinations
 
-from astropy import coordinates, constants, units
 from astropy.time import Time
+from astropy import coordinates, constants, units
 
 from .utils import sub_dict
 
@@ -31,8 +31,8 @@ class Observation():
 
     def _set_response(self):
 
-        response = self.response is not None
         noise = self.noise is not None
+        response = self.response is not None
 
         if response and noise:
 
@@ -56,8 +56,9 @@ class Observation():
 
         params = self.__dict__
 
-        kwargs = sub_dict(params, pop=True, keys=['alt', 'az', 'obstime'])
         location = sub_dict(params, pop=True, keys=['lon', 'lat', 'height'])
+        kwargs = sub_dict(params, pop=True, keys=['alt', 'az', 'obstime'])
+        kwargs['obstime'] = Time(kwargs['obstime'], format='mjd')
 
         if location:
             kwargs['location'] = coordinates.EarthLocation(**location)
@@ -73,10 +74,8 @@ class Observation():
         noises = numpy.split(self.noise, n_beam, 0)
 
         return [
-            Observation(response, noise,
-                        self.frequency_bands,
-                        self.sampling_time,
-                        self.altaz)
+            Observation(response, noise, self.frequency_bands,
+                        self.sampling_time, self.altaz)
             for response, noise in zip(responses, noises)
         ]
 
@@ -95,7 +94,8 @@ class Observation():
 
             out_dict['az'] = getattr(altaz, 'az', None)
             out_dict['alt'] = getattr(altaz, 'alt', None)
-            out_dict['obstime'] = getattr(altaz, 'obstime', None)
+            obstime = getattr(altaz, 'obstime', None)
+            out_dict['obstime'] = obstime.mjd
 
             location = getattr(altaz, 'location', None)
 
@@ -116,7 +116,7 @@ class Observation():
     @staticmethod
     def from_dict(kwargs):
 
-        output = Observation()
+        output = Observation.__new__(Observation)
 
         output.__dict__.update(kwargs)
 
@@ -132,21 +132,3 @@ class Observation():
             return self.select(idx)
         idx = numpy.array(idx)
         return self.select(idx)
-
-    def select(self, idx, inplace=False):
-
-        noise = self.noise
-        sampling_time = self.sampling_time
-        frequency_bands = self.frequency_bands
-        response = self.response[idx]
-        altaz = self.altaz[idx] if self.altaz is not None else self.altaz
-
-        if not inplace:
-
-            output = Observation(response, noise, frequency_bands,
-                                 sampling_time, altaz)
-
-            return output
-
-        self.altaz = altaz
-        self.response = response

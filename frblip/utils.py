@@ -10,8 +10,6 @@ from itertools import repeat, cycle, product, combinations
 
 from astropy import coordinates, units
 
-from scipy.stats import rvs_ratio_uniforms
-
 from scipy.integrate import cumtrapz
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))

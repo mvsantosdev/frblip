@@ -18,8 +18,7 @@ from scipy.integrate import cumtrapz
 from .grid import CartesianGrid
 from .pattern import FunctionalPattern
 
-from .utils import _all_sky_area, _DATA
-from .utils import load_params, sub_dict
+from .utils import _DATA, load_file, load_params, sub_dict
 
 
 noise_performance = {
@@ -61,7 +60,8 @@ class RadioTelescope(object):
         self.start_time = Time.now() if start_time is None else start_time
         name_ = '{}/{}.npz'.format(_DATA, name)
         name_ = name_ if os.path.exists(name_) else name
-        input_dict = load_params(name_)
+        input_dict = load_file(name_)
+        input_dict = load_params(input_dict)
         input_dict['kind'] = kind
         keys = ['grid', 'xrange', 'yrange']
         grid_params = sub_dict(input_dict, keys=keys, pop=True)

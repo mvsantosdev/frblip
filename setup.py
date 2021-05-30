@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 bla = setup(
     name='frblip',
@@ -6,7 +6,7 @@ bla = setup(
     description='Fast Radio Burst mock catalogs synthesis.',
     author='Marcelo Vargas dos Santos',
     author_email='mvsantos_at_protonmail.com',
-    packages=['frblip'],
+    packages=find_packages(),
     include_package_data=True,
     package_data={
         'frblip': [
