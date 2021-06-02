@@ -120,12 +120,18 @@ class FastRadioBursts(object):
         for i in range(start, stop, step):
             yield self[i]
 
-    def iterchunks(self, size=1, start=0, stop=None):
+    def iterchunks(self, size=1, start=0, stop=None, retindex=False):
 
         stop = self.n_frb if stop is None else stop
 
-        for i in range(start, stop, size):
-            yield self[i:i + size]
+        if retindex:
+            for i in range(start, stop, size):
+                j = i + size
+                yield i, j, self[i:j]
+        else:
+            for i in range(start, stop, size):
+                j = i + size
+                yield self[i:j]
 
     def select(self, idx, inplace=False):
 
@@ -175,6 +181,14 @@ class FastRadioBursts(object):
         S = self.__S0 * (nut**self.spectral_index)
 
         return S.T
+
+    def density_flux(self, nu_1, nu_2):
+
+        _sp1 = self.spectral_index
+        dnu = nu_2 - nu_1
+        dnup = nu_2**_sp1 - nu_1**_sp1
+
+        return self.__S0 * numpy.abs(dnup / dnu)
 
     def _frb_rate(self, n_frb, days):
 
@@ -288,10 +302,10 @@ class FastRadioBursts(object):
 
         _sip1 = self.spectral_index + 1
 
-        nu_low = self.lower_frequency.value**_sip1
-        nu_high = self.higher_frequency.value**_sip1
+        nu_lp = self.lower_frequency.value**_sip1
+        nu_hp = self.higher_frequency.value**_sip1
 
-        self.__S0 = _sip1 * self.__flux / (nu_high - nu_low)
+        self.__S0 = _sip1 * self.__flux / (nu_hp - nu_lp)
         self.__S0 = self.__S0 / units.MHz
 
     def _sky_area(self):
@@ -420,7 +434,6 @@ class FastRadioBursts(object):
         return {
             obs: self._signal(obs, channels)
             for obs in self.observations
-            if isinstance(obs, str)
         }
 
     def _noise(self, name, channels=False):
@@ -437,22 +450,28 @@ class FastRadioBursts(object):
         return {
             obs: self._noise(obs, channels)
             for obs in self.observations
-            if isinstance(obs, str)
         }
 
-    def _signal_to_noise(self, observation, channels=False):
+    def _signal_to_noise(self, name, channels=False):
 
-        signal = self._signal(observation, channels)
-        noise = self._noise(observation, channels)
+        signal = self._signal(name, channels)
+        noise = self._noise(name, channels)
 
         return (signal / noise).value
 
-    def signal_to_noise(self, channels=False):
+    def signal_to_noise(self, names=None, channels=False):
+
+        if names is None:
+            observations = self.observations
+        elif isinstance(names, str):
+            return self._signal_to_noise(names, channels)
+        else:
+            values = itemgetter(*names)(self.observations)
+            observations = dict(zip(names, values))
 
         return {
             obs: self._signal_to_noise(obs, channels)
-            for obs in self.observations
-            if isinstance(obs, str)
+            for obs in observations
         }
 
     def cross_correlation(self, namei, namej):

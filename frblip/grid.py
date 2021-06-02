@@ -76,3 +76,9 @@ class CartesianGrid(object):
                 pattern.ev(y, x)
                 for pattern in self.patterns
             ])
+
+    def set_offset(self, alt, az):
+
+        altaz = coordinates.AltAz(alt=alt, az=az)
+        self.offsets = coordinates.SkyOffsetFrame(origin=altaz)
+        self.n_beam = az.size
