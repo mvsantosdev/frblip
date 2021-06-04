@@ -186,9 +186,9 @@ class FastRadioBursts(object):
 
         _sp1 = self.spectral_index
         dnu = nu_2 - nu_1
-        dnup = nu_2**_sp1 - nu_1**_sp1
+        dnup = nu_2.value**_sp1 - nu_1.value**_sp1
 
-        return self.__S0 * numpy.abs(dnup / dnu)
+        return self.__S0 * numpy.abs(dnup / dnu) * units.MHz
 
     def _frb_rate(self, n_frb, days):
 
@@ -401,33 +401,35 @@ class FastRadioBursts(object):
 
         if names is None:
             del self.observations
+        elif isinstance(names, str):
+            del self.observations[names]
         else:
-            for name in list(names):
+            for name in names:
                 del self.observations[name]
+
+    def clear_xcorr(self, names=None):
+        del self.__xcorr
 
     def _signal(self, name, channels=False):
 
         obs = self.observations[name]
-
+        response = obs.response
+        ndim = tuple(range(1, response.ndim))
         frequency = obs._Observation__frequency
-        n_channel = obs._Observation__n_channel
-        band_widths = obs._Observation__band_widths
-
-        signal = self.specific_flux(frequency)
-        signal = simps(signal)
-
-        nshape = len(obs.response.shape) - 1
-        ishape = numpy.ones(nshape, dtype=int)
-
-        response = obs.response[..., numpy.newaxis]
-        signal = signal.reshape((self.n_frb, *ishape, n_channel))
-
-        signal = response * signal
 
         if channels:
-            return signal
 
-        return numpy.average(signal, weights=band_widths, axis=-1)
+            n_channel = obs._Observation__n_channel
+            band_widths = obs._Observation__band_widths
+            signal = self.specific_flux(frequency)
+            signal = simps(signal)
+            signal = numpy.expand_dims(signal, axis=ndim)
+
+            return response[..., numpy.newaxis] * signal
+
+        signal = self.density_flux(*frequency[[0, -1]])
+        signal = numpy.expand_dims(signal, axis=ndim)
+        return response * signal
 
     def signal(self, channels=False):
 
@@ -442,7 +444,6 @@ class FastRadioBursts(object):
         if channels:
             return obs.noise
         inoise = (1 / obs.noise**2).sum(-1)
-
         return 1 / numpy.sqrt(inoise)
 
     def noise(self, channels=False):
