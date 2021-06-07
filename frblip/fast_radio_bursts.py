@@ -174,21 +174,14 @@ class FastRadioBursts(object):
 
         return altaz
 
-    def specific_flux(self, nu):
+    def density_flux(self, nu):
 
-        nut = nu.value.reshape(-1, 1)
+        sip = 1 + self.spectral_index[numpy.newaxis]
+        nup = nu.value[:, numpy.newaxis]**sip
+        flux = self.__S0 * numpy.diff(nup, axis=0)
+        diff_nu = numpy.diff(nu)
 
-        S = self.__S0 * (nut**self.spectral_index)
-
-        return S.T
-
-    def density_flux(self, nu_1, nu_2):
-
-        _sp1 = self.spectral_index
-        dnu = nu_2 - nu_1
-        dnup = nu_2.value**_sp1 - nu_1.value**_sp1
-
-        return self.__S0 * numpy.abs(dnup / dnu) * units.MHz
+        return flux.T / diff_nu
 
     def _frb_rate(self, n_frb, days):
 
@@ -305,8 +298,8 @@ class FastRadioBursts(object):
         nu_lp = self.lower_frequency.value**_sip1
         nu_hp = self.higher_frequency.value**_sip1
 
-        self.__S0 = _sip1 * self.__flux / (nu_hp - nu_lp)
-        self.__S0 = self.__S0 / units.MHz
+        self.__S0 = self.__flux / (nu_hp - nu_lp)
+        self.__S0 = self.__S0
 
     def _sky_area(self):
 
@@ -415,20 +408,13 @@ class FastRadioBursts(object):
         obs = self.observations[name]
         response = obs.response
         ndim = tuple(range(1, response.ndim))
-        frequency = obs._Observation__frequency
 
         if channels:
-
-            n_channel = obs._Observation__n_channel
-            band_widths = obs._Observation__band_widths
-            signal = self.specific_flux(frequency)
-            signal = simps(signal)
+            signal = self.density_flux(obs.frequency_bands)
             signal = numpy.expand_dims(signal, axis=ndim)
-
             return response[..., numpy.newaxis] * signal
 
-        signal = self.density_flux(*frequency[[0, -1]])
-        signal = numpy.expand_dims(signal, axis=ndim)
+        signal = self.density_flux(obs.frequency_bands[[0, -1]])
         return response * signal
 
     def signal(self, channels=False):
