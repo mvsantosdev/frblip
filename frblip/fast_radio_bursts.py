@@ -414,7 +414,9 @@ class FastRadioBursts(object):
             signal = numpy.expand_dims(signal, axis=ndim)
             return response[..., numpy.newaxis] * signal
 
-        signal = self.density_flux(obs.frequency_bands[[0, -1]])
+        nu = obs.frequency_bands[[0, -1]]
+        signal = self.density_flux(nu).ravel()
+        signal = numpy.expand_dims(signal, axis=ndim)
         return response * signal
 
     def signal(self, channels=False):

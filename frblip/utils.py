@@ -97,12 +97,3 @@ def load_file(file):
         })
 
     return output
-
-
-def simps(y):
-
-    m = y[..., 1::2]
-    a = y[..., :-1:2]
-    b = y[..., 2::2]
-
-    return (a + b + 4*m) / 6
