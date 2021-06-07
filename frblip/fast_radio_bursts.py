@@ -17,8 +17,8 @@ from astropy import cosmology, coordinates, units
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
-from .utils import _DATA, simps, paired_shapes
-from .utils import load_params, load_file, sub_dict, xfactors
+from .utils import _DATA, load_params, load_file
+from .utils import paired_shapes, sub_dict, xfactors
 
 from .distributions import Redshift, Schechter
 
