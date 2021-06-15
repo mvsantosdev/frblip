@@ -26,10 +26,10 @@ class Observation():
         self.frequency_bands = frequency_bands
         self.altaz = altaz
 
-        self._set_frequencies()
-        self._set_response()
+        self.__set_frequencies()
+        self.__set_response()
 
-    def _set_response(self):
+    def __set_response(self):
 
         noise = self.noise is not None
         response = self.response is not None
@@ -42,17 +42,14 @@ class Observation():
             if self.noise.shape == (1, self.__n_channel):
                 self.noise = numpy.tile(self.noise, (*self.__n_beam, 1))
 
-    def _set_frequencies(self):
+    def __set_frequencies(self):
 
-        if self.frequency_bands is not None:
+        frequency_bands = getattr(self, 'frequency_bands')
+        if frequency_bands:
+            self.__n_channel = frequency_bands.size - 1
+            self.__band_widths = frequency_bands.diff()
 
-            mid = (self.frequency_bands[1:] + self.frequency_bands[:-1]) / 2
-            self.__n_channel = len(self.frequency_bands) - 1
-            self.__band_widths = self.frequency_bands.diff()
-            self.__frequency = numpy.concatenate((self.frequency_bands, mid))
-            self.__frequency = numpy.sort(self.__frequency)
-
-    def _set_coordinates(self):
+    def __set_coordinates(self):
 
         params = self.__dict__
 
@@ -69,7 +66,6 @@ class Observation():
 
         n_beam = numpy.prod(self.n_beam)
         shape = n_beam, self.n_channel
-
         responses = numpy.split(self.response, n_beam, -1)
         noises = numpy.split(self.noise, n_beam, 0)
 
@@ -117,12 +113,10 @@ class Observation():
     def from_dict(kwargs):
 
         output = Observation.__new__(Observation)
-
         output.__dict__.update(kwargs)
-
-        output._set_coordinates()
-        output._set_frequencies()
-        output._set_response()
+        output.__set_coordinates()
+        output.__set_frequencies()
+        output.__set_response()
 
         return output
 
@@ -132,3 +126,13 @@ class Observation():
             return self.select(idx)
         idx = numpy.array(idx)
         return self.select(idx)
+
+    def select(self, idx, inplace=False):
+        response = self.response[idx]
+        altaz = getattr(self, 'altaz', None)
+        altaz = altaz[idx] if altaz else None
+        if not inplace:
+            output = Observation.__new__(Observation)
+            output.response = response
+            return output
+        self.response = response

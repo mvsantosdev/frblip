@@ -8,9 +8,9 @@ from numpy import random
 from scipy.special import comb
 from scipy.integrate import quad, cumtrapz
 
-from functools import partial
 from operator import itemgetter
 from itertools import combinations, product
+from functools import cached_property, partial
 
 from astropy.time import Time
 from astropy import cosmology, coordinates, units
@@ -36,9 +36,8 @@ class FastRadioBursts(object):
     def __init__(self, n_frb=None, days=1, log_Lstar=44.46, log_L0=41.96,
                  phistar=339, alpha=-1.79, wint=(.13, .33), si=(-15, 15),
                  ra=(0, 24), dec=(-90, 90), zmin=0, zmax=6,
-                 cosmo='Planck18_arXiv_v2', lower_frequency=400,
-                 higher_frequency=1400, width=True, dispersion=True,
-                 verbose=True):
+                 lower_frequency=400, higher_frequency=1400,
+                 cosmo='Planck18_arXiv_v2', verbose=True):
 
         """
         Creates a FRB population object.
@@ -76,25 +75,110 @@ class FastRadioBursts(object):
         """
 
         old_target = sys.stdout
-        sys.stdout = open(os.devnull, 'w') if not verbose else old_target
+        sys.stdout = old_target if verbose else open(os.devnull, 'w')
 
-        self._load_params(n_frb, days, log_Lstar, log_L0, phistar,
-                          alpha, wint, si, ra, dec, zmin, zmax, cosmo,
-                          lower_frequency, higher_frequency)
-        self._derived_params()
-
-        self._frb_rate(n_frb, days)
-
-        self._random()
-        self._derived_random()
-
-        if dispersion:
-            self._dispersion()
+        self.__load_params(n_frb, days, log_Lstar, log_L0, phistar,
+                           alpha, wint, si, ra, dec, zmin, zmax, cosmo,
+                           lower_frequency, higher_frequency)
+        self.__frb_rate(n_frb, days)
+        self.__random()
 
         sys.stdout = old_target
 
-    def __len__(self):
+    """
+    def n_frb(self):
+        return self.redshift.size
+    """
 
+    @cached_property
+    def __cosmology(self):
+        return cosmology.__dict__.get(self.cosmology)
+
+    @cached_property
+    def __xmin(self):
+        return (self.log_L0 - self.log_Lstar).to(1).value
+
+    @cached_property
+    def __zdist(self):
+        return Redshift(zmin=self.zmin, zmax=self.zmax,
+                        cosmology=self.__cosmology)
+
+    @cached_property
+    def __lumdist(self):
+        return Schechter(self.__xmin, self.alpha)
+
+    @cached_property
+    def __sky_rate(self):
+        Lum = self.phistar / self.__lumdist.pdf_norm
+        Vol = 1 / self.__zdist.pdf_norm
+        return (Lum * Vol).to(1 / units.day)
+
+    @cached_property
+    def redshift(self):
+        return self.__zdist.rvs(size=self.n_frb)
+
+    @cached_property
+    def log_luminosity(self):
+        loglum = self.__lumdist.log_rvs(size=self.n_frb)
+        return loglum * units.LogUnit() + self.log_Lstar
+
+    @cached_property
+    def pulse_width(self):
+        width = random.lognormal(self.w_mean, self.w_std, size=self.n_frb)
+        return width * units.ms
+
+    @cached_property
+    def time(self):
+        time_ms = int(self.duration.to(units.ms).value)
+        return random.randint(time_ms, size=self.n_frb) * units.ms
+
+    @cached_property
+    def spectral_index(self):
+        return random.uniform(self.si_min, self.si_max, self.n_frb)
+
+    @cached_property
+    def sky_coord(self):
+        sin = numpy.sin(self.dec_range)
+        args = random.uniform(*sin, self.n_frb)
+        decs = numpy.arcsin(args) * units.rad
+        decs = decs.to(units.degree)
+        ras = random.uniform(*self.ra_range.value, self.n_frb)
+        ras = ras * self.ra_range.unit
+        return coordinates.SkyCoord(ras, decs, frame='icrs')
+
+    @cached_property
+    def area(self):
+        x = numpy.sin(self.dec_range).diff().item()
+        y = self.ra_range.to(units.rad).diff().item()
+        Area = (x * y) * units.rad
+        return Area.to(units.degree**2)
+
+    @cached_property
+    def __luminosity_distance(self):
+        z = self.redshift
+        return self.__cosmology.luminosity_distance(z)
+
+    @cached_property
+    def __luminosity(self):
+        return self.log_luminosity.to(units.erg / units.s)
+
+    @cached_property
+    def __flux(self):
+        surface = 4 * numpy.pi * self.__luminosity_distance**2
+        return (self.__luminosity / surface).to(units.Jy * units.MHz)
+
+    @cached_property
+    def __arrived_pulse_width(self):
+        return (1 + self.redshift) * self.pulse_width
+
+    @cached_property
+    def __S0(self):
+        _sip1 = self.spectral_index + 1
+        nu_lp = self.lower_frequency.value**_sip1
+        nu_hp = self.higher_frequency.value**_sip1
+        return self.__flux / (nu_hp - nu_lp)
+
+    def __len__(self):
         return self.n_frb
 
     def __getitem__(self, idx):
@@ -113,10 +197,37 @@ class FastRadioBursts(object):
             return itemgetter(*idx)(self.observations)
         return None
 
+    def select(self, idx, inplace=False):
+
+        select_dict = {
+            name: attr[idx]
+            for name, attr in self.__dict__.items()
+            if hasattr(attr, 'size')
+            and attr.size == self.n_frb
+        }
+
+        select_dict['n_frb'] = select_dict['redshift'].size
+
+        observations = getattr(self, 'observations', None)
+        if observations:
+            observations = {
+                name: observation[idx]
+                for name, observation in observations.items()
+            }
+            select_dict['observations'] = observations
+
+        if not inplace:
+            out_dict = self.__dict__.copy()
+            out_dict.update(select_dict)
+            output = FastRadioBursts.__new__(FastRadioBursts)
+            output.__dict__.update(out_dict)
+            return output
+
+        self.__dict__.update(select_dict)
+
     def iterfrbs(self, start=0, stop=None, step=1):
 
         stop = self.n_frb if stop is None else stop
-
         for i in range(start, stop, step):
             yield self[i]
 
@@ -133,46 +244,21 @@ class FastRadioBursts(object):
                 j = i + size
                 yield self[i:j]
 
-    def select(self, idx, inplace=False):
-
-        out_dict = self.to_dict()
-        n_frb = out_dict['n_frb']
-
-        out_dict.update({
-            k: v[idx] for k, v in out_dict.items()
-            if numpy.ndim(v) and 'noise' not in k
-            and 'frequency_bands' not in k
-            and itemgetter(0)(v.shape) == n_frb
-        })
-
-        out_dict['n_frb'] = out_dict['redshift'].size
-
-        if not inplace:
-            return FastRadioBursts.from_dict(out_dict)
-
-        self.__dict__.update(out_dict)
-
     def observation_time(self, start_time=None):
 
         if start_time is None:
             start_time = Time(Time.now().mjd, format='mjd')
-
         return start_time + self.time.ravel()
 
     def altaz(self, location, start_time=None, interp=300):
 
         obstime = self.observation_time(start_time)
-
         frame = coordinates.AltAz(location=location,
                                   obstime=obstime)
-
         interp_time = interp * units.s
 
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
-
-            altaz = self.sky_coord.transform_to(frame)
-
-        return altaz
+            return self.sky_coord.transform_to(frame)
 
     def density_flux(self, nu):
 
@@ -183,7 +269,7 @@ class FastRadioBursts(object):
 
         return flux.T / diff_nu
 
-    def _frb_rate(self, n_frb, days):
+    def __frb_rate(self, n_frb, days):
 
         print("Computing the FRB rate ...")
 
@@ -191,7 +277,6 @@ class FastRadioBursts(object):
         all_dec = self.dec_range != numpy.array([-90, 90]) * units.degree
 
         if all_ra.all() or all_dec.all():
-
             print(
                 'The FoV is restricted between',
                 '{} < ra < {} and {} < dec < {}.'.format(*self.ra_range,
@@ -199,27 +284,18 @@ class FastRadioBursts(object):
                 '\nMake sure that the survey is also',
                 'restricted to this region.'
             )
-
-            self.area = self._sky_area()
             sky_fraction = self.area / units.astrophys.sp
             self.rate = self.__sky_rate * sky_fraction.to(1)
-
         else:
-
-            self.area = units.astrophys.sp
             self.rate = self.__sky_rate
-
         self.rate = int(self.rate.value) * self.rate.unit
 
         print('FRB rate =', self.rate)
 
         if n_frb is None:
-
             self.n_frb = int(self.rate.value * days)
             self.duration = days * (24 * units.hour)
-
         else:
-
             self.n_frb = n_frb
             self.duration = (n_frb / self.rate).to(units.hour)
 
@@ -227,9 +303,9 @@ class FastRadioBursts(object):
               self.rate, '.\nTherefore it corrensponds to', self.duration,
               'of observation. \n')
 
-    def _load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
-                     alpha, wint, si, ra, dec, zmin, zmax, cosmo,
-                     lower_frequency, higher_frequency):
+    def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
+                      alpha, wint, si, ra, dec, zmin, zmax, cosmo,
+                      lower_frequency, higher_frequency):
 
         self.zmin = zmin
         self.zmax = zmax
@@ -237,105 +313,27 @@ class FastRadioBursts(object):
         self.log_Lstar = log_Lstar * units.LogUnit(units.erg / units.s)
         self.phistar = phistar / (units.Gpc**3 * units.year)
         self.alpha = alpha
-
         self.w_mean, self.w_std = wint
         self.si_min, self.si_max = si
-
         self.ra_range = numpy.array(ra) * units.hourangle
         self.dec_range = numpy.array(dec) * units.degree
-
         self.lower_frequency = lower_frequency * units.MHz
         self.higher_frequency = higher_frequency * units.MHz
-
         self.cosmology = cosmo
 
-    def _derived_params(self):
+    def __random(self):
 
-        self.__cosmology = cosmology.__dict__.get(self.cosmology)
-
-        self.__xmin = self.log_L0 - self.log_Lstar
-        self.__zdist = Redshift(zmin=self.zmin, zmax=self.zmax,
-                                cosmology=self.__cosmology)
-        xmin = (self.log_L0 - self.log_Lstar).to(1).value
-        self.__lumdist = Schechter(xmin, self.alpha)
-
-        Lum = self.phistar / self.__lumdist.pdf_norm
-        Vol = 1 / self.__zdist.pdf_norm
-
-        self.__sky_rate = (Lum * Vol).to(1 / units.day)
-
-    def _random(self):
-
-        self.redshift = self.__zdist.rvs(size=self.n_frb)
-        loglum = self.__lumdist.log_rvs(size=self.n_frb)
-        self.log_luminosity = loglum * units.LogUnit() + self.log_Lstar
-        self.pulse_width = random.lognormal(self.w_mean, self.w_std,
-                                            size=self.n_frb) * units.ms
-
-        time_ms = int(self.duration.to(units.ms).value)
-        self.time = random.randint(time_ms, size=self.n_frb) * units.ms
-
-        self.spectral_index = random.uniform(self.si_min, self.si_max,
-                                             self.n_frb)
-
-        self._coordinates()
-
-    def _derived_random(self):
-
-        z = self.redshift
-        lumdist = self.__cosmology.luminosity_distance(z)
-        self.__luminosity_distance = lumdist
-
-        surface = 4 * numpy.pi * self.__luminosity_distance**2
-
-        self.__luminosity = self.log_luminosity.to(units.erg / units.s)
-        self.__flux = (self.__luminosity / surface).to(units.Jy * units.MHz)
-
-        self.__arrived_pulse_width = (1 + self.redshift) * self.pulse_width
-
-        _sip1 = self.spectral_index + 1
-
-        nu_lp = self.lower_frequency.value**_sip1
-        nu_hp = self.higher_frequency.value**_sip1
-
-        self.__S0 = self.__flux / (nu_hp - nu_lp)
-        self.__S0 = self.__S0
-
-    def _sky_area(self):
-
-        """
-        This is a private function, please do not call it
-        directly unless you know exactly what you are doing.
-        """
-
-        x = numpy.sin(self.dec_range).diff() * units.rad
-        y = self.ra_range.to(units.rad).diff()
-
-        Area = x * y
-
-        return Area[0].to(units.degree**2)
-
-    def _coordinates(self):
-
-        """
-        This is a private function, please do not call it
-        directly unless you know exactly what you are doing.
-        """
-
-        sin = numpy.sin(self.dec_range)
-
-        args = random.uniform(*sin, self.n_frb)
-
-        decs = (numpy.arcsin(args) * units.rad).to(units.degree)
-        ras = random.uniform(*self.ra_range.value,
-                             self.n_frb) * self.ra_range.unit
-
-        self.sky_coord = coordinates.SkyCoord(ras, decs, frame='icrs')
+        self.redshift
+        self.log_luminosity
+        self.pulse_width
+        self.time
+        self.spectral_index
+        self.sky_coord
+        self.area
 
     def _dispersion(self):
 
         _zp1 = 1 + self.redshift
-
         lon = self.sky_coord.galactic.l
         lat = self.sky_coord.galactic.b
 
@@ -355,8 +353,8 @@ class FastRadioBursts(object):
 
         self.__dispersion = gal_DM + egal_DM
 
-    def _observe(self, Telescope, location=None, start=None,
-                 name=None, altaz=None):
+    def __observe(self, Telescope, location=None, start=None,
+                  name=None, altaz=None):
 
         if 'observations' not in self.__dict__:
             self.observations = {}
@@ -386,9 +384,9 @@ class FastRadioBursts(object):
 
         if type(Telescopes) is dict:
             for Name, Telescope in Telescopes.items():
-                self._observe(Telescope, location, start, Name, altaz)
+                self.__observe(Telescope, location, start, Name, altaz)
         else:
-            self._observe(Telescopes, location, start, name, altaz)
+            self.__observe(Telescopes, location, start, name, altaz)
 
     def clear(self, names=None):
 
@@ -403,7 +401,7 @@ class FastRadioBursts(object):
     def clear_xcorr(self, names=None):
         del self.__xcorr
 
-    def _signal(self, name, channels=False):
+    def __signal(self, name, channels=False):
 
         obs = self.observations[name]
         ndim = tuple(range(1, obs.response.ndim))
@@ -419,11 +417,11 @@ class FastRadioBursts(object):
     def signal(self, channels=False):
 
         return {
-            obs: self._signal(obs, channels)
+            obs: self.__signal(obs, channels)
             for obs in self.observations
         }
 
-    def _noise(self, name, channels=False):
+    def __noise(self, name, channels=False):
 
         obs = self.observations[name]
         if channels:
@@ -434,14 +432,14 @@ class FastRadioBursts(object):
     def noise(self, channels=False):
 
         return {
-            obs: self._noise(obs, channels)
+            obs: self.__noise(obs, channels)
             for obs in self.observations
         }
 
-    def _signal_to_noise(self, name, channels=False):
+    def __signal_to_noise(self, name, channels=False):
 
-        signal = self._signal(name, channels)
-        noise = self._noise(name, channels)
+        signal = self.__signal(name, channels)
+        noise = self.__noise(name, channels)
 
         return (signal / noise).value
 
@@ -450,13 +448,13 @@ class FastRadioBursts(object):
         if names is None:
             observations = self.observations
         elif isinstance(names, str):
-            return self._signal_to_noise(names, channels)
+            return self.__signal_to_noise(names, channels)
         else:
             values = itemgetter(*names)(self.observations)
             observations = dict(zip(names, values))
 
         return {
-            obs: self._signal_to_noise(obs, channels)
+            obs: self.__signal_to_noise(obs, channels)
             for obs in observations
         }
 
@@ -561,29 +559,24 @@ class FastRadioBursts(object):
         out_dict = {
             key: name
             for key, name in self.__dict__.items()
-            if '_FastRadioBursts__' not in key
+            if "_FastRadioBursts__" not in key
         }
 
-        sky_coord = out_dict.pop('sky_coord')
+        sky_coord = out_dict.pop('sky_coord', None)
+        if sky_coord:
+            out_dict['ra'] = sky_coord.ra
+            out_dict['dec'] = sky_coord.dec
 
-        out_dict['ra'] = sky_coord.ra
-        out_dict['dec'] = sky_coord.dec
-
-        if 'observations' in out_dict:
-
-            observations = out_dict.pop('observations')
-
+        observations = out_dict.pop('observations', None)
+        if observations:
             keys = [*observations.keys()]
-
             out_dict['observations'] = numpy.array([
                 key for key in keys if 'INTF' not in key
             ])
 
             for name in out_dict['observations']:
-
                 flag = '{}__'.format(name)
                 observation = observations[name].to_dict(flag)
-
                 out_dict.update(observation)
 
         out_dict.update({
@@ -601,45 +594,40 @@ class FastRadioBursts(object):
         return out_dict
 
     def save(self, file, compressed=True):
-
         out_dict = self.to_dict()
-
         if compressed:
             numpy.savez_compressed(file, **out_dict)
         else:
             numpy.savez(file, **out_dict)
 
     @staticmethod
-    def from_dict(input_dict):
+    def from_dict(params):
 
-        params = load_params(input_dict)
         output = FastRadioBursts.__new__(FastRadioBursts)
+        observations = params.pop('observations', None)
 
-        if 'observations' in input_dict.keys():
+        if observations:
 
-            observations = params.pop('observations')
             output.observations = {}
 
             for name in observations:
-
                 flag = '{}__'.format(name)
                 obs = sub_dict(params, flag=flag, pop=True)
                 observation = Observation.from_dict(obs)
                 output.observations[name] = observation
 
-        ra = params.pop('ra')
-        dec = params.pop('dec')
-
-        sky_coords = coordinates.SkyCoord(ra, dec, frame='icrs')
-        params['sky_coord'] = sky_coords
+        ra = params.pop('ra', None)
+        dec = params.pop('dec', None)
+        if ra and dec:
+            sky_coords = coordinates.SkyCoord(ra, dec, frame='icrs')
+            params['sky_coord'] = sky_coords
 
         output.__dict__.update(params)
-        output._derived_params()
-        output._derived_random()
 
         return output
 
     @staticmethod
     def load(file):
         input_dict = load_file(file)
-        return FastRadioBursts.from_dict(input_dict)
+        params = load_params(input_dict)
+        return FastRadioBursts.from_dict(params)
