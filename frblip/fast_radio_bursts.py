@@ -525,8 +525,7 @@ class FastRadioBursts(object):
         responses = numpy.stack(responses, axis=-1)
         noises = numpy.stack(noises, axis=-1)
 
-        array = partial(numpy.array, ndmin=1)
-        counts = map(array, telescopes.values())
+        counts = map(numpy.atleast_1d, telescopes.values())
         counts = numpy.row_stack([*product(*counts)])
         factors = numpy.apply_along_axis(xfactors, 1, counts)
 
