@@ -1,14 +1,20 @@
 import numpy
 
+from sparse import COO
+
 from scipy.special import j1
 
 from astropy import units, coordinates
 
+from .sparse_quantity import SparseQuantity
+
 
 class FunctionalPattern(object):
 
-    def __init__(self, directivity, alt=90.0, az=0.0, kind='gaussian'):
+    def __init__(self, directivity, alt=90.0, az=0.0,
+                 kind='gaussian', dtype=numpy.float16):
 
+        self.dtype = dtype
         self.n_beam = numpy.size(az)
         self.response = self.__getattribute__(kind)
         self.set_radius(directivity)
@@ -40,12 +46,14 @@ class FunctionalPattern(object):
 
         arcs = numpy.arccos(cossines)
         rescaled_arc = (arcs / self.radius).to(1).value
+        response = self.response(rescaled_arc)
+        response = response.astype(self.dtype)
 
-        return self.response(rescaled_arc)
+        return SparseQuantity(response)
 
     def tophat(self, x):
 
-        return (numpy.abs(x) <= 1).astype(numpy.float)
+        return numpy.abs(x) <= 1
 
     def gaussian(self, x):
 

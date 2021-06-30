@@ -25,6 +25,7 @@ from .distributions import Redshift, Schechter
 from .dispersion import *
 
 from .observation import Observation
+from .sparse_quantity import SparseQuantity
 
 
 class FastRadioBursts(object):
@@ -412,7 +413,7 @@ class FastRadioBursts(object):
 
         signal = self.density_flux(nu)
         signal = numpy.expand_dims(signal, axis=ndim)
-        return numpy.squeeze(response * signal)
+        return (response * signal).squeeze()
 
     def signal(self, channels=False):
 
@@ -458,6 +459,29 @@ class FastRadioBursts(object):
             for obs in observations
         }
 
+    def __counts(self, name, channels=False, SNR=None):
+
+        snr = self.__signal_to_noise(name, channels)
+        S = numpy.arange(1, 11) if SNR is None else SNR
+        axis = tuple(range(snr.ndim))
+        S = numpy.expand_dims(S, axis=axis)
+        return (snr[..., numpy.newaxis] > S).sum(0)
+
+    def counts(self, names=None, channels=False):
+
+        if names is None:
+            observations = self.observations
+        elif isinstance(names, str):
+            return self.__counts(names, channels)
+        else:
+            values = itemgetter(*names)(self.observations)
+            observations = dict(zip(names, values))
+
+        return {
+            obs: self.__counts(obs, channels)
+            for obs in observations
+        }
+
     def cross_correlation(self, namei, namej):
 
         freqi = self.observations[namei].frequency_bands
@@ -468,7 +492,7 @@ class FastRadioBursts(object):
 
         respi = self.observations[namei].response[..., numpy.newaxis]
         respj = self.observations[namej].response[:, numpy.newaxis]
-        response = numpy.sqrt(respi * respj)
+        response = (respi * respj).apply(numpy.sqrt)
 
         noisei = self.observations[namei].noise[:, numpy.newaxis].to(units.Jy)
         noisej = self.observations[namej].noise[numpy.newaxis].to(units.Jy)
@@ -512,17 +536,16 @@ class FastRadioBursts(object):
 
         observations += [self.__xcorr[name] for name in xnames]
 
-        responses = numpy.broadcast_arrays(*[
-            observation.response.reshape(-1, *shape)
+        responses = [
+            observation.response.reshape((-1, *shape))
             for shape, observation in zip(shapes, observations)
-        ])
+        ]
 
         noises = numpy.broadcast_arrays(*[
-            observation.noise.reshape(*shape, -1).to(units.Jy)
+            observation.noise.reshape((*shape, -1)).to(units.Jy)
             for shape, observation in zip(shapes, observations)
         ])
 
-        responses = numpy.stack(responses, axis=-1)
         noises = numpy.stack(noises, axis=-1)
 
         counts = map(numpy.atleast_1d, telescopes.values())
@@ -531,7 +554,11 @@ class FastRadioBursts(object):
 
         for count, factor in zip(counts, factors):
 
-            response = (factor * responses / 2).sum(-1)
+            response = sum([
+                f * resp for f, resp in zip(factor, responses)
+            ]) / 2
+
+            response = SparseQuantity(response)
             inoise = (2 * factor / noises**2).sum(-1)
             noise = units.Jy / numpy.sqrt(inoise)
 

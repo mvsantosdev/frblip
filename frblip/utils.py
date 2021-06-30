@@ -29,7 +29,7 @@ def paired_shapes(shape):
     j1, j2 = numpy.column_stack([*combinations(range(nscopes), 2)])
     i = numpy.arange(j1.size)
 
-    cross_shapes = numpy.ones((j1.size, nscopes), dtype=numpy.int32)
+    cross_shapes = numpy.ones((j1.size, nscopes), dtype=numpy.uint32)
 
     cross_shapes[i, j1] = shape[j1]
     cross_shapes[i, j2] = shape[j2]

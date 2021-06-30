@@ -21,6 +21,7 @@ bla = setup(
         'pandas',
         'scipy',
         'astropy',
-        'healpy'
+        'healpy',
+        'sparse'
     ]
 )
