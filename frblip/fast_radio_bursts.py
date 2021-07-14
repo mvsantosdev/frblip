@@ -561,8 +561,9 @@ class FastRadioBursts(object):
                 f * resp for f, resp in zip(factor, responses)
             ]) / 2
 
-            response = SparseQuantity(response)
+            response = SparseQuantity(response).squeeze()
             inoise = (2 * factor / noises**2).sum(-1)
+            inoise = numpy.squeeze(inoise)
             noise = units.Jy / numpy.sqrt(inoise)
 
             observation = Observation(response=response, noise=noise,
