@@ -133,6 +133,7 @@ class Observation():
         altaz = altaz[idx] if altaz else None
         if not inplace:
             output = Observation.__new__(Observation)
+            output.__dict__.update(self.__dict__)
             output.response = response
             return output
         self.response = response

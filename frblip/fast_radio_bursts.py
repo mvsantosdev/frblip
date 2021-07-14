@@ -5,6 +5,8 @@ import pandas
 
 from numpy import random
 
+from sparse import COO
+
 from scipy.special import comb
 from scipy.integrate import quad, cumtrapz
 
@@ -210,7 +212,7 @@ class FastRadioBursts(object):
         select_dict['n_frb'] = select_dict['redshift'].size
 
         observations = getattr(self, 'observations', None)
-        if observations:
+        if observations is not None:
             observations = {
                 name: observation[idx]
                 for name, observation in observations.items()
@@ -355,7 +357,7 @@ class FastRadioBursts(object):
         self.__dispersion = gal_DM + egal_DM
 
     def __observe(self, Telescope, location=None, start=None,
-                  name=None, altaz=None):
+                  name=None, altaz=None, dtype=numpy.float16):
 
         if 'observations' not in self.__dict__:
             self.observations = {}
@@ -369,7 +371,8 @@ class FastRadioBursts(object):
         sampling_time = Telescope.sampling_time
 
         altaz = self.altaz(location, start) if altaz is None else altaz
-        response = Telescope.response(altaz)
+        response = Telescope.response(altaz).astype(dtype)
+        response = SparseQuantity(response)
 
         obs = Observation(response, noise, frequency_bands,
                           sampling_time, altaz)
@@ -594,7 +597,7 @@ class FastRadioBursts(object):
             out_dict['dec'] = sky_coord.dec
 
         observations = out_dict.pop('observations', None)
-        if observations:
+        if observations is not None:
             keys = [*observations.keys()]
             out_dict['observations'] = numpy.array([
                 key for key in keys if 'INTF' not in key
@@ -609,6 +612,7 @@ class FastRadioBursts(object):
             'u_{}'.format(key): value.unit.to_string()
             for key, value in out_dict.items()
             if hasattr(value, 'unit')
+            and value.unit != ''
         })
 
         out_dict.update({
@@ -616,6 +620,16 @@ class FastRadioBursts(object):
             for key, value in out_dict.items()
             if hasattr(value, 'unit')
         })
+
+        keys = [*out_dict.keys()]
+
+        for name in keys:
+            attr = out_dict[name]
+            if type(attr) is COO:
+                coo = out_dict.pop(name)
+                out_dict['{}_coords'.format(name)] = coo.coords
+                out_dict['{}_data'.format(name)] = coo.data
+                out_dict['{}_shape'.format(name)] = coo.shape
 
         return out_dict
 
@@ -632,13 +646,17 @@ class FastRadioBursts(object):
         output = FastRadioBursts.__new__(FastRadioBursts)
         observations = params.pop('observations', None)
 
-        if observations:
+        if observations is not None:
 
             output.observations = {}
 
             for name in observations:
                 flag = '{}__'.format(name)
                 obs = sub_dict(params, flag=flag, pop=True)
+                coords = obs.pop('response_coords')
+                data = obs.pop('response_data')
+                shape = tuple(obs.pop('response_shape'))
+                obs['response'] = SparseQuantity(data, coords, shape)
                 observation = Observation.from_dict(obs)
                 output.observations[name] = observation
 
