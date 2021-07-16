@@ -464,11 +464,19 @@ class FastRadioBursts(object):
 
     def __counts(self, name, channels=False, SNR=None):
 
+        S = numpy.arange(1, 11).reshape(-1, 1) if SNR is None else SNR
         snr = self.__signal_to_noise(name, channels)
-        S = numpy.arange(1, 11) if SNR is None else SNR
-        axis = tuple(range(snr.ndim))
-        S = numpy.expand_dims(S, axis=axis)
-        return (snr[..., numpy.newaxis] > S).sum(0)
+
+        shape = snr.shape[1:]
+        n_beams = numpy.prod(shape)
+        snr = snr.reshape((-1, n_beams))
+
+        counts = numpy.stack([
+            (col > S).sum(-1).todense()
+            for col in snr.T
+        ])
+
+        return counts.reshape(*shape, -1)
 
     def counts(self, names=None, channels=False):
 
@@ -558,7 +566,7 @@ class FastRadioBursts(object):
         for count, factor in zip(counts, factors):
 
             response = sum([
-                f * resp for f, resp in zip(factor, responses)
+                f * resp for f, resp in zip(factor, responses) if f > 0
             ]) / 2
 
             response = SparseQuantity(response).squeeze()
