@@ -55,7 +55,7 @@ class Observation():
 
         location = sub_dict(params, pop=True, keys=['lon', 'lat', 'height'])
         kwargs = sub_dict(params, pop=True, keys=['alt', 'az', 'obstime'])
-        kwargs['obstime'] = Time(kwargs['obstime'], format='mjd')
+        kwargs['obstime'] = Time(kwargs['obstime']).to_datetime()
 
         if location:
             kwargs['location'] = coordinates.EarthLocation(**location)
@@ -91,7 +91,8 @@ class Observation():
             out_dict['az'] = getattr(altaz, 'az', None)
             out_dict['alt'] = getattr(altaz, 'alt', None)
             obstime = getattr(altaz, 'obstime', None)
-            out_dict['obstime'] = obstime.mjd
+            obstime = obstime.to_datetime().astype(numpy.str_)
+            out_dict['obstime'] = obstime
 
             location = getattr(altaz, 'location', None)
 

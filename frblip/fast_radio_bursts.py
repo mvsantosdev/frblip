@@ -15,7 +15,7 @@ from itertools import combinations, product
 from functools import cached_property, partial
 
 from astropy.time import Time
-from astropy import cosmology, coordinates, units
+from astropy import cosmology, coordinates, units, constants
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
@@ -38,7 +38,7 @@ class FastRadioBursts(object):
 
     def __init__(self, n_frb=None, days=1, log_Lstar=44.46, log_L0=41.96,
                  phistar=339, alpha=-1.79, wint=(.13, .33), si=(-15, 15),
-                 ra=(0, 24), dec=(-90, 90), zmin=0, zmax=6,
+                 ra=(0, 24), dec=(-90, 90), zmin=0, zmax=6, start=None,
                  lower_frequency=400, higher_frequency=1400,
                  cosmo='Planck18_arXiv_v2', verbose=True):
 
@@ -82,7 +82,7 @@ class FastRadioBursts(object):
 
         self.__load_params(n_frb, days, log_Lstar, log_L0, phistar,
                            alpha, wint, si, ra, dec, zmin, zmax, cosmo,
-                           lower_frequency, higher_frequency)
+                           lower_frequency, higher_frequency, start)
         self.__frb_rate(n_frb, days)
         self.__random()
 
@@ -131,16 +131,17 @@ class FastRadioBursts(object):
         return width * units.ms
 
     @cached_property
-    def time(self):
+    def itrs_time(self):
         time_ms = int(self.duration.to(units.ms).value)
-        return random.randint(time_ms, size=self.n_frb) * units.ms
+        dt = random.randint(time_ms, size=self.n_frb) * units.ms
+        return self.start + dt
 
     @cached_property
     def spectral_index(self):
         return random.uniform(self.si_min, self.si_max, self.n_frb)
 
     @cached_property
-    def sky_coord(self):
+    def icrs(self):
         sin = numpy.sin(self.dec_range)
         args = random.uniform(*sin, self.n_frb)
         decs = numpy.arcsin(args) * units.rad
@@ -247,21 +248,31 @@ class FastRadioBursts(object):
                 j = i + size
                 yield self[i:j]
 
-    def observation_time(self, start_time=None):
+    def obstime(self, location):
 
-        if start_time is None:
-            start_time = Time(Time.now().mjd, format='mjd')
-        return start_time + self.time.ravel()
+        itrs_frame = coordinates.ITRS(obstime=self.itrs_time)
+        itrs = self.icrs.transform_to(itrs_frame)
+        zenith = location.get_itrs(self.start)
 
-    def altaz(self, location, start_time=None, interp=300):
+        itrs_xyz = itrs.cartesian.xyz.T
+        zenith_xyz = zenith.cartesian.xyz
 
-        obstime = self.observation_time(start_time)
+        path = itrs_xyz @ zenith_xyz
+        optical_path = path / constants.c
+
+        obstime = self.itrs_time - optical_path
+
+        return obstime
+
+    def altaz(self, location, interp=300):
+
+        obstime = self.obstime(location)
         frame = coordinates.AltAz(location=location,
                                   obstime=obstime)
         interp_time = interp * units.s
 
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
-            return self.sky_coord.transform_to(frame)
+            return self.icrs.transform_to(frame)
 
     def density_flux(self, nu):
 
@@ -308,7 +319,7 @@ class FastRadioBursts(object):
 
     def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
                       alpha, wint, si, ra, dec, zmin, zmax, cosmo,
-                      lower_frequency, higher_frequency):
+                      lower_frequency, higher_frequency, start):
 
         self.zmin = zmin
         self.zmax = zmax
@@ -324,21 +335,24 @@ class FastRadioBursts(object):
         self.higher_frequency = higher_frequency * units.MHz
         self.cosmology = cosmo
 
+        if start is None:
+            self.start = Time.now()
+
     def __random(self):
 
-        self.redshift
-        self.log_luminosity
-        self.pulse_width
-        self.time
-        self.spectral_index
-        self.sky_coord
+        self.icrs
         self.area
+        self.redshift
+        self.itrs_time
+        self.pulse_width
+        self.log_luminosity
+        self.spectral_index
 
     def _dispersion(self):
 
         _zp1 = 1 + self.redshift
-        lon = self.sky_coord.galactic.l
-        lat = self.sky_coord.galactic.b
+        lon = self.icrs.galactic.l
+        lat = self.icrs.galactic.b
 
         gal_DM = galactic_dispersion(lon, lat)
         host_DM = host_galaxy_dispersion(self.redshift)
@@ -365,23 +379,22 @@ class FastRadioBursts(object):
         noise = Telescope.noise()
 
         location = Telescope.location if location is None else location
-        start_time = Telescope.start_time if start is None else start
 
         frequency_bands = Telescope.frequency_bands
         sampling_time = Telescope.sampling_time
 
-        altaz = self.altaz(location, start) if altaz is None else altaz
+        altaz = self.altaz(location) if altaz is None else altaz
         response = Telescope.response(altaz).astype(dtype)
         response = SparseQuantity(response)
 
-        obs = Observation(response, noise, frequency_bands,
-                          sampling_time, altaz)
+        observation = Observation(response, noise, frequency_bands,
+                                  sampling_time, altaz)
 
         n_obs = len(self.observations)
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
         obs_name = obs_name.replace(' ', '_')
 
-        self.observations[obs_name] = obs
+        self.observations[obs_name] = observation
 
     def observe(self, Telescopes, location=None, start=None,
                 name=None, altaz=None):
@@ -466,6 +479,9 @@ class FastRadioBursts(object):
 
         S = numpy.arange(1, 11).reshape(-1, 1) if SNR is None else SNR
         snr = self.__signal_to_noise(name, channels)
+
+        if snr.ndim == 1:
+            return (snr > S).sum(-1).todense()
 
         shape = snr.shape[1:]
         n_beams = numpy.prod(shape)
@@ -600,10 +616,10 @@ class FastRadioBursts(object):
             if "_FastRadioBursts__" not in key
         }
 
-        sky_coord = out_dict.pop('sky_coord', None)
-        if sky_coord:
-            out_dict['ra'] = sky_coord.ra
-            out_dict['dec'] = sky_coord.dec
+        icrs = out_dict.pop('icrs', None)
+        if icrs:
+            out_dict['ra'] = icrs.ra
+            out_dict['dec'] = icrs.dec
 
         observations = out_dict.pop('observations', None)
         if observations is not None:
@@ -672,8 +688,8 @@ class FastRadioBursts(object):
         ra = params.pop('ra', None)
         dec = params.pop('dec', None)
         if ra and dec:
-            sky_coords = coordinates.SkyCoord(ra, dec, frame='icrs')
-            params['sky_coord'] = sky_coords
+            icrs = coordinates.SkyCoord(ra, dec, frame='icrs')
+            params['icrs'] = icrs
 
         output.__dict__.update(params)
 
