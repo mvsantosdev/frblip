@@ -7,7 +7,7 @@ from numpy import random
 
 from sparse import COO
 
-from scipy.special import comb
+from scipy.special import comb, hyp2f1
 from scipy.integrate import quad, cumtrapz
 
 from operator import itemgetter
@@ -99,7 +99,8 @@ class FastRadioBursts(object):
 
     @cached_property
     def __xmin(self):
-        return (self.log_L0 - self.log_Lstar).to(1).value
+        dlogL = self.log_L0 - self.log_Lstar
+        return dlogL.to(1).value
 
     @cached_property
     def __zdist(self):
@@ -283,6 +284,21 @@ class FastRadioBursts(object):
 
         return flux.T / diff_nu
 
+    def interferometry_density_flux(self, nu, tau):
+
+        sip = 1 + self.spectral_index[numpy.newaxis]
+        nup = nu.value[:, numpy.newaxis]**sip
+
+        z = nu[numpy.newaxis, :, numpy.newaxis] * tau[:, numpy.newaxis]
+        z = - (numpy.pi * z.to(1).value)**2
+        a = sip / 2
+        interf = hyp2f1(a, 0.5, a + 1, z).sum(0)
+
+        flux = self.__S0 * numpy.diff(nup * interf, axis=0)
+        diff_nu = numpy.diff(nu)
+
+        return numpy.abs(flux).T / diff_nu
+
     def __frb_rate(self, n_frb, days):
 
         print("Computing the FRB rate ...")
@@ -386,9 +402,10 @@ class FastRadioBursts(object):
         altaz = self.altaz(location) if altaz is None else altaz
         response = Telescope.response(altaz).astype(dtype)
         response = SparseQuantity(response)
+        array = Telescope.array
 
         observation = Observation(response, noise, frequency_bands,
-                                  sampling_time, altaz)
+                                  sampling_time, altaz, array)
 
         n_obs = len(self.observations)
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
@@ -508,6 +525,24 @@ class FastRadioBursts(object):
             obs: self.__counts(obs, channels)
             for obs in observations
         }
+
+    def time_difference(self, name1, name2):
+
+        obs1 = self.observations[name1]
+        obs2 = self.observations[name2]
+
+        t1 = obs1.altaz.obstime
+        t2 = obs2.altaz.obstime
+
+        dt = (t2 - t1).to(units.ms)
+
+        t_array1 = getattr(obs1, 'time_array', numpy.zeros((1, self.n_frb)))
+        t_array2 = getattr(obs2, 'time_array', numpy.zeros((1, self.n_frb)))
+
+        Dt = t_array2[numpy.newaxis] - t_array1[:, numpy.newaxis]
+        dt = dt - Dt
+
+        return dt.reshape((-1, self.n_frb))
 
     def cross_correlation(self, namei, namej):
 

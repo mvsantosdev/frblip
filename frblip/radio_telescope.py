@@ -36,8 +36,8 @@ class RadioTelescope(object):
     Class which defines a Radio Surveynp
     """
 
-    def __init__(self, name='bingo', kind='gaussian', start_time=None,
-                 offset=(90.0, 0.0), **kwargs):
+    def __init__(self, name='bingo', kind='gaussian',
+                 array=None, offset=(90.0, 0.0)):
 
         """
         Creates a RadioTelescope object.
@@ -57,7 +57,6 @@ class RadioTelescope(object):
 
         """
 
-        self.start_time = Time.now() if start_time is None else start_time
         name_ = '{}/{}.npz'.format(_DATA, name)
         name_ = name_ if os.path.exists(name_) else name
         input_dict = load_file(name_)
@@ -76,6 +75,13 @@ class RadioTelescope(object):
             input_dict['_response'] = FunctionalPattern(**pattern_params)
         else:
             print('Please choose a valid pattern kind')
+
+        if hasattr(array, 'unit'):
+            self.array = array
+        elif array is None:
+            self.array = array
+        else:
+            self.array = array * units.m
 
         self.__dict__.update(input_dict)
         self._derived()

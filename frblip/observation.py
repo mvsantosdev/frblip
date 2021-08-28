@@ -17,7 +17,7 @@ from .utils import sub_dict
 class Observation():
 
     def __init__(self, response=None, noise=None, frequency_bands=None,
-                 sampling_time=None, altaz=None):
+                 sampling_time=None, altaz=None, array=None):
 
         self.sampling_time = sampling_time
 
@@ -26,8 +26,18 @@ class Observation():
         self.frequency_bands = frequency_bands
         self.altaz = altaz
 
+        self.__array_times(array)
+
         self.__set_frequencies()
         self.__set_response()
+
+    def __array_times(self, array):
+
+        if array is not None:
+            xyz = self.altaz.cartesian.xyz[:2]
+            time_array = array @ xyz / constants.c
+            self.time_array = time_array.to(units.ms)
+            self.__n_array = self.time_array.shape[0]
 
     def __set_response(self):
 
@@ -36,7 +46,9 @@ class Observation():
 
         if response and noise:
 
-            self.__n_beam = self.response.shape[1:]
+            shape = self.response.shape
+            self.__n_frb = shape[0]
+            self.__n_beam = shape[1:]
             self.__n_telescopes = numpy.size(self.__n_beam)
 
             if self.noise.shape == (1, self.__n_channel):
@@ -61,6 +73,16 @@ class Observation():
             kwargs['location'] = coordinates.EarthLocation(**location)
 
         self.altaz = coordinates.AltAz(**kwargs)
+
+    def time_difference(self):
+
+        if hasattr(self, 'time_array'):
+            ran = range(self.__n_array)
+            comb = combinations(ran, 2)
+            i, j = numpy.array([*comb]).T
+            dt = self.time_array[i] - self.time_array[j]
+            return dt
+        return None
 
     def split_beams(self):
 
