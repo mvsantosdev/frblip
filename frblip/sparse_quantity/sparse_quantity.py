@@ -1,9 +1,11 @@
+import numpy
+
 from sparse import COO
 from astropy import units
 
 
-__add_error = "Cannot add two quantities with different units."
-__sub_error = "Cannot subtract two quantities with different units."
+_add_error = "Cannot add two quantities with different units."
+_sub_error = "Cannot subtract two quantities with different units."
 
 
 def get_unit(value):
@@ -32,6 +34,15 @@ class SparseQuantity(COO):
     @property
     def value(self):
         return COO(super().copy())
+    
+    @property
+    def T(self):
+        value = self.value.T
+        return SparseQuantity(value, unit=self.unit)
+    
+    def abs(self):
+        value = numpy.abs(self.value)
+        return SparseQuantity(value, unit=self.unit)
 
     def apply(self, func):
         value = func(self.value)
@@ -50,7 +61,7 @@ class SparseQuantity(COO):
         return self.value.todense() * self.unit
 
     def __add(self, other):
-        assert self.unit == get_unit(other), __add_error
+        assert self.unit == get_unit(other), _add_error
         value = self.value + get_value(other)
         return SparseQuantity(value, unit=self.unit)
 
@@ -61,7 +72,7 @@ class SparseQuantity(COO):
         return self.__add(other)
 
     def __sub__(self, other):
-        assert self.unit == get_unit(other), __sub_error
+        assert self.unit == get_unit(other), _sub_error
         value = self.value - get_value(other)
         return SparseQuantity(value, unit=self.unit)
 

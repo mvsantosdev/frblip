@@ -4,6 +4,7 @@ from .grid import CartesianGrid
 from .pattern import FunctionalPattern
 from .fast_radio_bursts import FastRadioBursts
 from .radio_telescope import RadioTelescope
+from .observation import density_flux, interferometry_density_flux
 
 
 warning_message = ''.join([

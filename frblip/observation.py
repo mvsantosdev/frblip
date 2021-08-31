@@ -4,20 +4,48 @@ import numpy
 
 import pandas
 
-from scipy.special import comb
+from scipy.special import comb, hyp2f1
 
 from itertools import combinations
 
 from astropy.time import Time
 from astropy import coordinates, constants, units
 
-from .utils import sub_dict
+from .utils import sub_dict, paired_shapes
+
+
+def density_flux(spectral_index, frequency):
+
+    diff_nu = numpy.diff(frequency)
+    nu = frequency[:, numpy.newaxis]
+    si = spectral_index[numpy.newaxis]
+
+    nup = nu.value**(1 + si)
+    flux = numpy.diff(nup, axis=0)
+    return flux.T / diff_nu
+
+
+def interferometry_density_flux(spectral_index, frequency, optical_path):
+
+    diff_nu = numpy.diff(frequency)
+    si = spectral_index[numpy.newaxis]
+    tau = optical_path[:, numpy.newaxis]
+
+    sip = 1 + si
+    nup = frequency[:, numpy.newaxis].value**sip
+    z = frequency[numpy.newaxis, :, numpy.newaxis] * tau
+    z = - (numpy.pi * z.to(1).value)**2
+    a = 0.5 * sip
+    interf = hyp2f1(a, 0.5, a + 1, z).sum(0)
+
+    flux = numpy.diff(nup * interf, axis=0)
+    return flux.T / diff_nu
 
 
 class Observation():
 
     def __init__(self, response=None, noise=None, frequency_bands=None,
-                 sampling_time=None, altaz=None, array=None):
+                 sampling_time=None, altaz=None, time_array=None):
 
         self.sampling_time = sampling_time
 
@@ -26,18 +54,12 @@ class Observation():
         self.frequency_bands = frequency_bands
         self.altaz = altaz
 
-        self.__array_times(array)
+        if time_array is not None:
+            self.time_array = time_array
+            self.__n_array = time_array.shape[0]
 
         self.__set_frequencies()
         self.__set_response()
-
-    def __array_times(self, array):
-
-        if array is not None:
-            xyz = self.altaz.cartesian.xyz[:2]
-            time_array = array @ xyz / constants.c
-            self.time_array = time_array.to(units.ms)
-            self.__n_array = self.time_array.shape[0]
 
     def __set_response(self):
 
@@ -45,12 +67,8 @@ class Observation():
         response = self.response is not None
 
         if response and noise:
-
-            shape = self.response.shape
-            self.__n_frb = shape[0]
-            self.__n_beam = shape[1:]
+            self.__n_beam = self.response.shape[1:]
             self.__n_telescopes = numpy.size(self.__n_beam)
-
             if self.noise.shape == (1, self.__n_channel):
                 self.noise = numpy.tile(self.noise, (*self.__n_beam, 1))
 
@@ -74,6 +92,22 @@ class Observation():
 
         self.altaz = coordinates.AltAz(**kwargs)
 
+    def get_noise(self, channels=False):
+
+        output = self.noise
+        if not channels:
+            inoise = (1 / output**2).sum(-1)
+            output = 1 / numpy.sqrt(inoise)
+        return numpy.squeeze(output)
+
+    def get_response(self, spectral_index, channels=False):
+
+        freq = self.frequency_bands
+        nu = freq if channels else freq[[0, -1]]
+        S = density_flux(spectral_index, nu)
+        response = self.response[..., numpy.newaxis] * S[:, numpy.newaxis]
+        return response.squeeze()
+
     def time_difference(self):
 
         if hasattr(self, 'time_array'):
@@ -81,7 +115,7 @@ class Observation():
             comb = combinations(ran, 2)
             i, j = numpy.array([*comb]).T
             dt = self.time_array[i] - self.time_array[j]
-            return dt
+            return dt.to(units.ns)
         return None
 
     def split_beams(self):
@@ -160,3 +194,140 @@ class Observation():
             output.response = response
             return output
         self.response = response
+
+
+def time_difference(obsi, obsj):
+
+    ti = obsi.altaz.obstime
+    tj = obsj.altaz.obstime
+
+    n_frb = numpy.unique([ti.size, tj.size]).item(0)
+
+    dt = (tj - ti).to(units.ms)
+
+    t_arrayi = getattr(obsi, 'time_array', numpy.zeros((1, n_frb)))
+    t_arrayj = getattr(obsj, 'time_array', numpy.zeros((1, n_frb)))
+
+    Dt = t_arrayj[numpy.newaxis] - t_arrayi[:, numpy.newaxis]
+    dt = dt - Dt
+
+    return dt.reshape((-1, n_frb))
+
+
+def cross_response(obsi, obsj):
+
+    respi = obsi.response[..., numpy.newaxis]
+    respj = obsj.response[:, numpy.newaxis]
+    return (respi * respj).apply(numpy.sqrt) / 2
+
+
+def cross_noise(obsi, obsj):
+
+    noisei = obsi.noise[:, numpy.newaxis]
+    noisej = obsj.noise[numpy.newaxis]
+    return numpy.sqrt(noisei * noisej / 2).to(units.Jy)
+
+
+class Interferometry():
+
+    def __init__(self, *observations):
+
+        n_scopes = len(observations)
+        freqs = numpy.stack([
+            observation.frequency_bands
+            for observation in observations
+        ])
+        self.frequency_bands = numpy.unique(freqs, axis=0).ravel()
+
+        sampling_time = numpy.stack([
+            observation.sampling_time
+            for observation in observations
+        ])
+        self.sampling_time = numpy.unique(sampling_time).item()
+
+        n_beams = numpy.array([
+            observation._Observation__n_beam
+            for observation in observations
+        ]).ravel()
+
+        shapes = paired_shapes(n_beams)
+        xshapes = shapes[n_scopes:]
+        shapes = shapes[:n_scopes]
+
+        self.responses = [
+            observation.response.reshape((-1, *shape))
+            for shape, observation in zip(shapes, observations)
+            if hasattr(observation, 'time_array')
+        ]
+
+        self.responses += [
+            cross_response(*obsij).reshape((-1, *shape))
+            for shape, obsij in zip(xshapes, combinations(observations, 2))
+        ]
+
+        self.noises = [
+            observation.noise.reshape((*shape, -1))
+            for shape, observation in zip(shapes, observations)
+            if hasattr(observation, 'time_array')
+        ]
+
+        self.noises += [
+            cross_noise(*obsij).reshape((*shape, -1))
+            for shape, obsij in zip(xshapes, combinations(observations, 2))
+        ]
+
+        self.optical_paths = [
+            observation.time_difference()
+            for observation in observations
+            if hasattr(observation, 'time_array')
+        ]
+
+        self.optical_paths += [
+            time_difference(*obsij)
+            for obsij in combinations(observations, 2)
+        ]
+
+        self.__pairs = numpy.array([
+            optical_path.shape[0]
+            for optical_path in self.optical_paths
+        ])
+
+    def get_noise(self, channels=False):
+
+        output = numpy.broadcast_arrays(*[
+            pairs / noise**2
+            for pairs, noise in zip(self.__pairs, self.noises)
+        ])
+        output = numpy.stack(output, axis=-1).sum(-1)
+
+        if channels:
+            output = 1 / numpy.sqrt(output)
+        else:
+            output = 1 / numpy.sqrt(output.sum(-1))
+
+        return numpy.squeeze(output)
+
+    def get_response(self, spectral_index, channels=False):
+
+        freq = self.frequency_bands
+        nu = freq if channels else freq[[0, -1]]
+
+        interfs = [
+            interferometry_density_flux(spectral_index, nu, optical_path)
+            for optical_path in self.optical_paths
+        ]
+
+        unit = [interf.unit for interf in interfs]
+        unit = 1 * numpy.unique(unit).item()
+
+        values = [
+            interf[:, numpy.newaxis, numpy.newaxis].value
+            for interf in interfs
+        ]
+
+        value = sum([
+            resp[..., numpy.newaxis] * value
+            for resp, value in zip(self.responses, values)
+        ])
+
+        return (value * unit).squeeze()

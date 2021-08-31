@@ -26,8 +26,8 @@ from .distributions import Redshift, Schechter
 
 from .dispersion import *
 
-from .observation import Observation
 from .sparse_quantity import SparseQuantity
+from .observation import Observation, Interferometry
 
 
 class FastRadioBursts(object):
@@ -275,7 +275,7 @@ class FastRadioBursts(object):
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
             return self.icrs.transform_to(frame)
 
-    def density_flux(self, nu):
+    def __density_flux(self, nu):
 
         sip = 1 + self.spectral_index[numpy.newaxis]
         nup = nu.value[:, numpy.newaxis]**sip
@@ -284,20 +284,25 @@ class FastRadioBursts(object):
 
         return flux.T / diff_nu
 
-    def interferometry_density_flux(self, nu, tau):
+    def __interferometry_density_flux(self, nu, tau):
 
         sip = 1 + self.spectral_index[numpy.newaxis]
         nup = nu.value[:, numpy.newaxis]**sip
 
         z = nu[numpy.newaxis, :, numpy.newaxis] * tau[:, numpy.newaxis]
         z = - (numpy.pi * z.to(1).value)**2
-        a = sip / 2
+        a = 0.5 * sip
         interf = hyp2f1(a, 0.5, a + 1, z).sum(0)
 
         flux = self.__S0 * numpy.diff(nup * interf, axis=0)
         diff_nu = numpy.diff(nu)
 
         return numpy.abs(flux).T / diff_nu
+
+    def density_flux(self, nu, tau=None):
+        if tau is None:
+            return self.__density_flux(nu)
+        return self.__interferometry_density_flux(nu, tau)
 
     def __frb_rate(self, n_frb, days):
 
@@ -404,8 +409,15 @@ class FastRadioBursts(object):
         response = SparseQuantity(response)
         array = Telescope.array
 
+        if array is not None:
+            xyz = altaz.cartesian.xyz[:2]
+            time_array = array @ xyz / constants.c
+            time_array = time_array.to(units.ms)
+        else:
+            time_array = None
+
         observation = Observation(response, noise, frequency_bands,
-                                  sampling_time, altaz, array)
+                                  sampling_time, altaz, time_array)
 
         n_obs = len(self.observations)
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
@@ -437,38 +449,17 @@ class FastRadioBursts(object):
 
     def __signal(self, name, channels=False):
 
-        obs = self.observations[name]
-        ndim = tuple(range(1, obs.response.ndim))
-        response = obs.response[..., numpy.newaxis]
+        observation = self[name]
+        freq = observation.frequency_bands
+        response = observation.get_response(self.spectral_index, channels)
+        signal = response.T * self.__S0
 
-        freq = obs.frequency_bands
-        nu = freq if channels else freq[[0, -1]]
-
-        signal = self.density_flux(nu)
-        signal = numpy.expand_dims(signal, axis=ndim)
-        return (response * signal).squeeze()
-
-    def signal(self, channels=False):
-
-        return {
-            obs: self.__signal(obs, channels)
-            for obs in self.observations
-        }
+        return signal.T.abs()
 
     def __noise(self, name, channels=False):
 
-        obs = self.observations[name]
-        if channels:
-            return obs.noise
-        inoise = (1 / obs.noise**2).sum(-1)
-        return 1 / numpy.sqrt(inoise)
-
-    def noise(self, channels=False):
-
-        return {
-            obs: self.__noise(obs, channels)
-            for obs in self.observations
-        }
+        observation = self[name]
+        return observation.get_noise(channels)
 
     def __signal_to_noise(self, name, channels=False):
 
@@ -477,18 +468,20 @@ class FastRadioBursts(object):
 
         return (signal / noise).value
 
-    def signal_to_noise(self, names=None, channels=False):
+    def __get(self, func_name=None, names=None, channels=False):
+
+        func = self.__getattribute__(func_name)
 
         if names is None:
             observations = self.observations
         elif isinstance(names, str):
-            return self.__signal_to_noise(names, channels)
+            return func(names, channels)
         else:
             values = itemgetter(*names)(self.observations)
             observations = dict(zip(names, values))
 
         return {
-            obs: self.__signal_to_noise(obs, channels)
+            obs: func(obs, channels)
             for obs in observations
         }
 
@@ -511,127 +504,27 @@ class FastRadioBursts(object):
 
         return counts.reshape(*shape, -1)
 
+    def signal(self, names=None, channels=False):
+
+        return self.__get('_FastRadioBursts__signal', names, channels)
+
+    def noise(self, names=None, channels=False):
+
+        return self.__get('_FastRadioBursts__noise', names, channels)
+
+    def signal_to_noise(self, names=None, channels=False):
+
+        return self.__get('_FastRadioBursts__signal_to_noise', names, channels)
+
     def counts(self, names=None, channels=False):
 
-        if names is None:
-            observations = self.observations
-        elif isinstance(names, str):
-            return self.__counts(names, channels)
-        else:
-            values = itemgetter(*names)(self.observations)
-            observations = dict(zip(names, values))
+        return self.__get('_FastRadioBursts__counts', names, channels)
 
-        return {
-            obs: self.__counts(obs, channels)
-            for obs in observations
-        }
+    def interferometry(self, *names):
 
-    def time_difference(self, name1, name2):
-
-        obs1 = self.observations[name1]
-        obs2 = self.observations[name2]
-
-        t1 = obs1.altaz.obstime
-        t2 = obs2.altaz.obstime
-
-        dt = (t2 - t1).to(units.ms)
-
-        t_array1 = getattr(obs1, 'time_array', numpy.zeros((1, self.n_frb)))
-        t_array2 = getattr(obs2, 'time_array', numpy.zeros((1, self.n_frb)))
-
-        Dt = t_array2[numpy.newaxis] - t_array1[:, numpy.newaxis]
-        dt = dt - Dt
-
-        return dt.reshape((-1, self.n_frb))
-
-    def cross_correlation(self, namei, namej):
-
-        freqi = self.observations[namei].frequency_bands
-        freqj = self.observations[namei].frequency_bands
-
-        freq = numpy.row_stack((freqi, freqj))
-        freq = numpy.unique(freq, axis=0).ravel()
-
-        respi = self.observations[namei].response[..., numpy.newaxis]
-        respj = self.observations[namej].response[:, numpy.newaxis]
-        response = (respi * respj).apply(numpy.sqrt)
-
-        noisei = self.observations[namei].noise[:, numpy.newaxis].to(units.Jy)
-        noisej = self.observations[namej].noise[numpy.newaxis].to(units.Jy)
-        noise = numpy.sqrt(noisei * noisej)
-
-        observation = Observation(response=response, noise=noise,
-                                  frequency_bands=freq)
-
-        if "_FastRadioBursts__xcorr" not in self.__dict__:
-            self.__xcorr = {}
-
-        self.__xcorr[(namei, namej)] = observation
-
-    def interferometry(self, **telescopes):
-
-        names = [*telescopes.keys()]
-        n_scopes = len(names)
-
-        freqs = numpy.stack([
-            self.observations.get(name).frequency_bands
-            for name in names
-        ])
-
-        frequency = numpy.unique(freqs, axis=0).ravel()
-
-        observations = [self.observations[name] for name in names]
-
-        shapes = [
-            observation._Observation__n_beam
-            for observation in observations
-        ]
-
-        shape = numpy.concatenate(shapes[:n_scopes])
-        shapes = paired_shapes(shape)
-
-        xnames = [*combinations(names, 2)]
-
-        for xname in xnames:
-            if xname not in self.observations:
-                self.cross_correlation(*xname)
-
-        observations += [self.__xcorr[name] for name in xnames]
-
-        responses = [
-            observation.response.reshape((-1, *shape))
-            for shape, observation in zip(shapes, observations)
-        ]
-
-        noises = numpy.broadcast_arrays(*[
-            observation.noise.reshape((*shape, -1)).to(units.Jy)
-            for shape, observation in zip(shapes, observations)
-        ])
-
-        noises = numpy.stack(noises, axis=-1)
-
-        counts = map(numpy.atleast_1d, telescopes.values())
-        counts = numpy.row_stack([*product(*counts)])
-        factors = numpy.apply_along_axis(xfactors, 1, counts)
-
-        for count, factor in zip(counts, factors):
-
-            response = sum([
-                f * resp for f, resp in zip(factor, responses) if f > 0
-            ]) / 2
-
-            response = SparseQuantity(response).squeeze()
-            inoise = (2 * factor / noises**2).sum(-1)
-            inoise = numpy.squeeze(inoise)
-            noise = units.Jy / numpy.sqrt(inoise)
-
-            observation = Observation(response=response, noise=noise,
-                                      frequency_bands=frequency)
-
-            keys = ['{}x{}'.format(c, l) for c, l in zip(count, names)]
-            key = 'INTF_{}'.format('_'.join(keys)).replace('_1x', '_')
-
-            self.observations[key] = observation
+        key = '_'.join(names)
+        observations = [self[name] for name in names]
+        self.observations[key] = Interferometry(*observations)
 
     def split_beams(self, name, key='BEAM'):
 
