@@ -20,7 +20,7 @@ def density_flux(spectral_index, frequency):
     nu = frequency[:, numpy.newaxis]
     si = spectral_index[numpy.newaxis]
 
-    nup = nu.value**(1 + si)
+    nup = (nu / units.MHz)**(1 + si)
     flux = numpy.diff(nup, axis=0)
     return flux.T / diff_nu
 
@@ -32,7 +32,8 @@ def interferometry_density_flux(spectral_index, frequency, optical_path):
     tau = optical_path[:, numpy.newaxis]
 
     sip = 1 + si
-    nup = frequency[:, numpy.newaxis].value**sip
+    nu = frequency[:, numpy.newaxis]
+    nup = (nu / units.MHz)**sip
     z = frequency[numpy.newaxis, :, numpy.newaxis] * tau
     z = - (numpy.pi * z.to(1).value)**2
     a = 0.5 * sip
@@ -100,13 +101,19 @@ class Observation():
             output = 1 / numpy.sqrt(inoise)
         return numpy.squeeze(output)
 
-    def get_response(self, spectral_index, channels=False):
+    def pattern(self, spectral_index=None, channels=False):
+        return self.response
 
+    def get_frequency(self, channels=False):
         freq = self.frequency_bands
-        nu = freq if channels else freq[[0, -1]]
+        return freq if channels else freq[[0, -1]]
+
+    def get_response(self, spectral_index, channels=False):
+        nu = self.get_frequency(channels)
         S = density_flux(spectral_index, nu)
-        response = self.response[..., numpy.newaxis] * S[:, numpy.newaxis]
-        return response.squeeze()
+        pattern = self.pattern()
+        response = pattern[..., numpy.newaxis] * S[:, numpy.newaxis]
+        return numpy.squeeze(response)
 
     def time_difference(self):
 
@@ -218,7 +225,7 @@ def cross_response(obsi, obsj):
 
     respi = obsi.response[..., numpy.newaxis]
     respj = obsj.response[:, numpy.newaxis]
-    return (respi * respj).apply(numpy.sqrt) / 2
+    return numpy.sqrt(respi * respj) / 2
 
 
 def cross_noise(obsi, obsj):
@@ -230,7 +237,7 @@ def cross_noise(obsi, obsj):
 
 class Interferometry():
 
-    def __init__(self, *observations):
+    def __init__(self, *observations, time_delay=True):
 
         n_scopes = len(observations)
         freqs = numpy.stack([
@@ -292,13 +299,18 @@ class Interferometry():
             for optical_path in self.optical_paths
         ])
 
+        if time_delay:
+            self.get_response = self.__time_delay
+        else:
+            self.get_response = self.__no_time_delay
+
     def get_noise(self, channels=False):
 
-        output = numpy.broadcast_arrays(*[
+        output = [
             pairs / noise**2
             for pairs, noise in zip(self.__pairs, self.noises)
-        ])
-        output = numpy.stack(output, axis=-1).sum(-1)
+        ]
+        output = sum(output)
 
         if channels:
             output = 1 / numpy.sqrt(output)
@@ -307,7 +319,57 @@ class Interferometry():
 
         return numpy.squeeze(output)
 
-    def get_response(self, spectral_index, channels=False):
+    def pattern(self, spectral_index, channels=False):
+
+        response = self.get_response(spectral_index, channels)
+
+        freq = self.frequency_bands
+        nu = freq if channels else freq[[0, -1]]
+
+        sflux = density_flux(spectral_index, nu)
+        ndims = tuple(range(1, response.ndim - 1))
+        sflux = numpy.expand_dims(sflux, ndims)
+
+        pattern = response / sflux
+
+        return numpy.abs(pattern).value
+
+    def __no_time_delay(self, spectral_index, channels=False):
+
+        freq = self.frequency_bands
+        nu = freq if channels else freq[[0, -1]]
+
+        interfs = [
+            density_flux(spectral_index, nu)
+            for optical_path in self.optical_paths
+        ]
+
+        unit = [interf.unit for interf in interfs]
+        unit = 1 * numpy.unique(unit).item()
+
+        dims = [
+            tuple(range(1, response.ndim))
+            for response in self.responses
+        ]
+
+        values = [
+            numpy.expand_dims(interf, axis=dim).value
+            for interf, dim in zip(interfs, dims)
+        ]
+
+        value = sum([
+            resp[..., numpy.newaxis] * value
+            for pairs, resp, value in zip(self.__pairs,
+                                          self.responses,
+                                          values)
+        ])
+
+        response = value * unit
+        response.fill_value = 0.0
+
+        return response.squeeze()
+
+    def __time_delay(self, spectral_index, channels=False):
 
         freq = self.frequency_bands
         nu = freq if channels else freq[[0, -1]]
@@ -320,9 +382,14 @@ class Interferometry():
         unit = [interf.unit for interf in interfs]
         unit = 1 * numpy.unique(unit).item()
 
+        dims = [
+            tuple(range(1, response.ndim))
+            for response in self.responses
+        ]
+
         values = [
-            interf[:, numpy.newaxis, numpy.newaxis].value
-            for interf in interfs
+            numpy.expand_dims(interf, axis=dim).value
+            for interf, dim in zip(interfs, dims)
         ]
 
         value = sum([
@@ -330,4 +397,5 @@ class Interferometry():
             for resp, value in zip(self.responses, values)
         ])
 
-        return (value * unit).squeeze()
+        response = numpy.abs(value * unit)
+        return numpy.squeeze(response)

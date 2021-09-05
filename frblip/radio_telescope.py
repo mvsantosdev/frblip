@@ -97,6 +97,11 @@ class RadioTelescope(object):
         self.response = self._offset_response
         self.n_beam = self.directivity.size
 
+    def set_location(self, lon, lat, height):
+
+        self.location = coordinates.EarthLocation(lon=lon, lat=lat,
+                                                  height=height)
+
     def noise(self):
 
         band_widths = numpy.diff(self.frequency_bands)
@@ -123,8 +128,8 @@ class RadioTelescope(object):
         lon = self.__dict__.pop('lon')
         lat = self.__dict__.pop('lat')
         height = self.__dict__.pop('height')
-        self.location = coordinates.EarthLocation(lon=lon, lat=lat,
-                                                  height=height)
+
+        self.set_location(lon, lat, height)
         self.noise_performance = noise_performance[self.receiver_type]
         self.set_directivity(self.directivity)
 
@@ -137,6 +142,8 @@ class RadioTelescope(object):
         self.effective_area = self.effective_area.to(units.meter**2)
         self.gain = 0.5 * (self.effective_area / constants.k_B)
         self.gain = self.gain.to(units.K / units.Jy)
+        arg = 1 - self.solid_angle / (2 * numpy.pi * units.sr)
+        self.radius = numpy.arccos(arg).to(units.deg)
 
         if self.kind in ('tophat', 'bessel', 'gaussian'):
             self._response.set_radius(directivity)

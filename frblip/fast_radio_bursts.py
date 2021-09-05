@@ -26,7 +26,6 @@ from .distributions import Redshift, Schechter
 
 from .dispersion import *
 
-from .sparse_quantity import SparseQuantity
 from .observation import Observation, Interferometry
 
 
@@ -179,8 +178,8 @@ class FastRadioBursts(object):
     @cached_property
     def __S0(self):
         _sip1 = self.spectral_index + 1
-        nu_lp = self.lower_frequency.value**_sip1
-        nu_hp = self.higher_frequency.value**_sip1
+        nu_lp = (self.lower_frequency / units.MHz)**_sip1
+        nu_hp = (self.higher_frequency / units.MHz)**_sip1
         return self.__flux / (nu_hp - nu_lp)
 
     def __len__(self):
@@ -268,8 +267,7 @@ class FastRadioBursts(object):
     def altaz(self, location, interp=300):
 
         obstime = self.obstime(location)
-        frame = coordinates.AltAz(location=location,
-                                  obstime=obstime)
+        frame = coordinates.AltAz(location=location, obstime=obstime)
         interp_time = interp * units.s
 
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
@@ -391,23 +389,22 @@ class FastRadioBursts(object):
 
         self.__dispersion = gal_DM + egal_DM
 
-    def __observe(self, Telescope, location=None, start=None,
-                  name=None, altaz=None, dtype=numpy.float16):
+    def __observe(self, telescope, location=None, start=None,
+                  name=None, altaz=None):
 
         if 'observations' not in self.__dict__:
             self.observations = {}
 
-        noise = Telescope.noise()
+        noise = telescope.noise()
 
-        location = Telescope.location if location is None else location
+        location = telescope.location if location is None else location
 
-        frequency_bands = Telescope.frequency_bands
-        sampling_time = Telescope.sampling_time
+        frequency_bands = telescope.frequency_bands
+        sampling_time = telescope.sampling_time
 
         altaz = self.altaz(location) if altaz is None else altaz
-        response = Telescope.response(altaz).astype(dtype)
-        response = SparseQuantity(response)
-        array = Telescope.array
+        response = telescope.response(altaz)
+        array = telescope.array
 
         if array is not None:
             xyz = altaz.cartesian.xyz[:2]
@@ -425,14 +422,14 @@ class FastRadioBursts(object):
 
         self.observations[obs_name] = observation
 
-    def observe(self, Telescopes, location=None, start=None,
+    def observe(self, telescopes, location=None, start=None,
                 name=None, altaz=None):
 
-        if type(Telescopes) is dict:
-            for Name, Telescope in Telescopes.items():
-                self.__observe(Telescope, location, start, Name, altaz)
+        if type(telescopes) is dict:
+            for name, telescope in telescopes.items():
+                self.__observe(telescope, location, start, name, altaz)
         else:
-            self.__observe(Telescopes, location, start, name, altaz)
+            self.__observe(telescopes, location, start, name, altaz)
 
     def clear(self, names=None):
 
@@ -447,19 +444,33 @@ class FastRadioBursts(object):
     def clear_xcorr(self, names=None):
         del self.__xcorr
 
-    def __signal(self, name, channels=False):
+    def __response(self, name, channels=False):
 
         observation = self[name]
-        freq = observation.frequency_bands
         response = observation.get_response(self.spectral_index, channels)
-        signal = response.T * self.__S0
+        return response
 
-        return signal.T.abs()
+    def __signal(self, name, channels=False):
+
+        response = self.__response(name, channels)
+        signal = response.T * self.__S0
+        return numpy.abs(signal).T
 
     def __noise(self, name, channels=False):
 
         observation = self[name]
         return observation.get_noise(channels)
+
+    def __sensitivity(self, name, channels=False):
+
+        return 1 / self.__response_to_noise(name, channels)
+
+    def __response_to_noise(self, name, channels=False):
+
+        response = self.__response(name, channels)
+        noise = self.__noise(name, channels)
+
+        return response / noise
 
     def __signal_to_noise(self, name, channels=False):
 
@@ -467,6 +478,25 @@ class FastRadioBursts(object):
         noise = self.__noise(name, channels)
 
         return (signal / noise).value
+
+    def __counts(self, name, channels=False, SNR=None):
+
+        S = numpy.arange(1, 11).reshape(-1, 1) if SNR is None else SNR
+        snr = self.__signal_to_noise(name, channels)
+
+        if snr.ndim == 1:
+            return (snr > S).sum(-1)
+
+        shape = snr.shape[1:]
+        n_beams = numpy.prod(shape)
+        snr = snr.reshape((-1, n_beams))
+
+        counts = numpy.stack([
+            (col > S).sum(-1)
+            for col in snr.T
+        ])
+
+        return counts.reshape(*shape, -1)
 
     def __get(self, func_name=None, names=None, channels=False):
 
@@ -485,24 +515,9 @@ class FastRadioBursts(object):
             for obs in observations
         }
 
-    def __counts(self, name, channels=False, SNR=None):
+    def response(self, names=None, channels=False):
 
-        S = numpy.arange(1, 11).reshape(-1, 1) if SNR is None else SNR
-        snr = self.__signal_to_noise(name, channels)
-
-        if snr.ndim == 1:
-            return (snr > S).sum(-1).todense()
-
-        shape = snr.shape[1:]
-        n_beams = numpy.prod(shape)
-        snr = snr.reshape((-1, n_beams))
-
-        counts = numpy.stack([
-            (col > S).sum(-1).todense()
-            for col in snr.T
-        ])
-
-        return counts.reshape(*shape, -1)
+        return self.__get('_FastRadioBursts__response', names, channels)
 
     def signal(self, names=None, channels=False):
 
@@ -512,6 +527,15 @@ class FastRadioBursts(object):
 
         return self.__get('_FastRadioBursts__noise', names, channels)
 
+    def response_to_noise(self, names=None, channels=False):
+
+        return self.__get('_FastRadioBursts__response_to_noise',
+                          names, channels)
+
+    def sensitivity(self, names=None, channels=False):
+
+        return self.__get('_FastRadioBursts__sensitivity', names, channels)
+
     def signal_to_noise(self, names=None, channels=False):
 
         return self.__get('_FastRadioBursts__signal_to_noise', names, channels)
@@ -520,11 +544,13 @@ class FastRadioBursts(object):
 
         return self.__get('_FastRadioBursts__counts', names, channels)
 
-    def interferometry(self, *names):
+    def interferometry(self, *names, time_delay=True):
 
         key = '_'.join(names)
+        key = 'INTF_{}'.format(key)
         observations = [self[name] for name in names]
-        self.observations[key] = Interferometry(*observations)
+        interferometry = Interferometry(*observations, time_delay=time_delay)
+        self.observations[key] = interferometry
 
     def split_beams(self, name, key='BEAM'):
 
@@ -606,10 +632,7 @@ class FastRadioBursts(object):
             for name in observations:
                 flag = '{}__'.format(name)
                 obs = sub_dict(params, flag=flag, pop=True)
-                coords = obs.pop('response_coords')
-                data = obs.pop('response_data')
-                shape = tuple(obs.pop('response_shape'))
-                obs['response'] = SparseQuantity(data, coords, shape)
+                obs['response'] = obs.pop('response')
                 observation = Observation.from_dict(obs)
                 output.observations[name] = observation
 
