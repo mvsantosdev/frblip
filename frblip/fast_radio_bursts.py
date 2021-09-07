@@ -273,7 +273,7 @@ class FastRadioBursts(object):
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
             return self.icrs.transform_to(frame)
 
-    def __density_flux(self, nu):
+    """def __density_flux(self, nu):
 
         sip = 1 + self.spectral_index[numpy.newaxis]
         nup = nu.value[:, numpy.newaxis]**sip
@@ -300,7 +300,7 @@ class FastRadioBursts(object):
     def density_flux(self, nu, tau=None):
         if tau is None:
             return self.__density_flux(nu)
-        return self.__interferometry_density_flux(nu, tau)
+        return self.__interferometry_density_flux(nu, tau)"""
 
     def __frb_rate(self, n_frb, days):
 
@@ -454,7 +454,7 @@ class FastRadioBursts(object):
 
         response = self.__response(name, channels)
         signal = response.T * self.__S0
-        return numpy.abs(signal).T
+        return signal.T
 
     def __noise(self, name, channels=False):
 
@@ -479,10 +479,15 @@ class FastRadioBursts(object):
 
         return (signal / noise).value
 
-    def __counts(self, name, channels=False, SNR=None):
+    def __counts(self, name, channels=False, SNR=None, total=False):
 
         S = numpy.arange(1, 11).reshape(-1, 1) if SNR is None else SNR
         snr = self.__signal_to_noise(name, channels)
+        snr = numpy.nan_to_num(snr, nan=0.0, posinf=0.0)
+
+        if total:
+            axes = range(1, snr.ndim)
+            snr = numpy.apply_over_axes(numpy.max, snr, axes).ravel()
 
         if snr.ndim == 1:
             return (snr > S).sum(-1)
@@ -498,20 +503,21 @@ class FastRadioBursts(object):
 
         return counts.reshape(*shape, -1)
 
-    def __get(self, func_name=None, names=None, channels=False):
+    def __get(self, func_name=None, names=None,
+              channels=False, **kwargs):
 
         func = self.__getattribute__(func_name)
 
         if names is None:
             observations = self.observations
         elif isinstance(names, str):
-            return func(names, channels)
+            return func(names, channels, **kwargs)
         else:
             values = itemgetter(*names)(self.observations)
             observations = dict(zip(names, values))
 
         return {
-            obs: func(obs, channels)
+            obs: func(obs, channels, **kwargs)
             for obs in observations
         }
 
@@ -534,15 +540,18 @@ class FastRadioBursts(object):
 
     def sensitivity(self, names=None, channels=False):
 
-        return self.__get('_FastRadioBursts__sensitivity', names, channels)
+        return self.__get('_FastRadioBursts__sensitivity',
+                          names, channels)
 
     def signal_to_noise(self, names=None, channels=False):
 
-        return self.__get('_FastRadioBursts__signal_to_noise', names, channels)
+        return self.__get('_FastRadioBursts__signal_to_noise',
+                          names, channels)
 
-    def counts(self, names=None, channels=False):
+    def counts(self, names=None, channels=False, total=False):
 
-        return self.__get('_FastRadioBursts__counts', names, channels)
+        return self.__get('_FastRadioBursts__counts', names,
+                          channels, total=total)
 
     def interferometry(self, *names, time_delay=True):
 

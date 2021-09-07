@@ -25,11 +25,11 @@ def density_flux(spectral_index, frequency):
     return flux.T / diff_nu
 
 
-def interferometry_density_flux(spectral_index, frequency, optical_path):
+def interferometry_density_flux(spectral_index, frequency, optical_paths):
 
     diff_nu = numpy.diff(frequency)
     si = spectral_index[numpy.newaxis]
-    tau = optical_path[:, numpy.newaxis]
+    tau = optical_paths[:, numpy.newaxis]
 
     sip = 1 + si
     nu = frequency[:, numpy.newaxis]

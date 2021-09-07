@@ -160,11 +160,15 @@ class HealPixMap(HEALPix):
         signal = self.__signal(name, spectral_index, channels)
         return noise / signal
 
-    def __rate(self, name, channels=False, SNR=None):
+    def __rate(self, name, channels=False, SNR=None, total=False):
 
         SNR = numpy.arange(1, 11) if SNR is None else SNR
 
         sens = self.__sensitivity(name, channels=False)
+
+        if total:
+            axes = range(1, sens.ndim)
+            sens = numpy.apply_over_axes(numpy.min, sens, axes).ravel()
 
         smin = sens.min()
         smax = SNR * sens[numpy.isfinite(sens)].max()
@@ -236,10 +240,10 @@ class HealPixMap(HEALPix):
             for obs in observations
         }
 
-    def rate(self, names=None, channels=False, SNR=None):
+    def rate(self, names=None, channels=False, SNR=None, total=False):
 
         return self.__get('_HealPixMap__rate', names, channels,
-                          SNR=SNR)
+                          SNR=SNR, total=total)
 
     def pattern(self, names=None, channels=False, spectral_index=0.0):
 
