@@ -320,8 +320,7 @@ class FastRadioBursts(object):
         self.higher_frequency = higher_frequency * units.MHz
         self.cosmology = cosmo
 
-        if start is None:
-            self.start = Time.now()
+        self.start = Time.now() if start is None else start
 
     def __random(self):
 

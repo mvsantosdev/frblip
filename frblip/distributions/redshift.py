@@ -35,7 +35,7 @@ class Redshift(rv_continuous):
 
     def density(self, z):
         diff_co_vol = self.cosmology.differential_comoving_volume(z)
-        density = units.astrophys.sp * diff_co_vol
+        density = units.spat * diff_co_vol
         return density / (1 + z)
 
     def _pdf(self, z):
