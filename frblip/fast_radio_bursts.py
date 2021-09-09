@@ -87,11 +87,6 @@ class FastRadioBursts(object):
 
         sys.stdout = old_target
 
-    """
-    def n_frb(self):
-        return self.redshift.size
-    """
-
     @cached_property
     def __cosmology(self):
         return cosmology.__dict__.get(self.cosmology)
@@ -272,35 +267,6 @@ class FastRadioBursts(object):
 
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
             return self.icrs.transform_to(frame)
-
-    """def __density_flux(self, nu):
-
-        sip = 1 + self.spectral_index[numpy.newaxis]
-        nup = nu.value[:, numpy.newaxis]**sip
-        flux = self.__S0 * numpy.diff(nup, axis=0)
-        diff_nu = numpy.diff(nu)
-
-        return flux.T / diff_nu
-
-    def __interferometry_density_flux(self, nu, tau):
-
-        sip = 1 + self.spectral_index[numpy.newaxis]
-        nup = nu.value[:, numpy.newaxis]**sip
-
-        z = nu[numpy.newaxis, :, numpy.newaxis] * tau[:, numpy.newaxis]
-        z = - (numpy.pi * z.to(1).value)**2
-        a = 0.5 * sip
-        interf = hyp2f1(a, 0.5, a + 1, z).sum(0)
-
-        flux = self.__S0 * numpy.diff(nup * interf, axis=0)
-        diff_nu = numpy.diff(nu)
-
-        return numpy.abs(flux).T / diff_nu
-
-    def density_flux(self, nu, tau=None):
-        if tau is None:
-            return self.__density_flux(nu)
-        return self.__interferometry_density_flux(nu, tau)"""
 
     def __frb_rate(self, n_frb, days):
 

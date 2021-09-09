@@ -77,7 +77,7 @@ class CartesianGrid(object):
                 for pattern in self.patterns
             ])
 
-    def set_offset(self, alt, az):
+    def set_directions(self, alt, az):
 
         altaz = coordinates.AltAz(alt=alt, az=az)
         self.offsets = coordinates.SkyOffsetFrame(origin=altaz)

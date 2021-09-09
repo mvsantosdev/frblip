@@ -14,7 +14,7 @@ class FunctionalPattern(object):
         self.n_beam = numpy.size(az)
         self.response = self.__getattribute__(kind)
         self.set_radius(directivity)
-        self.set_offset(alt, az)
+        self.set_directions(alt, az)
 
     def set_radius(self, directivity):
 
@@ -22,7 +22,7 @@ class FunctionalPattern(object):
         arg = 1 - solid_angle / (2 * numpy.pi * units.sr)
         self.radius = numpy.arccos(arg)
 
-    def set_offset(self, alt, az):
+    def set_directions(self, alt, az):
 
         altaz = coordinates.AltAz(alt=alt, az=az)
         self.offsets = coordinates.SkyOffsetFrame(origin=altaz)

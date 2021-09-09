@@ -36,8 +36,8 @@ class RadioTelescope(object):
     Class which defines a Radio Surveynp
     """
 
-    def __init__(self, name='bingo', kind='gaussian',
-                 array=None, offset=(90.0, 0.0)):
+    def __init__(self, name='bingo', kind='gaussian', array=None,
+                 offset=(90.0, 0.0), location=None):
 
         """
         Creates a RadioTelescope object.
@@ -61,18 +61,21 @@ class RadioTelescope(object):
         name_ = name_ if os.path.exists(name_) else name
         input_dict = load_file(name_)
         input_dict = load_params(input_dict)
-        input_dict['kind'] = kind
+
+        self.__dict__.update(input_dict)
+
+        self.kind = kind
         keys = ['grid', 'xrange', 'yrange']
         grid_params = sub_dict(input_dict, keys=keys, pop=True)
 
         if kind == 'grid':
             coords = sub_dict(input_dict, keys=['alt', 'az'])
             grid_params.update(coords)
-            input_dict['_response'] = CartesianGrid(**grid_params)
+            self.__response = CartesianGrid(**grid_params)
         elif kind in ('tophat', 'bessel', 'gaussian'):
             keys = ['kind', 'directivity', 'alt', 'az']
             pattern_params = sub_dict(input_dict, keys=keys)
-            input_dict['_response'] = FunctionalPattern(**pattern_params)
+            self.__response = FunctionalPattern(**pattern_params)
         else:
             print('Please choose a valid pattern kind')
 
@@ -83,10 +86,12 @@ class RadioTelescope(object):
         else:
             self.array = array * units.m
 
-        self.__dict__.update(input_dict)
         self._derived()
 
         self.set_offset(*offset)
+
+        if location is not None:
+            self.set_location(location)
 
     def set_offset(self, alt, az):
 
@@ -97,10 +102,16 @@ class RadioTelescope(object):
         self.response = self._offset_response
         self.n_beam = self.directivity.size
 
-    def set_location(self, lon, lat, height):
+    def set_direcctions(self, alt, az):
+        self.__response.set_directions(alt, az)
 
-        self.location = coordinates.EarthLocation(lon=lon, lat=lat,
-                                                  height=height)
+    def set_location(self, location=None, lon=None, lat=None, height=None):
+
+        if location is not None:
+            self.location = location
+        else:
+            coords = dict(lon=lon, lat=lat, height=height)
+            self.location = coordinates.EarthLocation(**coords)
 
     def noise(self):
 
@@ -114,14 +125,14 @@ class RadioTelescope(object):
 
     def _no_offset_response(self, altaz):
 
-        return self._response(altaz)
+        return self.__response(altaz)
 
     def _offset_response(self, altaz):
 
         altazoff = altaz.transform_to(self.offset)
         altaz = coordinates.AltAz(alt=altazoff.lat, az=altazoff.lon)
 
-        return self._response(altaz)
+        return self.__response(altaz)
 
     def _derived(self):
 
@@ -129,7 +140,7 @@ class RadioTelescope(object):
         lat = self.__dict__.pop('lat')
         height = self.__dict__.pop('height')
 
-        self.set_location(lon, lat, height)
+        self.set_location(lon=lon, lat=lat, height=height)
         self.noise_performance = noise_performance[self.receiver_type]
         self.set_directivity(self.directivity)
 
@@ -146,4 +157,4 @@ class RadioTelescope(object):
         self.radius = numpy.arccos(arg).to(units.deg)
 
         if self.kind in ('tophat', 'bessel', 'gaussian'):
-            self._response.set_radius(directivity)
+            self.__response.set_radius(directivity)
