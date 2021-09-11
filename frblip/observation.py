@@ -37,9 +37,14 @@ def interferometry_density_flux(spectral_index, frequency, optical_paths):
     z = frequency[numpy.newaxis, :, numpy.newaxis] * tau
     z = - (numpy.pi * z.to(1).value)**2
     a = 0.5 * sip
-    interf = hyp2f1(a, 0.5, a + 1, z).sum(0)
+    intf = hyp2f1(a, 0.5, a + 1, z)
 
-    flux = numpy.diff(nup * interf, axis=0)
+    ma_intf = numpy.ma.masked_invalid(intf)
+    min_intf = ma_intf.min()
+    max_intf = ma_intf.max()
+    intf = intf.clip(min_intf, max_intf).sum(0)
+
+    flux = numpy.diff(nup * intf, axis=0)
     return flux.T / diff_nu
 
 
@@ -105,8 +110,8 @@ class Observation():
         return self.response
 
     def get_frequency(self, channels=False):
-        freq = self.frequency_bands
-        return freq if channels else freq[[0, -1]]
+        nu = self.frequency_bands
+        return nu if channels else nu[[0, -1]]
 
     def get_response(self, spectral_index, channels=False):
         nu = self.get_frequency(channels)
@@ -310,7 +315,7 @@ class Interferometry():
             pairs / noise**2
             for pairs, noise in zip(self.__pairs, self.noises)
         ]
-        output = sum(output)
+        output = sum(output, numpy.zeros(()))
 
         if channels:
             output = 1 / numpy.sqrt(output)
@@ -319,12 +324,15 @@ class Interferometry():
 
         return numpy.squeeze(output)
 
+    def get_frequency(self, channels=False):
+        nu = self.frequency_bands
+        return nu if channels else nu[[0, -1]]
+
     def pattern(self, spectral_index, channels=False):
 
         response = self.get_response(spectral_index, channels)
 
-        freq = self.frequency_bands
-        nu = freq if channels else freq[[0, -1]]
+        nu = self.get_frequency(channels)
 
         sflux = density_flux(spectral_index, nu)
         ndims = tuple(range(1, response.ndim - 1))
@@ -336,8 +344,7 @@ class Interferometry():
 
     def __no_time_delay(self, spectral_index, channels=False):
 
-        freq = self.frequency_bands
-        nu = freq if channels else freq[[0, -1]]
+        nu = self.get_frequency(channels)
 
         interfs = [
             density_flux(spectral_index, nu)
@@ -362,17 +369,13 @@ class Interferometry():
             for pairs, resp, value in zip(self.__pairs,
                                           self.responses,
                                           values)
-        ])
+        ], numpy.zeros(()))
 
-        response = value * unit
-        response.fill_value = 0.0
-
-        return response.squeeze()
+        return numpy.squeeze(response)
 
     def __time_delay(self, spectral_index, channels=False):
 
-        freq = self.frequency_bands
-        nu = freq if channels else freq[[0, -1]]
+        nu = self.get_frequency(channels)
 
         interfs = [
             interferometry_density_flux(spectral_index, nu, optical_path)
@@ -395,7 +398,7 @@ class Interferometry():
         value = sum([
             resp[..., numpy.newaxis] * value
             for resp, value in zip(self.responses, values)
-        ])
+        ], numpy.zeros(()))
 
         response = numpy.abs(value * unit)
         return numpy.squeeze(response)

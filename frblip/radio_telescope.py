@@ -8,8 +8,11 @@ import numpy
 
 import pandas
 
+from functools import cached_property
+
 from astropy.time import Time
 from astropy import coordinates, units, constants
+from astropy.coordinates.matrix_utilities import rotation_matrix
 
 from scipy.special import j1
 
@@ -37,7 +40,7 @@ class RadioTelescope(object):
     """
 
     def __init__(self, name='bingo', kind='gaussian', array=None,
-                 offset=(90.0, 0.0), location=None):
+                 offset=None, location=None):
 
         """
         Creates a RadioTelescope object.
@@ -88,21 +91,41 @@ class RadioTelescope(object):
 
         self._derived()
 
-        self.set_offset(*offset)
+        if offset is not None:
+            self.set_offset(*offset)
+        else:
+            self.response = self._no_offset_response
 
         if location is not None:
             self.set_location(location)
 
+    @cached_property
+    def xyz(self):
+        loc = self.location.get_itrs()
+        return loc.cartesian.xyz
+
     def set_offset(self, alt, az):
 
-        alt = (alt - 90) * units.degree
-        az = az * units.degree
-        altaz = coordinates.AltAz(alt=alt, az=az)
+        alt_shift = (alt - 90) * units.deg
+        az_shift = az * units.degree
+
+        Roty = rotation_matrix(alt_shift, 'y')
+        Rotz = rotation_matrix(-az_shift, 'z')
+        Rot = Rotz @ Roty
+
+        us = coordinates.UnitSphericalRepresentation(lon=self.az,
+                                                     lat=self.alt)
+        xyz = us.to_cartesian().xyz
+        x, y, z = Rot @ xyz
+        r, lat, lon = coordinates.cartesian_to_spherical(x, y, z)
+        self.az = lon.to(units.deg)
+        self.alt = lat.to(units.deg)
+
+        altaz = coordinates.AltAz(alt=alt_shift, az=az_shift)
         self.offset = coordinates.SkyOffsetFrame(origin=altaz)
         self.response = self._offset_response
-        self.n_beam = self.directivity.size
 
-    def set_direcctions(self, alt, az):
+    def set_directions(self, alt, az):
         self.__response.set_directions(alt, az)
 
     def set_location(self, location=None, lon=None, lat=None, height=None):
@@ -146,7 +169,7 @@ class RadioTelescope(object):
 
     def set_directivity(self, directivity):
 
-        self.directivity = directivity
+        self.directivity = numpy.atleast_1d(directivity)
         self.solid_angle = 4 * numpy.pi / directivity.to(1 / units.sr)
         reference_wavelength = (constants.c / self.reference_frequency)
         self.effective_area = reference_wavelength**2 / self.solid_angle.value
@@ -154,7 +177,10 @@ class RadioTelescope(object):
         self.gain = 0.5 * (self.effective_area / constants.k_B)
         self.gain = self.gain.to(units.K / units.Jy)
         arg = 1 - self.solid_angle / (2 * numpy.pi * units.sr)
-        self.radius = numpy.arccos(arg).to(units.deg)
+        radius = numpy.arccos(arg).to(units.deg)
+        self.radius = numpy.atleast_1d(radius)
+
+        self.n_beam = self.directivity.size
 
         if self.kind in ('tophat', 'bessel', 'gaussian'):
             self.__response.set_radius(directivity)

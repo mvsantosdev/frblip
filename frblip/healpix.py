@@ -4,7 +4,10 @@ from astropy_healpix import HEALPix
 
 from astropy.time import Time
 from astropy import coordinates, units, constants, cosmology
+from astropy.coordinates.erfa_astrom import erfa_astrom
+from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
+from operator import itemgetter
 from functools import cached_property
 
 from .distributions import Redshift, Schechter
@@ -14,9 +17,9 @@ from .observation import Observation, Interferometry
 class HealPixMap(HEALPix):
 
     def __init__(self, nside=None, order='ring', frame=None,
-                 log_Lstar=44.46, log_L0=41.96, phistar=339, alpha=-1.79,
-                 lower_frequency=400, higher_frequency=1400,
-                 cosmo='Planck18_arXiv_v2'):
+                 cosmo='Planck18_arXiv_v2', phistar=339,
+                 alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
+                 lower_frequency=400, higher_frequency=1400):
 
         super().__init__(nside, order, frame)
 
@@ -25,8 +28,6 @@ class HealPixMap(HEALPix):
 
     def __load_params(self, log_Lstar, log_L0, phistar, alpha, cosmo,
                       lower_frequency, higher_frequency):
-
-        self.itrs_time = Time.now()
 
         self.log_L0 = log_L0 * units.LogUnit(units.erg / units.s)
         self.log_Lstar = log_Lstar * units.LogUnit(units.erg / units.s)
@@ -47,7 +48,7 @@ class HealPixMap(HEALPix):
 
     @cached_property
     def __zdist(self):
-        return Redshift(zmin=0.0, zmax=10.0,
+        return Redshift(zmin=0.0, zmax=2.15,
                         cosmology=self.__cosmology)
 
     @cached_property
@@ -57,25 +58,54 @@ class HealPixMap(HEALPix):
     def __getitem__(self, name):
         return self.observations[name]
 
-    def pixels(self, cone_az, cone_alt, cone_radius):
+    @cached_property
+    def pixels(self):
+        return numpy.arange(self.npix)
 
-        inside = numpy.concatenate([
-            self.cone_search_lonlat(az, alt, radius)
-            for az, alt, radius in zip(cone_az, cone_alt, cone_radius)
-        ])
-        return numpy.unique(inside)
+    @cached_property
+    def gcrs(self):
+        pixels = numpy.arange(self.npix)
+        ra, dec = self.healpix_to_lonlat(pixels)
+        return coordinates.GCRS(ra=ra, dec=dec)
 
-    def altaz(self, pixels, location):
+    @cached_property
+    def itrs(self):
+        frame = coordinates.ITRS()
+        return self.gcrs.transform_to(frame)
 
-        az, alt = self.healpix_to_lonlat(pixels)
-        x, y, z = coordinates.spherical_to_cartesian(1, alt, az)
-        xl, yl, zl = location.x, location.y, location.z
-        R = numpy.sqrt(xl**2 + yl**2 + zl**2)
-        tau = R * z / constants.c
-        obstime = self.itrs_time - tau
-        altaz = coordinates.AltAz(alt=alt, az=az, obstime=obstime)
+    @cached_property
+    def icrs(self):
+        frame = coordinates.ICRS()
+        return self.gcrs.transform_to(frame)
 
-        return altaz
+    @cached_property
+    def xyz(self):
+        return self.itrs.cartesian.xyz
+
+    @cached_property
+    def itrs_time(self):
+        j2000 = self.itrs.obstime.to_datetime()
+        return Time(j2000)
+
+    def obstime(self, location):
+
+        loc = location.get_itrs()
+        loc = loc.cartesian.xyz
+
+        time_delay = loc @ self.xyz / constants.c
+        obstime = self.itrs_time - time_delay
+
+        return obstime
+
+    def altaz(self, location, interp=300):
+
+        obstime = self.obstime(location)
+
+        frame = coordinates.AltAz(location=location, obstime=obstime)
+        interp_time = interp * units.s
+
+        with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
+            return self.icrs.transform_to(frame)
 
     def __observe(self, telescope, location=None, name=None, radius_factor=1):
 
@@ -85,16 +115,22 @@ class HealPixMap(HEALPix):
         noise = telescope.noise()
 
         location = telescope.location if location is None else location
+        altaz = self.altaz(location)
 
-        az, alt = telescope.az, telescope.alt
+        az = telescope.az
+        alt = telescope.alt
         radius = radius_factor * telescope.radius
 
-        pixels = numpy.arange(self.npix)
-        ipixels = self.pixels(az, alt, radius)
-        altaz = self.altaz(pixels, location)
+        sight = coordinates.AltAz(alt=alt, az=az, obstime=self.itrs_time)
+        sight = sight.cartesian.xyz[:, numpy.newaxis]
 
+        altaz = self.altaz(telescope.location)
+        xyz = altaz.cartesian.xyz[..., numpy.newaxis]
+        cosines = (xyz * sight).sum(0)
+        arcs = numpy.arccos(cosines).to(units.deg)
+        mask = (arcs < radius).sum(-1) > 0
         response = numpy.zeros((self.npix, telescope.n_beam))
-        response[ipixels] = telescope.response(altaz[ipixels])
+        response[mask] = telescope.response(altaz[mask])
 
         array = telescope.array
         frequency_bands = telescope.frequency_bands
@@ -109,7 +145,8 @@ class HealPixMap(HEALPix):
 
         observation = Observation(response, noise, frequency_bands,
                                   sampling_time, altaz, time_array)
-        observation.pixels = pixels
+
+        observation.pix = numpy.flatnonzero(mask)
 
         n_obs = len(self.observations)
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
@@ -160,11 +197,26 @@ class HealPixMap(HEALPix):
         signal = self.__signal(name, spectral_index, channels)
         return noise / signal
 
-    def __rate(self, name, channels=False, SNR=None, total=False):
+    def __rate(self, name, channels=False, SNR=None,
+               spectral_index=0.0, total=False):
+
+        sis = numpy.atleast_1d(spectral_index)
+
+        rates = numpy.stack([
+            self.__si_rate(name, channels=channels, SNR=SNR,
+                           spectral_index=si, total=total)
+            for si in sis
+        ], axis=0)
+
+        return numpy.squeeze(rates)
+
+    def __si_rate(self, name, channels=False, SNR=None,
+                  spectral_index=0.0, total=False):
 
         SNR = numpy.arange(1, 11) if SNR is None else SNR
 
-        sens = self.__sensitivity(name, channels=False)
+        sens = self.__sensitivity(name, channels=False,
+                                  spectral_index=spectral_index)
 
         if total:
             axes = range(1, sens.ndim)
@@ -212,7 +264,7 @@ class HealPixMap(HEALPix):
             isfin = numpy.isfinite(s)
 
             rate_map[isfin] = numpy.interp(x=s[isfin], xp=sgrid, fp=zintegral)
-            rates[i] = rate_map.sum(0)
+            rates[i] = numpy.nansum(rate_map, axis=0)
 
         return rates
 
@@ -240,10 +292,11 @@ class HealPixMap(HEALPix):
             for obs in observations
         }
 
-    def rate(self, names=None, channels=False, SNR=None, total=False):
+    def rate(self, names=None, channels=False, SNR=None,
+             spectral_index=0.0, total=False):
 
-        return self.__get('_HealPixMap__rate', names, channels,
-                          SNR=SNR, total=total)
+        return self.__get('_HealPixMap__rate', names, channels, SNR=SNR,
+                          spectral_index=spectral_index, total=total)
 
     def pattern(self, names=None, channels=False, spectral_index=0.0):
 
