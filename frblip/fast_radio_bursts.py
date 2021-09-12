@@ -243,21 +243,24 @@ class FastRadioBursts(object):
                 j = i + size
                 yield self[i:j]
 
+    @cached_property
+    def itrs(self):
+        itrs_frame = coordinates.ITRS(obstime=self.itrs_time)
+        return self.icrs.transform_to(itrs_frame)
+
+    @cached_property
+    def xyz(self):
+        return self.itrs.cartesian.xyz
+
     def obstime(self, location):
 
-        itrs_frame = coordinates.ITRS(obstime=self.itrs_time)
-        itrs = self.icrs.transform_to(itrs_frame)
-        zenith = location.get_itrs(self.start)
+        loc = location.get_itrs()
+        loc = loc.cartesian.xyz
 
-        itrs_xyz = itrs.cartesian.xyz.T
-        zenith_xyz = zenith.cartesian.xyz
+        path = loc @ self.xyz
+        time_delay = path / constants.c
 
-        path = itrs_xyz @ zenith_xyz
-        optical_path = path / constants.c
-
-        obstime = self.itrs_time - optical_path
-
-        return obstime
+        return self.itrs_time - time_delay
 
     def altaz(self, location, interp=300):
 

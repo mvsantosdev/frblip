@@ -371,7 +371,7 @@ class Interferometry():
                                           values)
         ], numpy.zeros(()))
 
-        return numpy.squeeze(response)
+        return numpy.squeeze(value)
 
     def __time_delay(self, spectral_index, channels=False):
 

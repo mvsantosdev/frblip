@@ -92,10 +92,10 @@ class HealPixMap(HEALPix):
         loc = location.get_itrs()
         loc = loc.cartesian.xyz
 
-        time_delay = loc @ self.xyz / constants.c
-        obstime = self.itrs_time - time_delay
+        path = loc @ self.xyz
+        time_delay = path / constants.c
 
-        return obstime
+        return self.itrs_time - time_delay
 
     def altaz(self, location, interp=300):
 
