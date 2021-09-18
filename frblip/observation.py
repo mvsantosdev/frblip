@@ -20,7 +20,7 @@ def density_flux(spectral_index, frequency):
     nu = frequency[:, numpy.newaxis]
     si = spectral_index[numpy.newaxis]
 
-    nup = (nu / units.MHz)**(1 + si)
+    nup = (nu / units.MHz).to(1).value**(1 + si)
     flux = numpy.diff(nup, axis=0)
     return flux.T / diff_nu
 
@@ -110,8 +110,9 @@ class Observation():
         return self.response
 
     def get_frequency(self, channels=False):
-        nu = self.frequency_bands
-        return nu if channels else nu[[0, -1]]
+        if channels:
+            return self.frequency_bands
+        return self.frequency_bands[[0, -1]]
 
     def get_response(self, spectral_index, channels=False):
         nu = self.get_frequency(channels)

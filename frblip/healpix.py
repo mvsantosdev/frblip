@@ -70,7 +70,7 @@ class HealPixMap(HEALPix):
 
     @cached_property
     def itrs(self):
-        frame = coordinates.ITRS()
+        frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.gcrs.transform_to(frame)
 
     @cached_property
@@ -84,7 +84,7 @@ class HealPixMap(HEALPix):
 
     @cached_property
     def itrs_time(self):
-        j2000 = self.itrs.obstime.to_datetime()
+        j2000 = Time('J2000').to_datetime()
         return Time(j2000)
 
     def obstime(self, location):
@@ -100,7 +100,6 @@ class HealPixMap(HEALPix):
     def altaz(self, location, interp=300):
 
         obstime = self.obstime(location)
-
         frame = coordinates.AltAz(location=location, obstime=obstime)
         interp_time = interp * units.s
 
@@ -155,7 +154,7 @@ class HealPixMap(HEALPix):
         self.observations[obs_name] = observation
 
     def observe(self, telescopes, name=None, location=None,
-                radius_factor=1, dtype=numpy.float16):
+                radius_factor=1):
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
@@ -176,7 +175,7 @@ class HealPixMap(HEALPix):
 
     def __signal(self, name, channels=False, spectral_index=0.0):
 
-        response = self.__response(name, spectral_index, channels)
+        response = self.__response(name, channels, spectral_index)
         sip = 1 + spectral_index
 
         nu_low = self.lower_frequency / units.MHz
@@ -194,7 +193,7 @@ class HealPixMap(HEALPix):
     def __sensitivity(self, name, channels=False, spectral_index=0.0):
 
         noise = self.__noise(name, channels)
-        signal = self.__signal(name, spectral_index, channels)
+        signal = self.__signal(name, channels, spectral_index)
         return noise / signal
 
     def __rate(self, name, channels=False, SNR=None,
@@ -215,8 +214,7 @@ class HealPixMap(HEALPix):
 
         SNR = numpy.arange(1, 11) if SNR is None else SNR
 
-        sens = self.__sensitivity(name, channels=False,
-                                  spectral_index=spectral_index)
+        sens = self.__sensitivity(name, channels, spectral_index)
 
         if total:
             axes = range(1, sens.ndim)
@@ -240,7 +238,8 @@ class HealPixMap(HEALPix):
         Lthre = 4 * numpy.pi * lum_dist[:, numpy.newaxis]**2 * sgrid
 
         xthre = Lthre.to(self.log_Lstar.unit) - self.log_Lstar
-        xthre = xthre.to(1).value.clip(self.__xmin)
+        xthre = xthre.to(1).value.clip(self.__lumdist.xmin,
+                                       self.__lumdist.xmax)
 
         norm = self.phistar / self.__lumdist.pdf_norm
         lum_integral = norm * self.__lumdist.sf(xthre).clip(0.0, 1.0)
@@ -264,7 +263,7 @@ class HealPixMap(HEALPix):
             isfin = numpy.isfinite(s)
 
             rate_map[isfin] = numpy.interp(x=s[isfin], xp=sgrid, fp=zintegral)
-            rates[i] = numpy.nansum(rate_map, axis=0)
+            rates[i] = rate_map.sum(0)
 
         return rates
 
