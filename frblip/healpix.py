@@ -10,6 +10,8 @@ from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 from operator import itemgetter
 from functools import cached_property
 
+from scipy.interpolate import interp1d
+
 from .distributions import Redshift, Schechter
 from .observation import Observation, Interferometry
 
@@ -190,13 +192,50 @@ class HealPixMap(HEALPix):
         observation = self[name]
         return observation.get_noise(channels)
 
-    def __sensitivity(self, name, channels=False, spectral_index=0.0):
+    @numpy.errstate(divide='ignore', over='ignore')
+    def __sensitivity(self, name, channels=False, spectral_index=0.0,
+                      total=False):
 
         noise = self.__noise(name, channels)
         signal = self.__signal(name, channels, spectral_index)
-        with numpy.errstate(divide='ignore', over='ignore'):
-            sensitivity = noise / signal
-            return sensitivity
+
+        sensitivity = noise / signal
+
+        if total:
+            axes = range(1, sensitivity.ndim)
+            sensitivity = numpy.apply_over_axes(numpy.min, sensitivity, axes)
+            sensitivity = sensitivity.ravel()
+
+        return numpy.ma.masked_invalid(sensitivity)
+
+    @numpy.errstate(divide='ignore', over='ignore')
+    def __specific_rate(self, smin, smax, rate_unit):
+
+        log_min = units.LogQuantity(smin)
+        log_max = units.LogQuantity(smax)
+        sgrid = numpy.logspace(log_min, log_max, 1000)
+
+        zmin = self.__zdist.zmin
+        zmax = self.__zdist.zmax
+        zgrid = numpy.linspace(zmin, zmax, 200)
+
+        lum_dist = self.__cosmology.luminosity_distance(zgrid)
+        Lthre = 4 * numpy.pi * lum_dist[:, numpy.newaxis]**2 * sgrid
+
+        xthre = Lthre.to(self.log_Lstar.unit) - self.log_Lstar
+        xthre = xthre.to(1).value.clip(self.__lumdist.xmin,
+                                       self.__lumdist.xmax)
+
+        norm = self.phistar / self.__lumdist.pdf_norm
+        lum_integral = norm * self.__lumdist.sf(xthre).clip(0.0, 1.0)
+        covol = self.__cosmology.differential_comoving_volume(zgrid)
+        dv = covol / (1 + zgrid)
+
+        integrand = (dv[:, numpy.newaxis] * lum_integral)
+        zintegral = numpy.trapz(x=zgrid, y=integrand, axis=0)
+        zintegral = zintegral * self.pixel_area
+
+        return sgrid, zintegral.to(rate_unit)
 
     def __rate(self, name, channels=False, SNR=None,
                spectral_index=0.0, total=False):
@@ -211,69 +250,50 @@ class HealPixMap(HEALPix):
 
         return numpy.squeeze(rates)
 
-    def __si_rate(self, name, channels=False, SNR=None,
+    @numpy.errstate(over='ignore')
+    def __si_rate(self, name, channels=False, SNR=None, time='day',
                   spectral_index=0.0, total=False):
 
         SNR = numpy.arange(1, 11) if SNR is None else SNR
+        sensitivity = self.__sensitivity(name, channels, spectral_index, total)
 
-        sensitivity = self.__sensitivity(name, channels, spectral_index)
+        time_unit = units.Unit(time)
+        rate_unit = 1 / time_unit
 
-        if total:
-            axes = range(1, sensitivity.ndim)
-            sensitivity = numpy.apply_over_axes(numpy.min, sensitivity, axes)
-            sensitivity = sensitivity.ravel()
+        if sensitivity.ndim == 2:
+            npix, n_beam = sensitivity.shape
+            rates = numpy.zeros((n_beam, SNR.size)) * rate_unit
+        elif sensitivity.ndim == 1:
+            rates = numpy.zeros(SNR.size) * rate_unit
+            n_beam = None
 
-        with numpy.errstate(over='ignore', divide='ignore'):
+        if sensitivity.mask.mean() == 1.0:
+            return rates
 
-            smin = sensitivity.min()
-            smax = SNR.max() * sensitivity
-            smax = numpy.ma.masked_invalid(smax).max()
-            smax = smax.data
+        snr_max = SNR.max()
 
-            logS = units.LogUnit(sensitivity.unit)
-            log_min = smin.to(logS)
-            log_max = smax.to(logS)
+        smin = sensitivity.min()
+        smax = numpy.ma.masked_invalid(snr_max * sensitivity).max()
 
-            zmin = self.__zdist.zmin
-            zmax = self.__zdist.zmax
+        xp, fp = self.__specific_rate(smin.data, smax.data, rate_unit)
 
-            sgrid = numpy.logspace(log_min, log_max, 1000)
-            z = numpy.linspace(zmin, zmax, 200)
+        for i, snr in enumerate(SNR):
 
-            lum_dist = self.__cosmology.luminosity_distance(z)
-            Lthre = 4 * numpy.pi * lum_dist[:, numpy.newaxis]**2 * sgrid
+            sens = snr * sensitivity
 
-            xthre = Lthre.to(self.log_Lstar.unit) - self.log_Lstar
-            xthre = xthre.to(1).value.clip(self.__lumdist.xmin,
-                                           self.__lumdist.xmax)
+            if n_beam is None:
+                s = sens.compressed()
+                rate_map = numpy.interp(x=s, xp=xp, fp=fp)
+                rates[i] = rate_map.sum()
+            else:
+                pixels, beams = sens.nonzero()
+                for b in numpy.unique(beams):
+                    idx = pixels[beams == b]
+                    s = sens[idx, b].compressed()
+                    rate_map = numpy.interp(x=s, xp=xp, fp=fp)
+                    rates[b, i] = rate_map.sum()
 
-            norm = self.phistar / self.__lumdist.pdf_norm
-            lum_integral = norm * self.__lumdist.sf(xthre).clip(0.0, 1.0)
-            dv = self.__cosmology.differential_comoving_volume(z) / (1 + z)
-
-            integrand = (dv[:, numpy.newaxis] * lum_integral)
-            zintegral = numpy.trapz(x=z, y=integrand, axis=0)
-            zintegral = (zintegral * self.pixel_area).to(1 / units.day)
-            zunit = zintegral.unit
-
-            if sensitivity.ndim == 2:
-                npix, n_beam = sensitivity.shape
-                rates = numpy.zeros((SNR.size, n_beam)) * zunit
-            elif sensitivity.ndim == 1:
-                rates = numpy.zeros(SNR.size) * zunit
-
-            for i, snr in enumerate(SNR):
-
-                s = snr * sensitivity
-                rate_map = numpy.zeros_like(s.value) * zunit
-
-                isfin = numpy.isfinite(s)
-
-                rate_map[isfin] = numpy.interp(x=s[isfin], xp=sgrid,
-                                               fp=zintegral)
-                rates[i] = rate_map.sum(0)
-
-            return rates.T
+        return rates
 
     def __response_to_noise(self, name, channels=False, spectral_index=0.0):
 
@@ -330,10 +350,11 @@ class HealPixMap(HEALPix):
         return self.__get('_HealPixMap__response_to_noise', names, channels,
                           spectral_index=spectral_index)
 
-    def sensitivity(self, names=None, channels=False, spectral_index=0.0):
+    def sensitivity(self, names=None, channels=False,
+                    spectral_index=0.0, total=False):
 
         return self.__get('_HealPixMap__sensitivity', names, channels,
-                          spectral_index=spectral_index)
+                          spectral_index=spectral_index, total=total)
 
     def interferometry(self, *names, time_delay=True):
 
