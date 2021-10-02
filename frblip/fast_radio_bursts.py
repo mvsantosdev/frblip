@@ -5,8 +5,6 @@ import pandas
 
 from numpy import random
 
-from sparse import COO
-
 from scipy.special import comb, hyp2f1
 from scipy.integrate import quad, cumtrapz
 
@@ -24,7 +22,7 @@ from .utils import paired_shapes, sub_dict, xfactors
 
 from .distributions import Redshift, Schechter
 
-from .dispersion import *
+from .dispersion_measure import Galactic
 
 from .observation import Observation, Interferometry
 
@@ -39,6 +37,7 @@ class FastRadioBursts(object):
                  phistar=339, alpha=-1.79, wint=(.13, .33), si=(-15, 15),
                  ra=(0, 24), dec=(-90, 90), zmin=0, zmax=6, start=None,
                  lower_frequency=400, higher_frequency=1400,
+                 gal_method='yt2020_analytic', gal_nside=128,
                  cosmo='Planck18_arXiv_v2', verbose=True):
 
         """
@@ -82,10 +81,80 @@ class FastRadioBursts(object):
         self.__load_params(n_frb, days, log_Lstar, log_L0, phistar,
                            alpha, wint, si, ra, dec, zmin, zmax, cosmo,
                            lower_frequency, higher_frequency, start)
+        self.__dispersion_params(gal_nside, gal_method)
         self.__frb_rate(n_frb, days)
         self.__random()
 
         sys.stdout = old_target
+
+    def __dispersion_params(self, gal_nside, gal_method):
+        self.__gal_dm = Galactic(gal_nside, gal_method)
+
+    def __len__(self):
+        return self.n_frb
+
+    def __getitem__(self, idx):
+
+        if isinstance(idx, str):
+            return self.observations[idx]
+        if isinstance(idx, slice):
+            return self.select(idx, inplace=False)
+
+        idx = numpy.array(idx)
+        numeric = numpy.issubdtype(idx.dtype, numpy.signedinteger)
+        boolean = numpy.issubdtype(idx.dtype, numpy.bool_)
+        if numeric or boolean or islice:
+            return self.select(idx, inplace=False)
+        if numpy.issubdtype(idx.dtype, numpy.str_):
+            return itemgetter(*idx)(self.observations)
+        return None
+
+    def select(self, idx, inplace=False):
+
+        select_dict = {
+            name: attr[idx]
+            for name, attr in self.__dict__.items()
+            if hasattr(attr, 'size')
+            and attr.size == self.n_frb
+        }
+
+        select_dict['n_frb'] = select_dict['redshift'].size
+
+        observations = getattr(self, 'observations', None)
+        if observations is not None:
+            observations = {
+                name: observation[idx]
+                for name, observation in observations.items()
+            }
+            select_dict['observations'] = observations
+
+        if not inplace:
+            out_dict = self.__dict__.copy()
+            out_dict.update(select_dict)
+            output = FastRadioBursts.__new__(FastRadioBursts)
+            output.__dict__.update(out_dict)
+            return output
+
+        self.__dict__.update(select_dict)
+
+    def iterfrbs(self, start=0, stop=None, step=1):
+
+        stop = self.n_frb if stop is None else stop
+        for i in range(start, stop, step):
+            yield self[i]
+
+    def iterchunks(self, size=1, start=0, stop=None, retindex=False):
+
+        stop = self.n_frb if stop is None else stop
+
+        if retindex:
+            for i in range(start, stop, size):
+                j = i + size
+                yield i, j, self[i:j]
+        else:
+            for i in range(start, stop, size):
+                j = i + size
+                yield self[i:j]
 
     @cached_property
     def __cosmology(self):
@@ -177,80 +246,24 @@ class FastRadioBursts(object):
         nu_hp = (self.higher_frequency / units.MHz)**_sip1
         return self.__flux / (nu_hp - nu_lp)
 
-    def __len__(self):
-        return self.n_frb
-
-    def __getitem__(self, idx):
-
-        if isinstance(idx, str):
-            return self.observations[idx]
-        if isinstance(idx, slice):
-            return self.select(idx, inplace=False)
-
-        idx = numpy.array(idx)
-        numeric = numpy.issubdtype(idx.dtype, numpy.signedinteger)
-        boolean = numpy.issubdtype(idx.dtype, numpy.bool_)
-        if numeric or boolean or islice:
-            return self.select(idx, inplace=False)
-        if numpy.issubdtype(idx.dtype, numpy.str_):
-            return itemgetter(*idx)(self.observations)
-        return None
-
-    def select(self, idx, inplace=False):
-
-        select_dict = {
-            name: attr[idx]
-            for name, attr in self.__dict__.items()
-            if hasattr(attr, 'size')
-            and attr.size == self.n_frb
-        }
-
-        select_dict['n_frb'] = select_dict['redshift'].size
-
-        observations = getattr(self, 'observations', None)
-        if observations is not None:
-            observations = {
-                name: observation[idx]
-                for name, observation in observations.items()
-            }
-            select_dict['observations'] = observations
-
-        if not inplace:
-            out_dict = self.__dict__.copy()
-            out_dict.update(select_dict)
-            output = FastRadioBursts.__new__(FastRadioBursts)
-            output.__dict__.update(out_dict)
-            return output
-
-        self.__dict__.update(select_dict)
-
-    def iterfrbs(self, start=0, stop=None, step=1):
-
-        stop = self.n_frb if stop is None else stop
-        for i in range(start, stop, step):
-            yield self[i]
-
-    def iterchunks(self, size=1, start=0, stop=None, retindex=False):
-
-        stop = self.n_frb if stop is None else stop
-
-        if retindex:
-            for i in range(start, stop, size):
-                j = i + size
-                yield i, j, self[i:j]
-        else:
-            for i in range(start, stop, size):
-                j = i + size
-                yield self[i:j]
-
     @cached_property
     def itrs(self):
         itrs_frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.icrs.transform_to(itrs_frame)
 
-    @cached_property
+    @property
     def xyz(self):
         return self.itrs.cartesian.xyz
+
+    @property
+    def galactic(self):
+        return self.icrs.galactic
+
+    @cached_property
+    def galactic_dm(self):
+        gl = self.galactic.l
+        gb = self.galactic.b
+        return self.__gal_dm(gl, gb)
 
     def obstime(self, location):
 
@@ -334,28 +347,6 @@ class FastRadioBursts(object):
         self.pulse_width
         self.log_luminosity
         self.spectral_index
-
-    def _dispersion(self):
-
-        _zp1 = 1 + self.redshift
-        lon = self.icrs.galactic.l
-        lat = self.icrs.galactic.b
-
-        gal_DM = galactic_dispersion(lon, lat)
-        host_DM = host_galaxy_dispersion(self.redshift)
-        src_DM = source_dispersion(self.n_frb)
-        igm_DM = igm_dispersion(self.redshift, zmax=self.zmax)
-
-        egal_DM = igm_DM + (src_DM + host_DM) / _zp1
-
-        self.__galactic_dispersion = gal_DM
-        self.__host_dispersion = host_DM
-        self.__source_dispersion = src_DM
-        self.__igm_dispersion = igm_DM
-
-        self.__extra_galactic_dispersion = egal_DM
-
-        self.__dispersion = gal_DM + egal_DM
 
     def __observe(self, telescope, location=None, start=None,
                   name=None, altaz=None):

@@ -1,5 +1,4 @@
 import numpy
-from sparse import COO
 from astropy_healpix import HEALPix
 
 from astropy.time import Time

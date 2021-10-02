@@ -3,4 +3,6 @@ pandas
 scipy
 astropy
 healpy
+astropy-healpix
 sparse
+pygedm

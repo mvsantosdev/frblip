@@ -21,7 +21,9 @@ bla = setup(
         'pandas',
         'scipy',
         'astropy',
+        'astropy-healpix',
         'healpy',
-        'sparse'
+        'sparse',
+        'pygedm'
     ]
 )

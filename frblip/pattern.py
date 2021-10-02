@@ -1,7 +1,5 @@
 import numpy
 
-from sparse import COO
-
 from scipy.special import j1
 
 from astropy import units, coordinates
