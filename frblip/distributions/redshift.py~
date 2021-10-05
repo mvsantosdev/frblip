@@ -60,3 +60,4 @@ class Redshift(rv_continuous):
 
     def _isf(self, u):
         return numpy.interp(x=u, xp=self.isf_grid, fp=self.zgrid)
+

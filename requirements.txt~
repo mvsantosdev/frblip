@@ -2,8 +2,8 @@ numpy
 pandas
 scipy
 astropy
-astropy-healpix
 healpy
+astropy-healpix
 pygedm
 pyccl
 camb

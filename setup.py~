@@ -22,8 +22,8 @@ bla = setup(
         'scipy',
         'astropy',
         'astropy-healpix',
-        'healpy',   
-        'pygedm',
+        'healpy',
+        'pygedm'
         'pyccl',
         'camb'
     ]

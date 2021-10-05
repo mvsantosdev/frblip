@@ -13,7 +13,7 @@ from itertools import combinations, product
 from functools import cached_property, partial
 
 from astropy.time import Time
-from astropy import cosmology, coordinates, units, constants
+from astropy import units, constants, coordinates
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
@@ -22,9 +22,10 @@ from .utils import paired_shapes, sub_dict, xfactors
 
 from .distributions import Redshift, Schechter
 
-from .dispersion_measure import Galactic
+from .dispersion_measure import Galactic, IGM
 
 from .observation import Observation, Interferometry
+from .cosmology import Cosmology, builtin
 
 
 class FastRadioBursts(object):
@@ -38,7 +39,7 @@ class FastRadioBursts(object):
                  ra=(0, 24), dec=(-90, 90), zmin=0, zmax=6, start=None,
                  lower_frequency=400, higher_frequency=1400,
                  gal_method='yt2020_analytic', gal_nside=128,
-                 cosmo='Planck18_arXiv_v2', verbose=True):
+                 cosmology='Planck_18', verbose=True):
 
         """
         Creates a FRB population object.
@@ -79,16 +80,13 @@ class FastRadioBursts(object):
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
 
         self.__load_params(n_frb, days, log_Lstar, log_L0, phistar,
-                           alpha, wint, si, ra, dec, zmin, zmax, cosmo,
-                           lower_frequency, higher_frequency, start)
-        self.__dispersion_params(gal_nside, gal_method)
+                           alpha, wint, si, ra, dec, zmin, zmax, cosmology,
+                           lower_frequency, higher_frequency, start,
+                           gal_nside, gal_method)
         self.__frb_rate(n_frb, days)
         self.__random()
 
         sys.stdout = old_target
-
-    def __dispersion_params(self, gal_nside, gal_method):
-        self.__gal_dm = Galactic(gal_nside, gal_method)
 
     def __len__(self):
         return self.n_frb
@@ -158,7 +156,8 @@ class FastRadioBursts(object):
 
     @cached_property
     def __cosmology(self):
-        return cosmology.__dict__.get(self.cosmology)
+        params = builtin[self.cosmology]
+        return Cosmology(**params)
 
     @cached_property
     def __xmin(self):
@@ -260,10 +259,23 @@ class FastRadioBursts(object):
         return self.icrs.galactic
 
     @cached_property
+    def __gal_dm(self):
+        return Galactic(self.gal_nside, self.gal_method)
+
+    @cached_property
+    def __igm_dm(self):
+        return IGM(self.__cosmology)
+
+    @cached_property
     def galactic_dm(self):
         gl = self.galactic.l
         gb = self.galactic.b
         return self.__gal_dm(gl, gb)
+
+    @cached_property
+    def igm_dm(self):
+        z = self.redshift
+        return self.__igm_dm(z)
 
     def obstime(self, location):
 
@@ -319,8 +331,9 @@ class FastRadioBursts(object):
               'of observation. \n')
 
     def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
-                      alpha, wint, si, ra, dec, zmin, zmax, cosmo,
-                      lower_frequency, higher_frequency, start):
+                      alpha, wint, si, ra, dec, zmin, zmax, cosmology,
+                      lower_frequency, higher_frequency, start,
+                      gal_nside, gal_method):
 
         self.zmin = zmin
         self.zmax = zmax
@@ -334,9 +347,12 @@ class FastRadioBursts(object):
         self.dec_range = numpy.array(dec) * units.degree
         self.lower_frequency = lower_frequency * units.MHz
         self.higher_frequency = higher_frequency * units.MHz
-        self.cosmology = cosmo
+        self.cosmology = cosmology
 
         self.start = Time.now() if start is None else start
+
+        self.gal_nside = gal_nside
+        self.gal_method = gal_method
 
     def __random(self):
 
