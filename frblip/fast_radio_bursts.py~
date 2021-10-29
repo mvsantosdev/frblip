@@ -257,7 +257,7 @@ class FastRadioBursts(object):
     @property
     def galactic(self):
         return self.icrs.galactic
-        
+
     @cached_property
     def __gal_dm(self):
         return Galactic(self.gal_nside, self.gal_method)
@@ -271,7 +271,7 @@ class FastRadioBursts(object):
         gl = self.galactic.l
         gb = self.galactic.b
         return self.__gal_dm(gl, gb)
-        
+
     @cached_property
     def igm_dm(self):
         z = self.redshift
@@ -350,7 +350,7 @@ class FastRadioBursts(object):
         self.cosmology = cosmology
 
         self.start = Time.now() if start is None else start
-        
+
         self.gal_nside = gal_nside
         self.gal_method = gal_method
 
@@ -635,4 +635,3 @@ class FastRadioBursts(object):
         input_dict = load_file(file)
         params = load_params(input_dict)
         return FastRadioBursts.from_dict(params)
-

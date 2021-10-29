@@ -2,7 +2,7 @@ import numpy
 from astropy_healpix import HEALPix
 
 from astropy.time import Time
-from astropy import coordinates, units, constants, cosmology
+from astropy import coordinates, units, constants
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
@@ -13,22 +13,25 @@ from scipy.interpolate import interp1d
 
 from .distributions import Redshift, Schechter
 from .observation import Observation, Interferometry
+from .cosmology import Cosmology, builtin
 
 
 class HealPixMap(HEALPix):
 
-    def __init__(self, nside=None, order='ring', frame=None,
-                 cosmo='Planck18_arXiv_v2', phistar=339,
+    def __init__(self, nside=None, order='ring', phistar=339,
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
-                 lower_frequency=400, higher_frequency=1400):
+                 lower_frequency=400, higher_frequency=1400,
+                 cosmology='Planck_18', zmin=0.0, zmax=6.0):
 
-        super().__init__(nside, order, frame)
+        super().__init__(nside, order)
 
-        self.__load_params(log_Lstar, log_L0, phistar, alpha, cosmo,
-                           lower_frequency, higher_frequency)
+        self.__load_params(phistar, alpha, log_Lstar, log_L0,
+                           lower_frequency, higher_frequency,
+                           cosmology, zmin, zmax)
 
-    def __load_params(self, log_Lstar, log_L0, phistar, alpha, cosmo,
-                      lower_frequency, higher_frequency):
+    def __load_params(self, phistar, alpha, log_Lstar, log_L0,
+                      lower_frequency, higher_frequency,
+                      cosmology, zmin, zmax):
 
         self.log_L0 = log_L0 * units.LogUnit(units.erg / units.s)
         self.log_Lstar = log_Lstar * units.LogUnit(units.erg / units.s)
@@ -36,11 +39,14 @@ class HealPixMap(HEALPix):
         self.alpha = alpha
         self.lower_frequency = lower_frequency * units.MHz
         self.higher_frequency = higher_frequency * units.MHz
-        self.cosmology = cosmo
+        self.cosmology = cosmology
+        self.zmin = zmin
+        self.zmax = zmax
 
     @cached_property
     def __cosmology(self):
-        return cosmology.__dict__.get(self.cosmology)
+        params = builtin[self.cosmology]
+        return Cosmology(**params)
 
     @cached_property
     def __xmin(self):
@@ -49,7 +55,7 @@ class HealPixMap(HEALPix):
 
     @cached_property
     def __zdist(self):
-        return Redshift(zmin=0.0, zmax=2.15,
+        return Redshift(zmin=self.zmin, zmax=self.zmax,
                         cosmology=self.__cosmology)
 
     @cached_property
@@ -170,6 +176,9 @@ class HealPixMap(HEALPix):
 
     def __response(self, name, channels=False, spectral_index=0.0):
 
+        """observation = self[name]
+        si = numpy.full(self.npix, spectral_index)
+        return observation.get_response(si, channels)"""
         observation = self[name]
         si = numpy.atleast_1d(spectral_index)
         return observation.get_response(si, channels)
