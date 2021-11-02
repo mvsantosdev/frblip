@@ -176,11 +176,8 @@ class HealPixMap(HEALPix):
 
     def __response(self, name, channels=False, spectral_index=0.0):
 
-        """observation = self[name]
-        si = numpy.full(self.npix, spectral_index)
-        return observation.get_response(si, channels)"""
         observation = self[name]
-        si = numpy.atleast_1d(spectral_index)
+        si = numpy.full(self.npix, spectral_index)
         return observation.get_response(si, channels)
 
     def __signal(self, name, channels=False, spectral_index=0.0):
@@ -206,13 +203,12 @@ class HealPixMap(HEALPix):
 
         noise = self.__noise(name, channels)
         signal = self.__signal(name, channels, spectral_index)
-
         sensitivity = noise / signal
 
         if total:
-            axes = range(1, sensitivity.ndim)
+            axes = range(1, sensitivity.ndim - int(channels))
             sensitivity = numpy.apply_over_axes(numpy.min, sensitivity, axes)
-            sensitivity = sensitivity.ravel()
+            sensitivity = numpy.squeeze(sensitivity)
 
         return numpy.ma.masked_invalid(sensitivity)
 
@@ -268,11 +264,16 @@ class HealPixMap(HEALPix):
         time_unit = units.Unit(time)
         rate_unit = 1 / time_unit
 
-        if sensitivity.ndim == 2:
-            npix, n_beam = sensitivity.shape
+        if sensitivity.ndim > 1:
+            shape = sensitivity.shape
+            npix = shape[0]
+            final_shape = shape[1:]
+            n_beam = numpy.prod(final_shape)
+            sensitivity = sensitivity.reshape((-1, n_beam))
             rates = numpy.zeros((n_beam, SNR.size)) * rate_unit
         elif sensitivity.ndim == 1:
             rates = numpy.zeros(SNR.size) * rate_unit
+            final_shape = None
             n_beam = None
 
         if sensitivity.mask.mean() == 1.0:
@@ -301,6 +302,8 @@ class HealPixMap(HEALPix):
                     rate_map = numpy.interp(x=s, xp=xp, fp=fp)
                     rates[b, i] = rate_map.sum()
 
+        if final_shape is not None:
+            rates = rates.reshape((*final_shape, -1))
         return rates
 
     def __response_to_noise(self, name, channels=False, spectral_index=0.0):

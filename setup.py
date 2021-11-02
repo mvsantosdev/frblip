@@ -19,7 +19,6 @@ bla = setup(
     install_requires=[
         'numpy',
         'pandas',
-        'mpmath',
         'scipy',
         'astropy',
         'astropy-healpix',

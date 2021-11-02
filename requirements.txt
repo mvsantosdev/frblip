@@ -1,6 +1,5 @@
 numpy
 pandas
-mpmath
 scipy
 astropy
 astropy-healpix

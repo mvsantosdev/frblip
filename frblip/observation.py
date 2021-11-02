@@ -1,11 +1,10 @@
 import os
 
 import numpy
-import mpmath
 import pandas
 
-from scipy.special import comb
 from scipy.integrate import simps
+from scipy.special import comb, hyp1f1
 
 from itertools import combinations
 
@@ -22,36 +21,42 @@ def density_flux(spectral_index, frequency):
     si = spectral_index[numpy.newaxis]
 
     nup = (nu / units.MHz).to(1).value**(1 + si)
+
     flux = numpy.diff(nup, axis=0)
     return flux.T / diff_nu
 
 
-@numpy.vectorize
-def hyp1f2(alpha, x):
+def __intf(alpha, x):
+    result = numpy.zeros_like(x)
 
-    mpmath.mp.dps = 2
+    idx = alpha.ravel() == 0
+    result[idx] = numpy.sin(x[idx])
 
-    a = (alpha + 1) / 2
-    z = - x**2 / 4
+    idx = alpha.ravel() != 0
+    px = x[idx]
+    ix = 1j * px
 
-    x = mpmath.hyp1f2(a, 0.5, a + 1, z)
-    return float(x)
+    a1 = alpha[idx] + 1
+    h1f1 = hyp1f1(a1, a1 + 1, ix)
+    result[idx] = (px**a1) * h1f1.real
+    return result
 
 
+@numpy.errstate(invalid='ignore')
 def interferometry_density_flux(spectral_index, frequency, time_delays):
 
     diff_nu = numpy.diff(frequency)
-    si = spectral_index.reshape(-1, 1)
+    si = spectral_index.reshape(-1, 1, 1)
 
-    sip = 1 + si
-    nup = (frequency / units.MHz)**sip
+    nu = numpy.atleast_3d(frequency)
+    tau = time_delays[:, numpy.newaxis]
+    k = 2 * numpy.pi * tau
+    kx = (k * nu).to(1).value
+    kn = (k * units.MHz).to(1).value
+    intf = __intf(si, kx) / kn**(si + 1)
+    intf = numpy.nansum(intf, axis=-1)
 
-    nu = numpy.atleast_2d(frequency)
-    kx = time_delays * nu
-    kx = numpy.pi * kx.to(1).value
-    intf = hyp1f2(si, kx)
-
-    flux = numpy.diff(nup * intf, axis=-1)
+    flux = numpy.diff(intf, axis=-1)
     return flux / diff_nu
 
 
@@ -408,5 +413,5 @@ class Interferometry():
             for resp, value in zip(self.responses, values)
         ], numpy.zeros(()))
 
-        response = numpy.abs(value * unit)
+        response = value.clip(0) * unit
         return numpy.squeeze(response)
