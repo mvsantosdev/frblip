@@ -1,20 +1,29 @@
-import os
-
 import numpy
-import pandas
 
-from scipy.integrate import simps
-from scipy.special import comb, hyp1f1
+from scipy.special import hyp1f1
 
 from itertools import combinations
 
 from astropy.time import Time
-from astropy import coordinates, constants, units
+from astropy import coordinates, units
 
 from .utils import sub_dict, paired_shapes
 
 
 def density_flux(spectral_index, frequency):
+    """
+
+    Parameters
+    ----------
+    spectral_index :
+
+    frequency :
+
+
+    Returns
+    -------
+
+    """
 
     diff_nu = numpy.diff(frequency)
     nu = frequency[:, numpy.newaxis]
@@ -44,6 +53,21 @@ def __intf(alpha, x):
 
 @numpy.errstate(invalid='ignore')
 def interferometry_density_flux(spectral_index, frequency, time_delays):
+    """
+
+    Parameters
+    ----------
+    spectral_index :
+
+    frequency :
+
+    time_delays :
+
+
+    Returns
+    -------
+
+    """
 
     diff_nu = numpy.diff(frequency)
     si = spectral_index.reshape(-1, 1, 1)
@@ -61,6 +85,7 @@ def interferometry_density_flux(spectral_index, frequency, time_delays):
 
 
 class Observation():
+    """ """
 
     def __init__(self, response=None, noise=None, frequency_bands=None,
                  sampling_time=None, altaz=None, time_array=None):
@@ -111,6 +136,17 @@ class Observation():
         self.altaz = coordinates.AltAz(**kwargs)
 
     def get_noise(self, channels=False):
+        """
+
+        Parameters
+        ----------
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         output = self.noise
         if not channels:
@@ -119,14 +155,51 @@ class Observation():
         return numpy.squeeze(output)
 
     def pattern(self, spectral_index=None, channels=False):
+        """
+
+        Parameters
+        ----------
+        spectral_index :
+             (Default value = None)
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
         return self.response
 
     def get_frequency(self, channels=False):
+        """
+
+        Parameters
+        ----------
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
         if channels:
             return self.frequency_bands
         return self.frequency_bands[[0, -1]]
 
     def get_response(self, spectral_index, channels=False):
+        """
+
+        Parameters
+        ----------
+        spectral_index :
+
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
         nu = self.get_frequency(channels)
         S = density_flux(spectral_index, nu)
         pattern = self.pattern()
@@ -134,6 +207,7 @@ class Observation():
         return numpy.squeeze(response)
 
     def time_difference(self):
+        """ """
 
         if hasattr(self, 'time_array'):
             ran = range(self.__n_array)
@@ -143,20 +217,18 @@ class Observation():
             return dt.to(units.ns).T
         return None
 
-    def split_beams(self):
-
-        n_beam = numpy.prod(self.n_beam)
-        shape = n_beam, self.n_channel
-        responses = numpy.split(self.response, n_beam, -1)
-        noises = numpy.split(self.noise, n_beam, 0)
-
-        return [
-            Observation(response, noise, self.frequency_bands,
-                        self.sampling_time, self.altaz)
-            for response, noise in zip(responses, noises)
-        ]
-
     def to_dict(self, flag=''):
+        """
+
+        Parameters
+        ----------
+        flag :
+             (Default value = '')
+
+        Returns
+        -------
+
+        """
 
         out_dict = {
             key: value
@@ -193,6 +265,17 @@ class Observation():
 
     @staticmethod
     def from_dict(kwargs):
+        """
+
+        Parameters
+        ----------
+        kwargs :
+
+
+        Returns
+        -------
+
+        """
 
         output = Observation.__new__(Observation)
         output.__dict__.update(kwargs)
@@ -210,6 +293,19 @@ class Observation():
         return self.select(idx)
 
     def select(self, idx, inplace=False):
+        """
+
+        Parameters
+        ----------
+        idx :
+
+        inplace :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
         response = self.response[idx]
         altaz = getattr(self, 'altaz', None)
         altaz = altaz[idx] if altaz else None
@@ -222,6 +318,19 @@ class Observation():
 
 
 def time_difference(obsi, obsj):
+    """
+
+    Parameters
+    ----------
+    obsi :
+
+    obsj :
+
+
+    Returns
+    -------
+
+    """
 
     ti = obsi.altaz.obstime
     tj = obsj.altaz.obstime
@@ -240,6 +349,19 @@ def time_difference(obsi, obsj):
 
 
 def cross_response(obsi, obsj):
+    """
+
+    Parameters
+    ----------
+    obsi :
+
+    obsj :
+
+
+    Returns
+    -------
+
+    """
 
     respi = obsi.response[..., numpy.newaxis]
     respj = obsj.response[:, numpy.newaxis]
@@ -247,6 +369,19 @@ def cross_response(obsi, obsj):
 
 
 def cross_noise(obsi, obsj):
+    """
+
+    Parameters
+    ----------
+    obsi :
+
+    obsj :
+
+
+    Returns
+    -------
+
+    """
 
     noisei = obsi.noise[:, numpy.newaxis]
     noisej = obsj.noise[numpy.newaxis]
@@ -254,6 +389,7 @@ def cross_noise(obsi, obsj):
 
 
 class Interferometry():
+    """ """
 
     def __init__(self, *observations, time_delay=True):
 
@@ -323,6 +459,17 @@ class Interferometry():
             self.get_response = self.__no_time_delay
 
     def get_noise(self, channels=False):
+        """
+
+        Parameters
+        ----------
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         output = [
             pairs / noise**2
@@ -338,10 +485,34 @@ class Interferometry():
         return numpy.squeeze(output)
 
     def get_frequency(self, channels=False):
+        """
+
+        Parameters
+        ----------
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
         nu = self.frequency_bands
         return nu if channels else nu[[0, -1]]
 
     def pattern(self, spectral_index, channels=False):
+        """
+
+        Parameters
+        ----------
+        spectral_index :
+
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         response = self.get_response(spectral_index, channels)
 
@@ -353,7 +524,7 @@ class Interferometry():
 
         pattern = response / sflux
 
-        return numpy.abs(pattern).value
+        return pattern.value
 
     def __no_time_delay(self, spectral_index, channels=False):
 
@@ -413,5 +584,5 @@ class Interferometry():
             for resp, value in zip(self.responses, values)
         ], numpy.zeros(()))
 
-        response = value.clip(0) * unit
+        response = value * unit
         return numpy.squeeze(response)

@@ -1,24 +1,19 @@
+import os
 import sys
 
 import numpy
-import pandas
 
 from numpy import random
 
-from scipy.special import comb, hyp2f1
-from scipy.integrate import quad, cumtrapz
-
 from operator import itemgetter
-from itertools import combinations, product
-from functools import cached_property, partial
+from functools import cached_property
 
 from astropy.time import Time
 from astropy import units, constants, coordinates
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
-from .utils import _DATA, load_params, load_file
-from .utils import paired_shapes, sub_dict, xfactors
+from .utils import load_params, load_file, sub_dict
 
 from .distributions import Redshift, Schechter
 
@@ -30,13 +25,11 @@ from .cosmology import Cosmology, builtin
 
 class FastRadioBursts(object):
 
-    """
-    Class which defines a Fast Radio Burst population
-    """
+    """Class which defines a Fast Radio Burst population"""
 
     def __init__(self, n_frb=None, days=1, log_Lstar=44.46, log_L0=41.96,
-                 phistar=339, alpha=-1.79, wint=(.13, .33), si=(-15, 15),
-                 ra=(0, 24), dec=(-90, 90), zmin=0, zmax=6, start=None,
+                 phistar=339, gamma=-1.79, wint=(.13, .33), si=(-15, 15),
+                 zmin=0, zmax=6, ra=(0, 24), dec=(-90, 90), start=None,
                  lower_frequency=400, higher_frequency=1400,
                  gal_method='yt2020_analytic', gal_nside=128,
                  cosmology='Planck_18', verbose=True):
@@ -50,24 +43,38 @@ class FastRadioBursts(object):
             Number of generated FRBs.
         days : float
             Number of days of observation.
-        zmax : float
-            Maximum redshift.
-        Lstar : float
-            erg / s
-        L_0  : float
-            erg / s
+        log_Lstar : float
+            log(erg / s)
+        log_L_0  : float
+            log(erg / s)
         phistar : floar
             Gpc^3 / year
-        alpha : float
-            Luminosity
+        gamma : float
+            Luminosity Schechter index
         wint : (float, float)
             log(ms)
-        wint : (float, float)
-            Hour
+        si : (float, float)
+            Spectral Index range
+        zmin : float
+            Minimum redshift.
+        zmax : float
+            Maximum redshift.
+        ra : (float, float)
+            Degree
         dec : (float, float)
             Degree
-        si : (float, float)
-            Spectral Index
+        start : datetime
+            start time
+        lower_frequency : float
+            MHz
+        higher_frequency : float
+            MHz
+        gal_method : str
+            DM_gal model, default: 'yt2020_analytic'
+        gal_nside : int
+            DM_gal nside
+        cosmology : cosmology model
+            default: 'Planck_18'
         verbose : bool
 
         Returns
@@ -80,7 +87,7 @@ class FastRadioBursts(object):
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
 
         self.__load_params(n_frb, days, log_Lstar, log_L0, phistar,
-                           alpha, wint, si, ra, dec, zmin, zmax, cosmology,
+                           gamma, wint, si, ra, dec, zmin, zmax, cosmology,
                            lower_frequency, higher_frequency, start,
                            gal_nside, gal_method)
         self.__frb_rate(n_frb, days)
@@ -101,13 +108,26 @@ class FastRadioBursts(object):
         idx = numpy.array(idx)
         numeric = numpy.issubdtype(idx.dtype, numpy.signedinteger)
         boolean = numpy.issubdtype(idx.dtype, numpy.bool_)
-        if numeric or boolean or islice:
+        if numeric or boolean:
             return self.select(idx, inplace=False)
         if numpy.issubdtype(idx.dtype, numpy.str_):
             return itemgetter(*idx)(self.observations)
         return None
 
     def select(self, idx, inplace=False):
+        """
+
+        Parameters
+        ----------
+        idx :
+
+        inplace :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         select_dict = {
             name: attr[idx]
@@ -136,12 +156,44 @@ class FastRadioBursts(object):
         self.__dict__.update(select_dict)
 
     def iterfrbs(self, start=0, stop=None, step=1):
+        """
+
+        Parameters
+        ----------
+        start :
+             (Default value = 0)
+        stop :
+             (Default value = None)
+        step :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         stop = self.n_frb if stop is None else stop
         for i in range(start, stop, step):
             yield self[i]
 
     def iterchunks(self, size=1, start=0, stop=None, retindex=False):
+        """
+
+        Parameters
+        ----------
+        size :
+             (Default value = 1)
+        start :
+             (Default value = 0)
+        stop :
+             (Default value = None)
+        retindex :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         stop = self.n_frb if stop is None else stop
 
@@ -171,7 +223,7 @@ class FastRadioBursts(object):
 
     @cached_property
     def __lumdist(self):
-        return Schechter(self.__xmin, self.alpha)
+        return Schechter(self.__xmin, self.gamma)
 
     @cached_property
     def __sky_rate(self):
@@ -181,30 +233,36 @@ class FastRadioBursts(object):
 
     @cached_property
     def redshift(self):
+        """ """
         return self.__zdist.rvs(size=self.n_frb)
 
     @cached_property
     def log_luminosity(self):
+        """ """
         loglum = self.__lumdist.log_rvs(size=self.n_frb)
         return loglum * units.LogUnit() + self.log_Lstar
 
     @cached_property
     def pulse_width(self):
+        """ """
         width = random.lognormal(self.w_mean, self.w_std, size=self.n_frb)
         return width * units.ms
 
     @cached_property
     def itrs_time(self):
+        """ """
         time_ms = int(self.duration.to(units.ms).value)
         dt = random.randint(time_ms, size=self.n_frb) * units.ms
         return self.start + dt
 
     @cached_property
     def spectral_index(self):
+        """ """
         return random.uniform(self.si_min, self.si_max, self.n_frb)
 
     @cached_property
     def icrs(self):
+        """ """
         sin = numpy.sin(self.dec_range)
         args = random.uniform(*sin, self.n_frb)
         decs = numpy.arcsin(args) * units.rad
@@ -215,6 +273,7 @@ class FastRadioBursts(object):
 
     @cached_property
     def area(self):
+        """ """
         x = numpy.sin(self.dec_range).diff().item()
         y = self.ra_range.to(units.rad).diff().item()
         Area = (x * y) * units.rad
@@ -247,15 +306,18 @@ class FastRadioBursts(object):
 
     @cached_property
     def itrs(self):
+        """ """
         itrs_frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.icrs.transform_to(itrs_frame)
 
     @property
     def xyz(self):
+        """ """
         return self.itrs.cartesian.xyz
 
     @property
     def galactic(self):
+        """ """
         return self.icrs.galactic
 
     @cached_property
@@ -268,16 +330,29 @@ class FastRadioBursts(object):
 
     @cached_property
     def galactic_dm(self):
+        """ """
         gl = self.galactic.l
         gb = self.galactic.b
         return self.__gal_dm(gl, gb)
 
     @cached_property
     def igm_dm(self):
+        """ """
         z = self.redshift
         return self.__igm_dm(z)
 
     def obstime(self, location):
+        """
+
+        Parameters
+        ----------
+        location :
+
+
+        Returns
+        -------
+
+        """
 
         loc = location.get_itrs()
         loc = loc.cartesian.xyz
@@ -288,6 +363,19 @@ class FastRadioBursts(object):
         return self.itrs_time - time_delay
 
     def altaz(self, location, interp=300):
+        """
+
+        Parameters
+        ----------
+        location :
+
+        interp :
+             (Default value = 300)
+
+        Returns
+        -------
+
+        """
 
         obstime = self.obstime(location)
         frame = coordinates.AltAz(location=location, obstime=obstime)
@@ -331,7 +419,7 @@ class FastRadioBursts(object):
               'of observation. \n')
 
     def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
-                      alpha, wint, si, ra, dec, zmin, zmax, cosmology,
+                      gamma, wint, si, ra, dec, zmin, zmax, cosmology,
                       lower_frequency, higher_frequency, start,
                       gal_nside, gal_method):
 
@@ -340,7 +428,7 @@ class FastRadioBursts(object):
         self.log_L0 = log_L0 * units.LogUnit(units.erg / units.s)
         self.log_Lstar = log_Lstar * units.LogUnit(units.erg / units.s)
         self.phistar = phistar / (units.Gpc**3 * units.year)
-        self.alpha = alpha
+        self.gamma = gamma
         self.w_mean, self.w_std = wint
         self.si_min, self.si_max = si
         self.ra_range = numpy.array(ra) * units.hourangle
@@ -399,6 +487,25 @@ class FastRadioBursts(object):
 
     def observe(self, telescopes, location=None, start=None,
                 name=None, altaz=None):
+        """
+
+        Parameters
+        ----------
+        telescopes :
+
+        location :
+             (Default value = None)
+        start :
+             (Default value = None)
+        name :
+             (Default value = None)
+        altaz :
+             (Default value = None)
+
+        Returns
+        -------
+
+        """
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
@@ -407,6 +514,17 @@ class FastRadioBursts(object):
             self.__observe(telescopes, location, start, name, altaz)
 
     def clear(self, names=None):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+
+        Returns
+        -------
+
+        """
 
         if names is None:
             del self.observations
@@ -417,6 +535,17 @@ class FastRadioBursts(object):
                 del self.observations[name]
 
     def clear_xcorr(self, names=None):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+
+        Returns
+        -------
+
+        """
         del self.__xcorr
 
     def __response(self, name, channels=False):
@@ -429,7 +558,7 @@ class FastRadioBursts(object):
 
         response = self.__response(name, channels)
         signal = response.T * self.__S0
-        return signal.T
+        return numpy.abs(signal).T
 
     def __noise(self, name, channels=False):
 
@@ -497,38 +626,144 @@ class FastRadioBursts(object):
         }
 
     def response(self, names=None, channels=False):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_FastRadioBursts__response', names, channels)
 
     def signal(self, names=None, channels=False):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_FastRadioBursts__signal', names, channels)
 
     def noise(self, names=None, channels=False):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_FastRadioBursts__noise', names, channels)
 
     def response_to_noise(self, names=None, channels=False):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_FastRadioBursts__response_to_noise',
                           names, channels)
 
     def sensitivity(self, names=None, channels=False):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_FastRadioBursts__sensitivity',
                           names, channels)
 
     def signal_to_noise(self, names=None, channels=False):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_FastRadioBursts__signal_to_noise',
                           names, channels)
 
     def counts(self, names=None, channels=False, total=False):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+        total :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_FastRadioBursts__counts', names,
                           channels, total=total)
 
     def interferometry(self, *names, time_delay=True):
+        """
+
+        Parameters
+        ----------
+        *names :
+
+        time_delay :
+             (Default value = True)
+
+        Returns
+        -------
+
+        """
 
         key = '_'.join(names)
         key = 'INTF_{}'.format(key)
@@ -537,6 +772,19 @@ class FastRadioBursts(object):
         self.observations[key] = interferometry
 
     def split_beams(self, name, key='BEAM'):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        key :
+             (Default value = 'BEAM')
+
+        Returns
+        -------
+
+        """
 
         observation = self.observations.pop(name)
         splitted = observation.split_beams()
@@ -547,6 +795,7 @@ class FastRadioBursts(object):
         })
 
     def to_dict(self):
+        """ """
 
         out_dict = {
             key: name
@@ -586,17 +835,22 @@ class FastRadioBursts(object):
 
         keys = [*out_dict.keys()]
 
-        for name in keys:
-            attr = out_dict[name]
-            if type(attr) is COO:
-                coo = out_dict.pop(name)
-                out_dict['{}_coords'.format(name)] = coo.coords
-                out_dict['{}_data'.format(name)] = coo.data
-                out_dict['{}_shape'.format(name)] = coo.shape
-
         return out_dict
 
     def save(self, file, compressed=True):
+        """
+
+        Parameters
+        ----------
+        file :
+
+        compressed :
+             (Default value = True)
+
+        Returns
+        -------
+
+        """
         out_dict = self.to_dict()
         if compressed:
             numpy.savez_compressed(file, **out_dict)
@@ -605,6 +859,17 @@ class FastRadioBursts(object):
 
     @staticmethod
     def from_dict(params):
+        """
+
+        Parameters
+        ----------
+        params :
+
+
+        Returns
+        -------
+
+        """
 
         output = FastRadioBursts.__new__(FastRadioBursts)
         observations = params.pop('observations', None)
@@ -632,6 +897,17 @@ class FastRadioBursts(object):
 
     @staticmethod
     def load(file):
+        """
+
+        Parameters
+        ----------
+        file :
+
+
+        Returns
+        -------
+
+        """
         input_dict = load_file(file)
         params = load_params(input_dict)
         return FastRadioBursts.from_dict(params)

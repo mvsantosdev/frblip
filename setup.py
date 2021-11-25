@@ -6,7 +6,7 @@ bla = setup(
     description='Fast Radio Burst mock catalogs synthesis.',
     author='Marcelo Vargas dos Santos',
     author_email='mvsantos_at_protonmail.com',
-    packages=find_packages(),
+    packages=find_packages(include=['frblip', 'frblip.*']),
     include_package_data=True,
     package_data={
         'frblip': [
@@ -22,7 +22,7 @@ bla = setup(
         'scipy',
         'astropy',
         'astropy-healpix',
-        'healpy',   
+        'healpy',
         'pygedm',
         'pyccl',
         'camb'

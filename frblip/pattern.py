@@ -6,6 +6,7 @@ from astropy import units, coordinates
 
 
 class FunctionalPattern(object):
+    """ """
 
     def __init__(self, directivity, alt=90.0, az=0.0, kind='gaussian'):
 
@@ -15,12 +16,36 @@ class FunctionalPattern(object):
         self.set_directions(alt, az)
 
     def set_radius(self, directivity):
+        """
+
+        Parameters
+        ----------
+        directivity :
+
+
+        Returns
+        -------
+
+        """
 
         solid_angle = 4 * numpy.pi / directivity.to(1 / units.sr)
         arg = 1 - solid_angle / (2 * numpy.pi * units.sr)
         self.radius = numpy.arccos(arg)
 
     def set_directions(self, alt, az):
+        """
+
+        Parameters
+        ----------
+        alt :
+
+        az :
+
+
+        Returns
+        -------
+
+        """
 
         altaz = coordinates.AltAz(alt=alt, az=az)
         self.offsets = coordinates.SkyOffsetFrame(origin=altaz)
@@ -43,13 +68,46 @@ class FunctionalPattern(object):
         return self.response(rescaled_arc)
 
     def tophat(self, x):
+        """
+
+        Parameters
+        ----------
+        x :
+
+
+        Returns
+        -------
+
+        """
 
         return numpy.abs(x) <= 1
 
     def gaussian(self, x):
+        """
+
+        Parameters
+        ----------
+        x :
+
+
+        Returns
+        -------
+
+        """
 
         return numpy.exp(-x**2)
 
     def bessel(self, x):
+        """
+
+        Parameters
+        ----------
+        x :
+
+
+        Returns
+        -------
+
+        """
 
         return numpy.nan_to_num(j1(2 * x) / x, nan=1.0)**2

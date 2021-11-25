@@ -9,6 +9,9 @@ from .observation import Observation, Interferometry
 from .observation import density_flux, interferometry_density_flux
 
 
+__version__ = '0.1.0'
+
+
 warning_message = ''.join([
     '\n\nFRBlip is a beta version yet, and',
     'is available only for BINGO members.',

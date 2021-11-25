@@ -9,14 +9,13 @@ from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 from operator import itemgetter
 from functools import cached_property
 
-from scipy.interpolate import interp1d
-
 from .distributions import Redshift, Schechter
 from .observation import Observation, Interferometry
 from .cosmology import Cosmology, builtin
 
 
 class HealPixMap(HEALPix):
+    """ """
 
     def __init__(self, nside=None, order='ring', phistar=339,
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
@@ -67,34 +66,51 @@ class HealPixMap(HEALPix):
 
     @cached_property
     def pixels(self):
+        """ """
         return numpy.arange(self.npix)
 
     @cached_property
     def gcrs(self):
+        """ """
         pixels = numpy.arange(self.npix)
         ra, dec = self.healpix_to_lonlat(pixels)
         return coordinates.GCRS(ra=ra, dec=dec)
 
     @cached_property
     def itrs(self):
+        """ """
         frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.gcrs.transform_to(frame)
 
     @cached_property
     def icrs(self):
+        """ """
         frame = coordinates.ICRS()
         return self.gcrs.transform_to(frame)
 
     @cached_property
     def xyz(self):
+        """ """
         return self.itrs.cartesian.xyz
 
     @cached_property
     def itrs_time(self):
+        """ """
         j2000 = Time('J2000').to_datetime()
         return Time(j2000)
 
     def obstime(self, location):
+        """
+
+        Parameters
+        ----------
+        location :
+
+
+        Returns
+        -------
+
+        """
 
         loc = location.get_itrs()
         loc = loc.cartesian.xyz
@@ -105,6 +121,19 @@ class HealPixMap(HEALPix):
         return self.itrs_time - time_delay
 
     def altaz(self, location, interp=300):
+        """
+
+        Parameters
+        ----------
+        location :
+
+        interp :
+             (Default value = 300)
+
+        Returns
+        -------
+
+        """
 
         obstime = self.obstime(location)
         frame = coordinates.AltAz(location=location, obstime=obstime)
@@ -162,6 +191,23 @@ class HealPixMap(HEALPix):
 
     def observe(self, telescopes, name=None, location=None,
                 radius_factor=1):
+        """
+
+        Parameters
+        ----------
+        telescopes :
+
+        name :
+             (Default value = None)
+        location :
+             (Default value = None)
+        radius_factor :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
@@ -189,8 +235,9 @@ class HealPixMap(HEALPix):
         nu_high = self.higher_frequency / units.MHz
 
         si_factor = nu_high**sip - nu_low**sip
+        signal = response / si_factor
 
-        return response / si_factor
+        return numpy.abs(signal)
 
     def __noise(self, name, channels=False):
 
@@ -266,7 +313,6 @@ class HealPixMap(HEALPix):
 
         if sensitivity.ndim > 1:
             shape = sensitivity.shape
-            npix = shape[0]
             final_shape = shape[1:]
             n_beam = numpy.prod(final_shape)
             sensitivity = sensitivity.reshape((-1, n_beam))
@@ -332,42 +378,164 @@ class HealPixMap(HEALPix):
 
     def rate(self, names=None, channels=False, SNR=None,
              spectral_index=0.0, total=False):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+        SNR :
+             (Default value = None)
+        spectral_index :
+             (Default value = 0.0)
+        total :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_HealPixMap__rate', names, channels, SNR=SNR,
                           spectral_index=spectral_index, total=total)
 
     def pattern(self, names=None, channels=False, spectral_index=0.0):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+        spectral_index :
+             (Default value = 0.0)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_HealPixMap__pattern', names, channels,
                           spectral_index=spectral_index)
 
     def response(self, names=None, channels=False, spectral_index=0.0):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+        spectral_index :
+             (Default value = 0.0)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_HealPixMap__response', names, channels,
                           spectral_index=spectral_index)
 
     def signal(self, names=None, channels=False, spectral_index=0.0):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+        spectral_index :
+             (Default value = 0.0)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_HealPixMap__signal', names, channels,
                           spectral_index=spectral_index)
 
     def noise(self, names=None, channels=False):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_HealPixMap__noise', names, channels)
 
     def response_to_noise(self, names=None, channels=False,
                           spectral_index=0.0):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+        spectral_index :
+             (Default value = 0.0)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_HealPixMap__response_to_noise', names, channels,
                           spectral_index=spectral_index)
 
     def sensitivity(self, names=None, channels=False,
                     spectral_index=0.0, total=False):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+        spectral_index :
+             (Default value = 0.0)
+        total :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         return self.__get('_HealPixMap__sensitivity', names, channels,
                           spectral_index=spectral_index, total=total)
 
     def interferometry(self, *names, time_delay=True):
+        """
+
+        Parameters
+        ----------
+        *names :
+
+        time_delay :
+             (Default value = True)
+
+        Returns
+        -------
+
+        """
 
         key = '_'.join(names)
         key = 'INTF_{}'.format(key)

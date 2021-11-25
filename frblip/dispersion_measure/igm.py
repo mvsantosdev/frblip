@@ -2,12 +2,13 @@ import numpy
 
 from scipy.stats import truncnorm
 from scipy.integrate import odeint
-from astropy import units, constants
+from astropy import units
 
 unit = units.pc / units.cm**3
 
 
 class IGM():
+    """ """
 
     def __init__(self, cosmology, zmin=0.0, zmax=6.2, Xp=0.76,
                  a=0.475, b=0.703, c=3.19, z0=5.42):
@@ -62,9 +63,31 @@ class IGM():
         self.std_dm = self.std_dm.to(unit)
 
     def mean(self, z):
+        """
+
+        Parameters
+        ----------
+        z : float
+            redshift
+
+        Returns
+        -------
+
+        """
         return numpy.interp(x=z, xp=self.redshift, fp=self.mean_dm)
 
     def std(self, z):
+        """
+
+        Parameters
+        ----------
+        z : float
+            redshift
+
+        Returns
+        -------
+
+        """
         return numpy.interp(x=z, xp=self.redshift, fp=self.std_dm)
 
     def __call__(self, z):

@@ -2,21 +2,27 @@ import os
 
 import numpy
 
-from functools import partial
+from itertools import combinations
 
-from collections import namedtuple
+from astropy import units
 
-from itertools import repeat, cycle, product, combinations
-
-from astropy import coordinates, units
-
-from scipy.integrate import cumtrapz
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
 
 
 def paired_shapes(shape):
+    """
+
+    Parameters
+    ----------
+    shape :
+
+
+    Returns
+    -------
+
+    """
 
     nscopes = shape.size
 
@@ -38,6 +44,17 @@ def paired_shapes(shape):
 
 
 def xfactors(*n):
+    """
+
+    Parameters
+    ----------
+    *n :
+
+
+    Returns
+    -------
+
+    """
 
     N = numpy.array(n)
     factor = N * N.reshape(-1, 1)
@@ -52,10 +69,42 @@ def xfactors(*n):
 
 def sub_dict(kwargs, keys=None, flag='', pop=False,
              replace_flag='', apply=lambda x: x):
+    """
+
+    Parameters
+    ----------
+    kwargs :
+
+    keys :
+         (Default value = None)
+    flag :
+         (Default value = '')
+    pop :
+         (Default value = False)
+    replace_flag :
+         (Default value = '')
+    apply :
+         (Default value = lambda x: x)
+
+    Returns
+    -------
+
+    """
 
     dict_func = (lambda x: kwargs.pop(x, None)) if pop else kwargs.get
 
     def func(x):
+        """
+
+        Parameters
+        ----------
+        x :
+
+
+        Returns
+        -------
+
+        """
         return apply(dict_func(x))
 
     flag_len = len(flag)
@@ -71,6 +120,17 @@ def sub_dict(kwargs, keys=None, flag='', pop=False,
 
 
 def load_params(input_dict):
+    """
+
+    Parameters
+    ----------
+    input_dict :
+
+
+    Returns
+    -------
+
+    """
 
     output_dict = input_dict.copy()
 
@@ -86,6 +146,17 @@ def load_params(input_dict):
 
 
 def load_file(file):
+    """
+
+    Parameters
+    ----------
+    file :
+
+
+    Returns
+    -------
+
+    """
 
     output = numpy.load(file, allow_pickle=True)
     output = dict(output)

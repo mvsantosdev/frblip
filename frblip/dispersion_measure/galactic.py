@@ -13,6 +13,7 @@ galactic_edge = 30 * units.kpc
 
 
 class Galactic():
+    """ """
 
     def __init__(self, nside=128, method='yt2020_analytic'):
 

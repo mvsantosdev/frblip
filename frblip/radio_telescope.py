@@ -1,22 +1,11 @@
-import warnings
-
 import os
-
-import json
 
 import numpy
 
-import pandas
-
 from functools import cached_property
 
-from astropy.time import Time
 from astropy import coordinates, units, constants
 from astropy.coordinates.matrix_utilities import rotation_matrix
-
-from scipy.special import j1
-
-from scipy.integrate import cumtrapz
 
 from .grid import CartesianGrid
 from .pattern import FunctionalPattern
@@ -35,9 +24,7 @@ noise_performance = {
 
 class RadioTelescope(object):
 
-    """
-    Class which defines a Radio Surveynp
-    """
+    """Class which defines a Radio Surveynp"""
 
     def __init__(self, name='bingo', kind='gaussian', array=None,
                  offset=None, location=None):
@@ -101,10 +88,24 @@ class RadioTelescope(object):
 
     @cached_property
     def xyz(self):
+        """ """
         loc = self.location.get_itrs()
         return loc.cartesian.xyz
 
     def set_offset(self, alt, az):
+        """
+
+        Parameters
+        ----------
+        alt :
+
+        az :
+
+
+        Returns
+        -------
+
+        """
 
         alt_shift = (alt - 90) * units.deg
         az_shift = az * units.degree
@@ -126,9 +127,39 @@ class RadioTelescope(object):
         self.response = self._offset_response
 
     def set_directions(self, alt, az):
+        """
+
+        Parameters
+        ----------
+        alt :
+
+        az :
+
+
+        Returns
+        -------
+
+        """
         self.__response.set_directions(alt, az)
 
     def set_location(self, location=None, lon=None, lat=None, height=None):
+        """
+
+        Parameters
+        ----------
+        location :
+             (Default value = None)
+        lon :
+             (Default value = None)
+        lat :
+             (Default value = None)
+        height :
+             (Default value = None)
+
+        Returns
+        -------
+
+        """
 
         if location is not None:
             self.location = location
@@ -137,6 +168,7 @@ class RadioTelescope(object):
             self.location = coordinates.EarthLocation(**coords)
 
     def noise(self):
+        """ """
 
         band_widths = numpy.diff(self.frequency_bands)
         scaled_time = band_widths * self.sampling_time
@@ -147,10 +179,32 @@ class RadioTelescope(object):
         return self.noise_performance * noise.to(units.Jy)
 
     def _no_offset_response(self, altaz):
+        """
+
+        Parameters
+        ----------
+        altaz :
+
+
+        Returns
+        -------
+
+        """
 
         return self.__response(altaz)
 
     def _offset_response(self, altaz):
+        """
+
+        Parameters
+        ----------
+        altaz :
+
+
+        Returns
+        -------
+
+        """
 
         altazoff = altaz.transform_to(self.offset)
         altaz = coordinates.AltAz(alt=altazoff.lat, az=altazoff.lon)
@@ -158,6 +212,7 @@ class RadioTelescope(object):
         return self.__response(altaz)
 
     def _derived(self):
+        """ """
 
         lon = self.__dict__.pop('lon')
         lat = self.__dict__.pop('lat')
@@ -168,6 +223,17 @@ class RadioTelescope(object):
         self.set_directivity(self.directivity)
 
     def set_directivity(self, directivity):
+        """
+
+        Parameters
+        ----------
+        directivity :
+
+
+        Returns
+        -------
+
+        """
 
         self.directivity = numpy.atleast_1d(directivity)
         self.solid_angle = 4 * numpy.pi / directivity.to(1 / units.sr)
