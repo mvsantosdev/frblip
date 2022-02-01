@@ -76,12 +76,12 @@ class RadioTelescope(object):
         else:
             self.array = array * units.m
 
-        self._derived()
+        self.__derived()
 
         if offset is not None:
             self.set_offset(*offset)
         else:
-            self.response = self._no_offset_response
+            self.response = self.__no_offset_response
 
         if location is not None:
             self.set_location(location)
@@ -124,7 +124,7 @@ class RadioTelescope(object):
 
         altaz = coordinates.AltAz(alt=alt_shift, az=az_shift)
         self.offset = coordinates.SkyOffsetFrame(origin=altaz)
-        self.response = self._offset_response
+        self.response = self.__offset_response
 
     def set_directions(self, alt, az):
         """
@@ -178,7 +178,7 @@ class RadioTelescope(object):
 
         return self.noise_performance * noise.to(units.Jy)
 
-    def _no_offset_response(self, altaz):
+    def __no_offset_response(self, altaz):
         """
 
         Parameters
@@ -193,7 +193,7 @@ class RadioTelescope(object):
 
         return self.__response(altaz)
 
-    def _offset_response(self, altaz):
+    def __offset_response(self, altaz):
         """
 
         Parameters
@@ -211,7 +211,7 @@ class RadioTelescope(object):
 
         return self.__response(altaz)
 
-    def _derived(self):
+    def __derived(self):
         """ """
 
         lon = self.__dict__.pop('lon')

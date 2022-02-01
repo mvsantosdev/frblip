@@ -247,12 +247,17 @@ class FastRadioBursts(object):
         """ """
         width = random.lognormal(self.w_mean, self.w_std, size=self.n_frb)
         return width * units.ms
+        
+    @cached_property
+    def emitted_pulse_width(self):
+        return (1 + self.redshift) * self.pulse_width
 
     @cached_property
     def itrs_time(self):
         """ """
-        time_ms = int(self.duration.to(units.ms).value)
-        dt = random.randint(time_ms, size=self.n_frb) * units.ms
+        time_ms = int(self.duration.to(units.us).value)
+        dt = random.randint(time_ms, size=self.n_frb)
+        dt = numpy.sort(dt) * units.us 
         return self.start + dt
 
     @cached_property
@@ -292,10 +297,6 @@ class FastRadioBursts(object):
     def __flux(self):
         surface = 4 * numpy.pi * self.__luminosity_distance**2
         return (self.__luminosity / surface).to(units.Jy * units.MHz)
-
-    @cached_property
-    def __arrived_pulse_width(self):
-        return (1 + self.redshift) * self.pulse_width
 
     @cached_property
     def __S0(self):
@@ -340,6 +341,11 @@ class FastRadioBursts(object):
         """ """
         z = self.redshift
         return self.__igm_dm(z)
+        
+    @cached_property
+    def dispersion_measure(self):
+        """ """
+        return self.galactic_dm + self.igm_dm
 
     def obstime(self, location):
         """
@@ -437,7 +443,12 @@ class FastRadioBursts(object):
         self.higher_frequency = higher_frequency * units.MHz
         self.cosmology = cosmology
 
-        self.start = Time.now() if start is None else start
+        if start is None:
+            now = Time.now()
+            today = now.iso.split()
+            self.start = Time(today[0])
+        else:
+            self.start = start
 
         self.gal_nside = gal_nside
         self.gal_method = gal_method

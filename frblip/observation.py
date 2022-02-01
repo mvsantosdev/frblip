@@ -10,6 +10,56 @@ from astropy import coordinates, units
 from .utils import sub_dict, paired_shapes
 
 
+def disperse(nu, DM):
+    D = DM * units.cm**3 / u.pc
+    return 4.15 * units.ms * D * (units.MHz / nu)**2
+
+
+def gaussian(t, w, t0=0.0):
+    z = (t - t0) / w
+    return nnumpy.exp(- z**2 / 2)
+
+
+def scattered_gaussian(t, w, ts, t0=0.0):
+
+    x = .5 * (w / ts)**2
+    f = np.exp(x)
+
+    x = (t0 - t) / ts
+    g = np.exp(x)
+
+    x = t - t0 - w**2 / ts
+    y = w * np.sqrt(2)
+    h = 1 + erf(x / y)
+
+    ff = f * g * h
+
+    return ff / ff.max(0)
+
+
+def specific_flux(spectral_index, frequency):
+    """
+
+    Parameters
+    ----------
+    spectral_index :
+
+    frequency :
+
+
+    Returns
+    -------
+
+    """
+
+    diff_nu = numpy.diff(frequency)
+    nu = frequency[:, numpy.newaxis]
+    si = spectral_index[numpy.newaxis]
+    flux = (nu / units.MHz).to(1).value**si
+
+    return flux.T
+
+
 def density_flux(spectral_index, frequency):
     """
 
@@ -30,6 +80,7 @@ def density_flux(spectral_index, frequency):
     si = spectral_index[numpy.newaxis]
 
     nup = (nu / units.MHz).to(1).value**(1 + si)
+    #nup = density_flux_integral(spectral_index, frequency)
 
     flux = numpy.diff(nup, axis=0)
     return flux.T / diff_nu
@@ -185,6 +236,26 @@ class Observation():
         if channels:
             return self.frequency_bands
         return self.frequency_bands[[0, -1]]
+        
+    def get_resp(self, spectral_index, channels=False):
+        """
+
+        Parameters
+        ----------
+        spectral_index :
+
+        channels :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
+        nu = self.get_frequency(channels)
+        S = specific_flux(spectral_index, nu)
+        pattern = self.pattern()
+        response = pattern[..., numpy.newaxis] * S[:, numpy.newaxis]
+        return numpy.squeeze(response)
 
     def get_response(self, spectral_index, channels=False):
         """
@@ -365,7 +436,7 @@ def cross_response(obsi, obsj):
 
     respi = obsi.response[..., numpy.newaxis]
     respj = obsj.response[:, numpy.newaxis]
-    return numpy.sqrt(respi * respj) / 2
+    return numpy.sqrt(respi * respj)
 
 
 def cross_noise(obsi, obsj):

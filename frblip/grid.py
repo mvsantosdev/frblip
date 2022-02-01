@@ -24,7 +24,7 @@ class CartesianGrid(object):
                 for g in grid
             ]
 
-            self.response = self._multiple_grids
+            self.response = self.__multiple_grids
 
         elif grid.ndim == 2:
 
@@ -36,7 +36,7 @@ class CartesianGrid(object):
 
             self.pattern = RectBivariateSpline(y, x, z, kx=3, ky=3)
 
-            self.response = self._unique_grid
+            self.response = self.__unique_grid
 
             self.n_beam = numpy.size(alt)
 
@@ -49,18 +49,7 @@ class CartesianGrid(object):
 
         return self.response(altaz).clip(self.__min)
 
-    def _unique_grid(self, altaz):
-        """
-
-        Parameters
-        ----------
-        altaz :
-
-
-        Returns
-        -------
-
-        """
+    def __unique_grid(self, altaz):
 
         altazoffs = [
             altaz.transform_to(self.offsets[i])
@@ -79,18 +68,7 @@ class CartesianGrid(object):
 
         return self.pattern.ev(y, x)
 
-    def _multiple_grids(self, altaz):
-        """
-
-        Parameters
-        ----------
-        altaz :
-
-
-        Returns
-        -------
-
-        """
+    def __multiple_grids(self, altaz):
 
         x = altaz.cartesian.x
         y = altaz.cartesian.y
