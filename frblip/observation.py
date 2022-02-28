@@ -1,6 +1,6 @@
 import numpy
 
-from scipy.special import hyp1f1
+from scipy.special import hyp1f1, erf
 
 from itertools import combinations
 
@@ -11,25 +11,25 @@ from .utils import sub_dict, paired_shapes
 
 
 def disperse(nu, DM):
-    D = DM * units.cm**3 / u.pc
+    D = DM * units.cm**3 / units.pc
     return 4.15 * units.ms * D * (units.MHz / nu)**2
 
 
 def gaussian(t, w, t0=0.0):
     z = (t - t0) / w
-    return nnumpy.exp(- z**2 / 2)
+    return numpy.exp(- z**2 / 2)
 
 
 def scattered_gaussian(t, w, ts, t0=0.0):
 
     x = .5 * (w / ts)**2
-    f = np.exp(x)
+    f = numpy.exp(x)
 
     x = (t0 - t) / ts
-    g = np.exp(x)
+    g = numpy.exp(x)
 
     x = t - t0 - w**2 / ts
-    y = w * np.sqrt(2)
+    y = w * numpy.sqrt(2)
     h = 1 + erf(x / y)
 
     ff = f * g * h
@@ -52,7 +52,6 @@ def specific_flux(spectral_index, frequency):
 
     """
 
-    diff_nu = numpy.diff(frequency)
     nu = frequency[:, numpy.newaxis]
     si = spectral_index[numpy.newaxis]
     flux = (nu / units.MHz).to(1).value**si
@@ -80,8 +79,6 @@ def density_flux(spectral_index, frequency):
     si = spectral_index[numpy.newaxis]
 
     nup = (nu / units.MHz).to(1).value**(1 + si)
-    #nup = density_flux_integral(spectral_index, frequency)
-
     flux = numpy.diff(nup, axis=0)
     return flux.T / diff_nu
 
@@ -236,7 +233,7 @@ class Observation():
         if channels:
             return self.frequency_bands
         return self.frequency_bands[[0, -1]]
-        
+
     def get_resp(self, spectral_index, channels=False):
         """
 
@@ -436,7 +433,7 @@ def cross_response(obsi, obsj):
 
     respi = obsi.response[..., numpy.newaxis]
     respj = obsj.response[:, numpy.newaxis]
-    return numpy.sqrt(respi * respj)
+    return numpy.sqrt(respi * respj) / 2
 
 
 def cross_noise(obsi, obsj):
@@ -520,7 +517,7 @@ class Interferometry():
         ]
 
         self.__pairs = numpy.array([
-            time_delay.shape[0]
+            time_delay.shape[-1] if time_delay.ndim > 1 else 1
             for time_delay in self.time_delays
         ])
 

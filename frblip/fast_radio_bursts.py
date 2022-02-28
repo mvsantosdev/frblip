@@ -247,7 +247,7 @@ class FastRadioBursts(object):
         """ """
         width = random.lognormal(self.w_mean, self.w_std, size=self.n_frb)
         return width * units.ms
-        
+
     @cached_property
     def emitted_pulse_width(self):
         return (1 + self.redshift) * self.pulse_width
@@ -257,7 +257,7 @@ class FastRadioBursts(object):
         """ """
         time_ms = int(self.duration.to(units.us).value)
         dt = random.randint(time_ms, size=self.n_frb)
-        dt = numpy.sort(dt) * units.us 
+        dt = numpy.sort(dt) * units.us
         return self.start + dt
 
     @cached_property
@@ -341,7 +341,7 @@ class FastRadioBursts(object):
         """ """
         z = self.redshift
         return self.__igm_dm(z)
-        
+
     @cached_property
     def dispersion_measure(self):
         """ """
