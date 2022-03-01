@@ -1,3 +1,5 @@
+import warnings
+
 import numpy
 from astropy_healpix import HEALPix
 
@@ -6,7 +8,6 @@ from astropy import coordinates, units, constants
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
-from operator import itemgetter
 from functools import cached_property
 
 from .distributions import Redshift, Schechter
@@ -364,16 +365,13 @@ class HealPixMap(HEALPix):
         func = self.__getattribute__(func_name)
 
         if names is None:
-            observations = self.observations
+            names = self.observations.keys()
         elif isinstance(names, str):
             return func(names, channels, **kwargs)
-        else:
-            values = itemgetter(*names)(self.observations)
-            observations = dict(zip(names, values))
 
         return {
-            obs: func(obs, channels, **kwargs)
-            for obs in observations
+            name: func(name, channels, **kwargs)
+            for name in names
         }
 
     def rate(self, names=None, channels=False, SNR=None,
@@ -537,8 +535,17 @@ class HealPixMap(HEALPix):
 
         """
 
-        key = '_'.join(names)
-        key = 'INTF_{}'.format(key)
         observations = [self[name] for name in names]
-        interferometry = Interferometry(*observations, time_delay=time_delay)
-        self.observations[key] = interferometry
+        n_scopes = numpy.sum([
+            obs.time_array.shape[0] if hasattr(obs, 'time_array') else 1
+            for obs in observations
+        ]).sum()
+
+        if n_scopes > 1:
+
+            key = '_'.join(names)
+            key = 'INTF_{}'.format(key)
+            interferometry = Interferometry(*observations, time_delay)
+            self.observations[key] = interferometry
+        else:
+            warnings.warn('Self interferometry will not be computed.')
