@@ -784,7 +784,8 @@ class FastRadioBursts(object):
 
             key = '_'.join(names)
             key = 'INTF_{}'.format(key)
-            interferometry = Interferometry(*observations, time_delay)
+            interferometry = Interferometry(*observations,
+                                            time_delay=time_delay)
             self.observations[key] = interferometry
         else:
             warnings.warn('Self interferometry will not be computed.')
