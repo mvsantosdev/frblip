@@ -6,13 +6,13 @@ from astropy import units
 from pygedm import generate_healpix_dm_map
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))
-_DATA = _ROOT.replace('dispersion_measure', 'data')
+_DATA = _ROOT.replace('random/dispersion_measure', 'data')
 
 unit = units.pc / units.cm**3
 galactic_edge = 30 * units.kpc
 
 
-class Galactic():
+class GalacticDM():
     """ """
 
     def __init__(self, nside=128, method='yt2020_analytic'):

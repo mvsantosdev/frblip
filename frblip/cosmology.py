@@ -370,6 +370,23 @@ class Cosmology(pyccl.Cosmology):
         dcoVol = (Dh * r**2).to(units.Mpc**3)
         return dcoVol / units.sr
 
+    def star_formation_rate(self, z):
+        """
+
+        Parameters
+        ----------
+        z :
+
+
+        Returns
+        -------
+
+        """
+        num = 0.017 + 0.13 * z
+        dem = 1 + (z / 3.3)**5.3
+
+        return (num / dem) * units.Msun / units.yr / units.Mpc**3
+
     @cached_property
     def critical_density0(self):
         """ """

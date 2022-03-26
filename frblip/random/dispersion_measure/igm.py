@@ -7,7 +7,7 @@ from astropy import units
 unit = units.pc / units.cm**3
 
 
-class IGM():
+class InterGalacticDM():
     """ """
 
     def __init__(self, cosmology, zmin=0.0, zmax=6.2, Xp=0.76,

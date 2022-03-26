@@ -10,7 +10,7 @@ from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
 from functools import cached_property
 
-from .distributions import Redshift, Schechter
+from .random import Redshift, Schechter
 from .observation import Observation, Interferometry
 from .cosmology import Cosmology, builtin
 

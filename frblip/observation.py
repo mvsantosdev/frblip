@@ -459,7 +459,7 @@ def cross_noise(obsi, obsj):
 class Interferometry():
     """ """
 
-    def __init__(self, *observations, time_delay=True):
+    def __init__(self, *observations, time_delay=False):
 
         n_scopes = len(observations)
         freqs = numpy.stack([

@@ -17,9 +17,10 @@ from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
 from .utils import load_params, load_file, sub_dict
 
-from .distributions import Redshift, Schechter
+from .random import Redshift, Schechter
 
-from .dispersion_measure import Galactic, IGM
+from .random.dispersion_measure import GalacticDM
+from .random.dispersion_measure import InterGalacticDM, HostGalaxyDM
 
 from .observation import Observation, Interferometry
 from .cosmology import Cosmology, builtin
@@ -34,6 +35,7 @@ class FastRadioBursts(object):
                  zmin=0, zmax=6, ra=(0, 24), dec=(-90, 90), start=None,
                  lower_frequency=400, higher_frequency=1400,
                  gal_method='yt2020_analytic', gal_nside=128,
+                 host_source='luo18', host_model=('ALG', 'YMW16'),
                  cosmology='Planck_18', verbose=True):
 
         """
@@ -91,7 +93,7 @@ class FastRadioBursts(object):
         self.__load_params(n_frb, days, log_Lstar, log_L0, phistar,
                            gamma, wint, si, ra, dec, zmin, zmax, cosmology,
                            lower_frequency, higher_frequency, start,
-                           gal_nside, gal_method)
+                           gal_nside, gal_method, host_source, host_model)
         self.__frb_rate(n_frb, days)
         self.__random()
 
@@ -325,11 +327,16 @@ class FastRadioBursts(object):
 
     @cached_property
     def __gal_dm(self):
-        return Galactic(self.gal_nside, self.gal_method)
+        return GalacticDM(self.gal_nside, self.gal_method)
 
     @cached_property
     def __igm_dm(self):
-        return IGM(self.__cosmology)
+        return InterGalacticDM(self.__cosmology)
+
+    @cached_property
+    def __host_dm(self):
+        return HostGalaxyDM(self.host_source, self.host_model,
+                            self.__cosmology)
 
     @cached_property
     def galactic_dm(self):
@@ -345,9 +352,23 @@ class FastRadioBursts(object):
         return self.__igm_dm(z)
 
     @cached_property
+    def host_dm(self):
+        """ """
+        z = self.redshift
+        return self.__host_dm(z)
+
+    @cached_property
+    def extra_galactic_dm(self):
+        """ """
+        z = self.redshift
+        igm = self.igm_dm
+        host = self.host_dm
+        return igm + host / (1 + z)
+
+    @cached_property
     def dispersion_measure(self):
         """ """
-        return self.galactic_dm + self.igm_dm
+        return self.galactic_dm + self.extra_galactic_dm
 
     def obstime(self, location):
         """
@@ -429,7 +450,7 @@ class FastRadioBursts(object):
     def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
                       gamma, wint, si, ra, dec, zmin, zmax, cosmology,
                       lower_frequency, higher_frequency, start,
-                      gal_nside, gal_method):
+                      gal_nside, gal_method, host_source, host_model):
 
         self.zmin = zmin
         self.zmax = zmax
@@ -444,6 +465,8 @@ class FastRadioBursts(object):
         self.lower_frequency = lower_frequency * units.MHz
         self.higher_frequency = higher_frequency * units.MHz
         self.cosmology = cosmology
+        self.host_source = host_source
+        self.host_model = host_model
 
         if start is None:
             now = Time.now()
