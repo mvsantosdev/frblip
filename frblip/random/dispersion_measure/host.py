@@ -32,7 +32,6 @@ class HostGalaxyDM():
 
         logDM0 = self.mixture.rvs(size=z.shape)
         sfr = self.cosmology.star_formation_rate(z)
-        sfr0 = self.cosmology.star_formation_rate(0)
-        sfr_ratio = numpy.sqrt(sfr / sfr0)
+        sfr_ratio = numpy.sqrt(sfr / self.cosmology.sfr0)
 
         return sfr_ratio * (10**logDM0) * unit

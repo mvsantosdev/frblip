@@ -483,13 +483,13 @@ class Interferometry():
         xshapes = shapes[n_scopes:]
         shapes = shapes[:n_scopes]
 
-        self.responses = [
+        self.response = [
             observation.response.reshape((-1, *shape))
             for shape, observation in zip(shapes, observations)
             if hasattr(observation, 'time_array')
         ]
 
-        self.responses += [
+        self.response += [
             cross_response(*obsij).reshape((-1, *shape))
             for shape, obsij in zip(xshapes, combinations(observations, 2))
         ]
@@ -525,6 +525,11 @@ class Interferometry():
             self.get_response = self.__time_delay
         else:
             self.get_response = self.__no_time_delay
+
+            self.response = sum([
+                pair * response
+                for pair, response in zip(self.__pairs, self.response)
+            ], numpy.zeros(())).squeeze()
 
     def get_noise(self, channels=False):
         """
@@ -597,33 +602,8 @@ class Interferometry():
     def __no_time_delay(self, spectral_index, channels=False):
 
         nu = self.get_frequency(channels)
-
-        interfs = [
-            density_flux(spectral_index, nu)
-            for time_delay in self.time_delays
-        ]
-
-        unit = [interf.unit for interf in interfs]
-        unit = 1 * numpy.unique(unit).item()
-
-        dims = [
-            tuple(range(1, response.ndim))
-            for response in self.responses
-        ]
-
-        values = [
-            numpy.expand_dims(interf, axis=dim).value
-            for interf, dim in zip(interfs, dims)
-        ]
-
-        value = sum([
-            resp[..., numpy.newaxis] * value
-            for pairs, resp, value in zip(self.__pairs,
-                                          self.responses,
-                                          values)
-        ], numpy.zeros(()))
-
-        return numpy.squeeze(value)
+        sflux = density_flux(spectral_index, nu)
+        return self.response * sflux
 
     def __time_delay(self, spectral_index, channels=False):
 
@@ -639,7 +619,7 @@ class Interferometry():
 
         dims = [
             tuple(range(1, response.ndim))
-            for response in self.responses
+            for response in self.response
         ]
 
         values = [
@@ -649,7 +629,7 @@ class Interferometry():
 
         value = sum([
             resp[..., numpy.newaxis] * value
-            for resp, value in zip(self.responses, values)
+            for resp, value in zip(self.response, values)
         ], numpy.zeros(()))
 
         response = value * unit

@@ -375,21 +375,34 @@ class Cosmology(pyccl.Cosmology):
 
         Parameters
         ----------
-        z :
-
+        z : array_like
+            Redshift values.
 
         Returns
         -------
+        sfr : array_like
+              Star formation rate values.
 
         """
         num = 0.017 + 0.13 * z
         dem = 1 + (z / 3.3)**5.3
+        unit = units.Msun / units.yr / units.Mpc**3
+        sfr = (num / dem) * unit
 
-        return (num / dem) * units.Msun / units.yr / units.Mpc**3
+        return sfr
+
+    @cached_property
+    def sfr0(self):
+        """
+        Present star formation rate
+        """
+        return self.star_formation_rate(0)
 
     @cached_property
     def critical_density0(self):
-        """ """
+        """
+        present critical density
+        """
         rho_c0 = 3 * self.H0**2 / (8 * numpy.pi * constants.G)
         return rho_c0.to(units.g / units.cm**3)
 
