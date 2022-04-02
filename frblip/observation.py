@@ -7,7 +7,7 @@ from itertools import combinations
 from astropy.time import Time
 from astropy import coordinates, units
 
-from .utils import sub_dict, paired_shapes
+from .utils import sub_dict, paired_shapes, squeeze_but_one
 
 
 def disperse(nu, DM):
@@ -200,7 +200,7 @@ class Observation():
         if not channels:
             inoise = (1 / output**2).sum(-1)
             output = 1 / numpy.sqrt(inoise)
-        return numpy.squeeze(output)
+        return output.squeeze()
 
     def pattern(self, spectral_index=None, channels=False):
         """
@@ -234,26 +234,6 @@ class Observation():
             return self.frequency_bands
         return self.frequency_bands[[0, -1]]
 
-    def get_resp(self, spectral_index, channels=False):
-        """
-
-        Parameters
-        ----------
-        spectral_index :
-
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-        nu = self.get_frequency(channels)
-        S = specific_flux(spectral_index, nu)
-        pattern = self.pattern()
-        response = pattern[..., numpy.newaxis] * S[:, numpy.newaxis]
-        return numpy.squeeze(response)
-
     def get_response(self, spectral_index, channels=False):
         """
 
@@ -272,7 +252,7 @@ class Observation():
         S = density_flux(spectral_index, nu)
         pattern = self.pattern()
         response = pattern[..., numpy.newaxis] * S[:, numpy.newaxis]
-        return numpy.squeeze(response)
+        return squeeze_but_one(response)
 
     def time_difference(self):
         """ """
@@ -433,7 +413,7 @@ def cross_response(obsi, obsj):
 
     respi = obsi.response[..., numpy.newaxis]
     respj = obsj.response[:, numpy.newaxis]
-    return numpy.sqrt(respi * respj) / 2
+    return numpy.sqrt(respi * respj / 2)
 
 
 def cross_noise(obsi, obsj):
@@ -484,7 +464,7 @@ class Interferometry():
         shapes = shapes[:n_scopes]
 
         self.response = [
-            observation.response.reshape((-1, *shape))
+            observation.response.reshape((-1, *shape)) / numpy.sqrt(2)
             for shape, observation in zip(shapes, observations)
             if hasattr(observation, 'time_array')
         ]
@@ -495,7 +475,7 @@ class Interferometry():
         ]
 
         self.noises = [
-            observation.noise.reshape((*shape, -1))
+            observation.noise.reshape((*shape, -1)) / numpy.sqrt(2)
             for shape, observation in zip(shapes, observations)
             if hasattr(observation, 'time_array')
         ]
@@ -529,7 +509,9 @@ class Interferometry():
             self.response = sum([
                 pair * response
                 for pair, response in zip(self.__pairs, self.response)
-            ], numpy.zeros(())).squeeze()
+            ], numpy.zeros(()))
+
+            self.response = squeeze_but_one(self.response)
 
     def get_noise(self, channels=False):
         """
@@ -555,7 +537,7 @@ class Interferometry():
         else:
             output = 1 / numpy.sqrt(output.sum(-1))
 
-        return numpy.squeeze(output)
+        return output.squeeze()
 
     def get_frequency(self, channels=False):
         """
@@ -633,4 +615,4 @@ class Interferometry():
         ], numpy.zeros(()))
 
         response = value * unit
-        return numpy.squeeze(response)
+        return squeeze_but_one(response)

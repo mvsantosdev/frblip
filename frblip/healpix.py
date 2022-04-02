@@ -256,7 +256,6 @@ class HealPixMap(HEALPix):
         if total:
             axes = range(1, sensitivity.ndim - int(channels))
             sensitivity = numpy.apply_over_axes(numpy.min, sensitivity, axes)
-            sensitivity = numpy.squeeze(sensitivity)
 
         return numpy.ma.masked_invalid(sensitivity)
 
@@ -280,78 +279,70 @@ class HealPixMap(HEALPix):
 
         norm = self.phistar / self.__lumdist.pdf_norm
         lum_integral = norm * self.__lumdist.sf(xthre).clip(0.0, 1.0)
-        covol = self.__cosmology.differential_comoving_volume(zgrid)
-        dv = covol / (1 + zgrid)
+        dz = self.__zdist.angular_density(zgrid)
 
-        integrand = (dv[:, numpy.newaxis] * lum_integral)
+        integrand = (dz[:, numpy.newaxis] * lum_integral)
         zintegral = numpy.trapz(x=zgrid, y=integrand, axis=0)
         zintegral = zintegral * self.pixel_area
 
-        return sgrid, zintegral.to(rate_unit)
+        xp, fp = sgrid, zintegral.to(rate_unit)
 
-    def __rate(self, name, channels=False, SNR=None,
-               spectral_index=0.0, total=False):
+        def specific_rate(x):
+            y = numpy.interp(x=x, xp=xp, fp=fp.value)
+            return y * fp.unit
+
+        return specific_rate
+
+    @numpy.errstate(over='ignore')
+    def __si_rate_map(self, name=None, channels=False, sensitivity=None,
+                      SNR=None, time='day', spectral_index=0.0, total=False):
+
+        time_unit = units.Unit(time)
+        rate_unit = 1 / time_unit
+
+        SNR = numpy.arange(1, 11) if SNR is None else SNR
+
+        if not isinstance(sensitivity, numpy.ndarray):
+            sensitivity = self.__sensitivity(name, channels, spectral_index,
+                                             total)
+
+        sensitivity = sensitivity[..., numpy.newaxis] * SNR
+        sensitivity = numpy.ma.masked_invalid(sensitivity)
+
+        smin = sensitivity.min().data
+        smax = sensitivity.max().data
+
+        specific_rate = self._HealPixMap__specific_rate(smin, smax, rate_unit)
+
+        return specific_rate(sensitivity)
+
+    def __rate_map(self, name=None, channels=False, sensitivity=None,
+                   SNR=None, spectral_index=0.0, total=False, time='day'):
 
         sis = numpy.atleast_1d(spectral_index)
 
         rates = numpy.stack([
-            self.__si_rate(name, channels=channels, SNR=SNR,
-                           spectral_index=si, total=total)
+            self.__si_rate_map(name, channels=channels, SNR=SNR,
+                               sensitivity=sensitivity, total=total,
+                               spectral_index=si, time=time)
             for si in sis
         ], axis=0)
 
         return numpy.squeeze(rates)
 
-    @numpy.errstate(over='ignore')
-    def __si_rate(self, name, channels=False, SNR=None, time='day',
-                  spectral_index=0.0, total=False):
+    def __rate(self, name=None, channels=False, sensitivity=None,
+               SNR=None, spectral_index=0.0, total=False, time='day'):
 
-        SNR = numpy.arange(1, 11) if SNR is None else SNR
-        sensitivity = self.__sensitivity(name, channels, spectral_index, total)
+        sis = numpy.atleast_1d(spectral_index)
 
-        time_unit = units.Unit(time)
-        rate_unit = 1 / time_unit
+        rates = numpy.stack([
+            self.__si_rate_map(name, channels=channels, SNR=SNR,
+                               sensitivity=sensitivity, total=total,
+                               spectral_index=si, time=time).sum(0)
+            for si in sis
+        ], axis=0)
 
-        if sensitivity.ndim > 1:
-            shape = sensitivity.shape
-            final_shape = shape[1:]
-            n_beam = numpy.prod(final_shape)
-            sensitivity = sensitivity.reshape((-1, n_beam))
-            rates = numpy.zeros((n_beam, SNR.size)) * rate_unit
-        elif sensitivity.ndim == 1:
-            rates = numpy.zeros(SNR.size) * rate_unit
-            final_shape = None
-            n_beam = None
-
-        if sensitivity.mask.mean() == 1.0:
-            return rates
-
-        snr_max = SNR.max()
-
-        smin = sensitivity.min()
-        smax = numpy.ma.masked_invalid(snr_max * sensitivity).max()
-
-        xp, fp = self.__specific_rate(smin.data, smax.data, rate_unit)
-
-        for i, snr in enumerate(SNR):
-
-            sens = snr * sensitivity
-
-            if n_beam is None:
-                s = sens.compressed()
-                rate_map = numpy.interp(x=s, xp=xp, fp=fp)
-                rates[i] = rate_map.sum()
-            else:
-                pixels, beams = sens.nonzero()
-                for b in numpy.unique(beams):
-                    idx = pixels[beams == b]
-                    s = sens[idx, b].compressed()
-                    rate_map = numpy.interp(x=s, xp=xp, fp=fp)
-                    rates[b, i] = rate_map.sum()
-
-        if final_shape is not None:
-            rates = rates.reshape((*final_shape, -1))
-        return rates
+        return numpy.squeeze(rates)
 
     def __response_to_noise(self, name, channels=False, spectral_index=0.0):
 
@@ -374,8 +365,9 @@ class HealPixMap(HEALPix):
             for name in names
         }
 
-    def rate(self, names=None, channels=False, SNR=None,
-             spectral_index=0.0, total=False):
+    def rate(self, names=None, sensitivity=None, channels=False,
+             SNR=None, spectral_index=0.0, total=False, time='day'):
+
         """
 
         Parameters
@@ -396,8 +388,48 @@ class HealPixMap(HEALPix):
 
         """
 
+        if isinstance(sensitivity, numpy.ma.MaskedArray):
+            rate = self.__rate(None, channels=channels, SNR=SNR,
+                               sensitivity=sensitivity, total=total,
+                               spectral_index=spectral_index, time=time)
+            return rate
+
         return self.__get('_HealPixMap__rate', names, channels, SNR=SNR,
-                          spectral_index=spectral_index, total=total)
+                          sensitivity=sensitivity, total=total,
+                          spectral_index=spectral_index, time=time)
+
+    def rate_map(self, names=None, sensitivity=None, channels=False,
+                 SNR=None, spectral_index=0.0, total=False, time='day'):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+        SNR :
+             (Default value = None)
+        spectral_index :
+             (Default value = 0.0)
+        total :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
+
+        if isinstance(sensitivity, numpy.ma.MaskedArray):
+            rate_map = self.__rate_map(None, channels=channels, SNR=SNR,
+                                       sensitivity=sensitivity, total=total,
+                                       spectral_index=spectral_index,
+                                       time=time)
+            return rate_map
+
+        return self.__get('_HealPixMap__rate_map', names, channels, SNR=SNR,
+                          sensitivity=sensitivity, total=total,
+                          spectral_index=spectral_index, time=time)
 
     def pattern(self, names=None, channels=False, spectral_index=0.0):
         """

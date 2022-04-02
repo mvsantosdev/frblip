@@ -11,6 +11,14 @@ _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
 
 
+def squeeze_but_one(array):
+
+    out_array = numpy.squeeze(array)
+    if out_array.ndim > 1:
+        return out_array
+    return out_array[..., numpy.newaxis]
+
+
 def paired_shapes(shape):
     """
 

@@ -33,7 +33,7 @@ class Redshift(rv_continuous):
         """ """
         return self.zmin, self.zmax
 
-    def density(self, z):
+    def angular_density(self, z):
         """
 
         Parameters
@@ -46,8 +46,22 @@ class Redshift(rv_continuous):
 
         """
         diff_co_vol = self.cosmology.differential_comoving_volume(z)
-        density = units.spat * diff_co_vol
-        return density / (1 + z)
+        return diff_co_vol / (1 + z)
+
+    def density(self, z):
+        """
+
+        Parameters
+        ----------
+        z :
+
+
+        Returns
+        -------
+
+        """
+        angular_density = self.angular_density(z)
+        return units.spat * angular_density
 
     def _pdf(self, z):
         """
