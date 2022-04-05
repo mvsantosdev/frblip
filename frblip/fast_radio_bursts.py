@@ -31,7 +31,7 @@ class FastRadioBursts(object):
     """Class which defines a Fast Radio Burst population"""
 
     def __init__(self, n_frb=None, days=1, log_Lstar=44.46, log_L0=41.96,
-                 phistar=339, gamma=-1.79, wint=(.13, .33), si=(-15, 15),
+                 phistar=339, gamma=-1.79, wint=(.13, .33), si=(-5, 5),
                  zmin=0, zmax=6, ra=(0, 24), dec=(-90, 90), start=None,
                  lower_frequency=400, higher_frequency=1400,
                  gal_method='yt2020_analytic', gal_nside=128,
@@ -267,7 +267,9 @@ class FastRadioBursts(object):
     @cached_property
     def spectral_index(self):
         """ """
-        return random.uniform(self.si_min, self.si_max, self.n_frb)
+        if hasattr(self, 'si_min') and hasattr(self, 'si_max'):
+            return random.uniform(self.si_min, self.si_max, self.n_frb)
+        return numpy.full(self.n_frb, self.si)
 
     @cached_property
     def icrs(self):
@@ -459,7 +461,10 @@ class FastRadioBursts(object):
         self.phistar = phistar / (units.Gpc**3 * units.year)
         self.gamma = gamma
         self.w_mean, self.w_std = wint
-        self.si_min, self.si_max = si
+        if isinstance(si, (int, float)):
+            self.si = si
+        else:
+            self.si_min, self.si_max = si
         self.ra_range = numpy.array(ra) * units.hourangle
         self.dec_range = numpy.array(dec) * units.degree
         self.lower_frequency = lower_frequency * units.MHz
@@ -621,27 +626,14 @@ class FastRadioBursts(object):
 
     def __counts(self, name, channels=False, SNR=None, total=False):
 
-        S = numpy.arange(1, 11).reshape(-1, 1) if SNR is None else SNR
+        S = numpy.arange(1, 11) if SNR is None else SNR
         snr = self.__signal_to_noise(name, channels)
         snr = numpy.nan_to_num(snr, nan=0.0, posinf=0.0)
 
         if total:
-            axes = range(1, snr.ndim)
-            snr = numpy.apply_over_axes(numpy.max, snr, axes).ravel()
+            snr = snr.reshape((self.n_frb, -1)).max(-1)
 
-        if snr.ndim == 1:
-            return (snr > S).sum(-1)
-
-        shape = snr.shape[1:]
-        n_beams = numpy.prod(shape)
-        snr = snr.reshape((-1, n_beams))
-
-        counts = numpy.stack([
-            (col > S).sum(-1)
-            for col in snr.T
-        ])
-
-        return counts.reshape(*shape, -1)
+        return (snr[..., numpy.newaxis] > S).sum(0)
 
     def __get(self, func_name=None, names=None, channels=False, **kwargs):
 
@@ -862,6 +854,13 @@ class FastRadioBursts(object):
                 observation = observations[name].to_dict(flag)
                 out_dict.update(observation)
 
+        out_dict['unit'] = {
+            key: value.unit.to_string()
+            for key, value in out_dict.items()
+            if hasattr(value, 'unit')
+            and value.unit != ''
+        }
+
         out_dict.update({
             'u_{}'.format(key): value.unit.to_string()
             for key, value in out_dict.items()
@@ -869,13 +868,11 @@ class FastRadioBursts(object):
             and value.unit != ''
         })
 
-        out_dict.update({
+        """out_dict.update({
             key: value.value
             for key, value in out_dict.items()
             if hasattr(value, 'unit')
-        })
-
-        keys = [*out_dict.keys()]
+        })"""
 
         return out_dict
 
