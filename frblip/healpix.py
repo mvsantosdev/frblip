@@ -21,7 +21,7 @@ class HealPixMap(HEALPix):
     def __init__(self, nside=None, order='ring', phistar=339,
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
                  lower_frequency=400, higher_frequency=1400,
-                 cosmology='Planck_18', zmin=0.0, zmax=6.0):
+                 cosmology='Planck_18', zmin=0.0, zmax=30.0):
 
         super().__init__(nside, order)
 
@@ -260,14 +260,12 @@ class HealPixMap(HEALPix):
         return numpy.ma.masked_invalid(sensitivity)
 
     @numpy.errstate(divide='ignore', over='ignore')
-    def __specific_rate(self, smin, smax, rate_unit):
+    def __specific_rate(self, smin, smax, zmin, zmax, rate_unit):
 
         log_min = units.LogQuantity(smin)
         log_max = units.LogQuantity(smax)
         sgrid = numpy.logspace(log_min, log_max, 1000)
 
-        zmin = self.__zdist.zmin
-        zmax = self.__zdist.zmax
         zgrid = numpy.linspace(zmin, zmax, 200)
 
         lum_dist = self.__cosmology.luminosity_distance(zgrid)
@@ -303,7 +301,8 @@ class HealPixMap(HEALPix):
         SNR = numpy.arange(1, 11) if SNR is None else SNR
 
         if not isinstance(sensitivity, numpy.ndarray):
-            sensitivity = self.__sensitivity(name, channels, spectral_index,
+            sensitivity = self.__sensitivity(name, channels,
+                                             spectral_index,
                                              total)
 
         sensitivity = sensitivity[..., numpy.newaxis] * SNR
@@ -312,7 +311,13 @@ class HealPixMap(HEALPix):
         smin = sensitivity.min().data
         smax = sensitivity.max().data
 
-        specific_rate = self._HealPixMap__specific_rate(smin, smax, rate_unit)
+        frequency_bands = self[name].frequency_bands
+        zmax = self.higher_frequency / frequency_bands[0] - 1
+        zmin = (self.lower_frequency / frequency_bands[-1] - 1).clip(0)
+
+        specific_rate = self.__specific_rate(smin, smax,
+                                             zmin, zmax,
+                                             rate_unit)
 
         return specific_rate(sensitivity)
 

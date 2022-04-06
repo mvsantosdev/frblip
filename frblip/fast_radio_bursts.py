@@ -496,18 +496,45 @@ class FastRadioBursts(object):
     def __observe(self, telescope, location=None, start=None,
                   name=None, altaz=None):
 
+        print('Performing observation for telescope {}...'.format(name))
+
         if 'observations' not in self.__dict__:
             self.observations = {}
 
         noise = telescope.noise()
 
         location = telescope.location if location is None else location
+        lon, lat, height = location.lon, location.lat, location.height
+
+        print(
+            'Computing positions for {} FRB'.format(self.n_frb),
+            'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
+            'height={:.3f}.'.format(height), end='\n\n'
+        )
 
         frequency_bands = telescope.frequency_bands
         sampling_time = telescope.sampling_time
 
+        zmax = self.higher_frequency / frequency_bands[0] - 1
+        zmin = (self.lower_frequency / frequency_bands[-1] - 1).clip(0)
+
         altaz = self.altaz(location) if altaz is None else altaz
-        response = telescope.response(altaz)
+        in_range = (self.redshift > zmin) & (self.redshift < zmax)
+        visible = (altaz.alt > 0)
+        obs = in_range & visible
+
+        vis_frac = 100 * visible.mean()
+        range_frac = 100 * in_range.mean()
+        obs_frac = 100 * obs.mean()
+
+        print('>>> {:.3}% are visible.'.format(vis_frac))
+        print('>>> {:.3}% are in frequency range.'.format(range_frac))
+        print('>>> {:.3}% are observable.'.format(obs_frac))
+
+        resp = telescope.response(altaz[obs])
+        response = numpy.zeros((self.n_frb, *resp.shape[1:]))
+        response[obs] = resp
+
         array = telescope.array
 
         if array is not None:
@@ -527,7 +554,7 @@ class FastRadioBursts(object):
         self.observations[obs_name] = observation
 
     def observe(self, telescopes, location=None, start=None,
-                name=None, altaz=None):
+                name=None, altaz=None, verbose=True):
         """
 
         Parameters
@@ -548,11 +575,16 @@ class FastRadioBursts(object):
 
         """
 
+        old_target = sys.stdout
+        sys.stdout = old_target if verbose else open(os.devnull, 'w')
+
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
                 self.__observe(telescope, location, start, name, altaz)
         else:
             self.__observe(telescopes, location, start, name, altaz)
+
+        sys.stdout = old_target
 
     def clear(self, names=None):
         """
