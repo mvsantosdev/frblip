@@ -529,7 +529,7 @@ class FastRadioBursts(object):
 
         print('>>> {:.3}% are visible.'.format(vis_frac))
         print('>>> {:.3}% are in frequency range.'.format(range_frac))
-        print('>>> {:.3}% are observable.'.format(obs_frac))
+        print('>>> {:.3}% are observable.'.format(obs_frac), end='\n\n')
 
         resp = telescope.response(altaz[obs])
         response = numpy.zeros((self.n_frb, *resp.shape[1:]))
@@ -649,23 +649,41 @@ class FastRadioBursts(object):
 
         return response / noise
 
-    def __signal_to_noise(self, name, channels=False):
+    def __signal_to_noise(self, name, channels=False, total=False, level=None):
 
         signal = self.__signal(name, channels)
         noise = self.__noise(name, channels)
 
-        return (signal / noise).value
-
-    def __counts(self, name, channels=False, SNR=None, total=False):
-
-        S = numpy.arange(1, 11) if SNR is None else SNR
-        snr = self.__signal_to_noise(name, channels)
-        snr = numpy.nan_to_num(snr, nan=0.0, posinf=0.0)
+        snr = (signal / noise).value
 
         if total:
-            snr = snr.reshape((self.n_frb, -1)).max(-1)
+            if level is None:
+                if channels:
+                    lvl = numpy.arange(1, snr.ndim - 1)
+                    snr = numpy.apply_over_axes(numpy.max, snr, lvl)
+                else:
+                    snr = snr.reshape((self.n_frb, -1))
+                    snr = snr.max(-1)
+            else:
+                lvl = 1 + numpy.atleast_1d(level)
+                snr = numpy.apply_over_axes(numpy.max, snr, lvl)
 
-        return (snr[..., numpy.newaxis] > S).sum(0)
+        return numpy.squeeze(snr)
+
+    def __detected(self, name, channels=False, SNR=None, total=False,
+                   level=None):
+
+        S = numpy.arange(1, 11) if SNR is None else SNR
+        snr = self.__signal_to_noise(name, channels, total, level)
+        snr = numpy.nan_to_num(snr, nan=0.0, posinf=0.0)
+
+        return snr[..., numpy.newaxis] > S
+
+    def __counts(self, name, channels=False, SNR=None, total=False,
+                 level=None):
+
+        detected = self.__detected(name, channels, SNR, total, level)
+        return detected.sum(0)
 
     def __get(self, func_name=None, names=None, channels=False, **kwargs):
 
@@ -768,7 +786,8 @@ class FastRadioBursts(object):
         return self.__get('_FastRadioBursts__sensitivity',
                           names, channels)
 
-    def signal_to_noise(self, names=None, channels=False):
+    def signal_to_noise(self, names=None, channels=False, total=False,
+                        level=None):
         """
 
         Parameters
@@ -783,10 +802,30 @@ class FastRadioBursts(object):
 
         """
 
-        return self.__get('_FastRadioBursts__signal_to_noise',
-                          names, channels)
+        return self.__get('_FastRadioBursts__signal_to_noise', names,
+                          channels, total=total, level=level)
 
-    def counts(self, names=None, channels=False, total=False):
+    def detected(self, names=None, channels=False, total=False, level=None):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+        total :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
+
+        return self.__get('_FastRadioBursts__detected', names,
+                          channels, total=total, level=level)
+
+    def counts(self, names=None, channels=False, total=False, level=None):
         """
 
         Parameters
@@ -804,9 +843,9 @@ class FastRadioBursts(object):
         """
 
         return self.__get('_FastRadioBursts__counts', names,
-                          channels, total=total)
+                          channels, total=total, level=level)
 
-    def interferometry(self, *names, time_delay=True):
+    def interferometry(self, *names, time_delay=False):
         """
 
         Parameters

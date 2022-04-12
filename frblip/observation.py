@@ -584,8 +584,13 @@ class Interferometry():
     def __no_time_delay(self, spectral_index, channels=False):
 
         nu = self.get_frequency(channels)
-        sflux = density_flux(spectral_index, nu)
-        return self.response * sflux
+        signal = density_flux(spectral_index, nu)
+
+        lvls = range(1, self.response.ndim)
+        signal = numpy.expand_dims(signal, axis=tuple(lvls))
+        signal = self.response[..., numpy.newaxis] * signal
+
+        return squeeze_but_one(signal)
 
     def __time_delay(self, spectral_index, channels=False):
 
