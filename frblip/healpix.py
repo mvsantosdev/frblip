@@ -20,25 +20,25 @@ class HealPixMap(HEALPix):
 
     def __init__(self, nside=None, order='ring', phistar=339,
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
-                 lower_frequency=400, higher_frequency=1400,
+                 low_frequency=10, high_frequency=10000,
                  cosmology='Planck_18', zmin=0.0, zmax=30.0):
 
         super().__init__(nside, order)
 
         self.__load_params(phistar, alpha, log_Lstar, log_L0,
-                           lower_frequency, higher_frequency,
+                           low_frequency, high_frequency,
                            cosmology, zmin, zmax)
 
     def __load_params(self, phistar, alpha, log_Lstar, log_L0,
-                      lower_frequency, higher_frequency,
+                      low_frequency, high_frequency,
                       cosmology, zmin, zmax):
 
         self.log_L0 = log_L0 * units.LogUnit(units.erg / units.s)
         self.log_Lstar = log_Lstar * units.LogUnit(units.erg / units.s)
         self.phistar = phistar / (units.Gpc**3 * units.year)
         self.alpha = alpha
-        self.lower_frequency = lower_frequency * units.MHz
-        self.higher_frequency = higher_frequency * units.MHz
+        self.low_frequency = low_frequency * units.MHz
+        self.high_frequency = high_frequency * units.MHz
         self.cosmology = cosmology
         self.zmin = zmin
         self.zmax = zmax
@@ -232,8 +232,8 @@ class HealPixMap(HEALPix):
         response = self.__response(name, channels, spectral_index)
         sip = 1 + spectral_index
 
-        nu_low = self.lower_frequency / units.MHz
-        nu_high = self.higher_frequency / units.MHz
+        nu_low = self.low_frequency / units.MHz
+        nu_high = self.high_frequency / units.MHz
 
         si_factor = nu_high**sip - nu_low**sip
         signal = response / si_factor
@@ -260,7 +260,8 @@ class HealPixMap(HEALPix):
         return numpy.ma.masked_invalid(sensitivity)
 
     @numpy.errstate(divide='ignore', over='ignore')
-    def __specific_rate(self, smin, smax, zmin, zmax, rate_unit):
+    def __specific_rate(self, smin, smax, zmin, zmax, rate_unit,
+                        spectral_index):
 
         log_min = units.LogQuantity(smin)
         log_max = units.LogQuantity(smax)
@@ -270,6 +271,7 @@ class HealPixMap(HEALPix):
 
         lum_dist = self.__cosmology.luminosity_distance(zgrid)
         Lthre = 4 * numpy.pi * lum_dist[:, numpy.newaxis]**2 * sgrid
+        Lthre = Lthre / (1 + zgrid[:, numpy.newaxis])**(1 + spectral_index)
 
         xthre = Lthre.to(self.log_Lstar.unit) - self.log_Lstar
         xthre = xthre.to(1).value.clip(self.__lumdist.xmin,
@@ -312,12 +314,11 @@ class HealPixMap(HEALPix):
         smax = sensitivity.max().data
 
         frequency_bands = self[name].frequency_bands
-        zmax = self.higher_frequency / frequency_bands[0] - 1
-        zmin = (self.lower_frequency / frequency_bands[-1] - 1).clip(0)
+        zmax = self.high_frequency / frequency_bands[0] - 1
+        zmin = (self.low_frequency / frequency_bands[-1] - 1).clip(0)
 
-        specific_rate = self.__specific_rate(smin, smax,
-                                             zmin, zmax,
-                                             rate_unit)
+        specific_rate = self.__specific_rate(smin, smax, zmin, zmax,
+                                             rate_unit, spectral_index)
 
         return specific_rate(sensitivity)
 

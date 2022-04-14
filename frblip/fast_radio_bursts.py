@@ -33,7 +33,7 @@ class FastRadioBursts(object):
     def __init__(self, n_frb=None, days=1, log_Lstar=44.46, log_L0=41.96,
                  phistar=339, gamma=-1.79, wint=(.13, .33), si=(-5, 5),
                  zmin=0, zmax=6, ra=(0, 24), dec=(-90, 90), start=None,
-                 lower_frequency=400, higher_frequency=1400,
+                 low_frequency=10.0, high_frequency=10000.0,
                  gal_method='yt2020_analytic', gal_nside=128,
                  host_source='luo18', host_model=('ALG', 'YMW16'),
                  cosmology='Planck_18', verbose=True):
@@ -69,9 +69,9 @@ class FastRadioBursts(object):
             Degree
         start : datetime
             start time
-        lower_frequency : float
+        low_frequency : float
             MHz
-        higher_frequency : float
+        high_frequency : float
             MHz
         gal_method : str
             DM_gal model, default: 'yt2020_analytic'
@@ -92,7 +92,7 @@ class FastRadioBursts(object):
 
         self.__load_params(n_frb, days, log_Lstar, log_L0, phistar,
                            gamma, wint, si, ra, dec, zmin, zmax, cosmology,
-                           lower_frequency, higher_frequency, start,
+                           low_frequency, high_frequency, start,
                            gal_nside, gal_method, host_source, host_model)
         self.__frb_rate(n_frb, days)
         self.__random()
@@ -307,9 +307,10 @@ class FastRadioBursts(object):
     @cached_property
     def __S0(self):
         _sip1 = self.spectral_index + 1
-        nu_lp = (self.lower_frequency / units.MHz)**_sip1
-        nu_hp = (self.higher_frequency / units.MHz)**_sip1
-        return self.__flux / (nu_hp - nu_lp)
+        z_factor = (1 + self.redshift)**_sip1
+        nu_lp = (self.low_frequency / units.MHz)**_sip1
+        nu_hp = (self.high_frequency / units.MHz)**_sip1
+        return self.__flux * z_factor / (nu_hp - nu_lp)
 
     @cached_property
     def itrs(self):
@@ -451,7 +452,7 @@ class FastRadioBursts(object):
 
     def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
                       gamma, wint, si, ra, dec, zmin, zmax, cosmology,
-                      lower_frequency, higher_frequency, start,
+                      low_frequency, high_frequency, start,
                       gal_nside, gal_method, host_source, host_model):
 
         self.zmin = zmin
@@ -467,8 +468,8 @@ class FastRadioBursts(object):
             self.si_min, self.si_max = si
         self.ra_range = numpy.array(ra) * units.hourangle
         self.dec_range = numpy.array(dec) * units.degree
-        self.lower_frequency = lower_frequency * units.MHz
-        self.higher_frequency = higher_frequency * units.MHz
+        self.low_frequency = low_frequency * units.MHz
+        self.high_frequency = high_frequency * units.MHz
         self.cosmology = cosmology
         self.host_source = host_source
         self.host_model = host_model
@@ -515,8 +516,8 @@ class FastRadioBursts(object):
         frequency_bands = telescope.frequency_bands
         sampling_time = telescope.sampling_time
 
-        zmax = self.higher_frequency / frequency_bands[0] - 1
-        zmin = (self.lower_frequency / frequency_bands[-1] - 1).clip(0)
+        zmin = (self.low_frequency / frequency_bands[-1] - 1).clip(0)
+        zmax = self.high_frequency / frequency_bands[0] - 1
 
         altaz = self.altaz(location) if altaz is None else altaz
         in_range = (self.redshift > zmin) & (self.redshift < zmax)
