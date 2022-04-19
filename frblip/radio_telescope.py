@@ -170,11 +170,11 @@ class RadioTelescope(object):
     def noise(self):
         """ """
 
-        band_widths = numpy.diff(self.frequency_bands)
-        scaled_time = band_widths * self.sampling_time
+        band_width = numpy.diff(self.frequency_range)
+        scaled_time = band_width * self.sampling_time
         noise_scale = numpy.sqrt(self.polarizations * scaled_time)
         minimum_temperature = self.system_temperature / noise_scale
-        noise = minimum_temperature / self.gain.reshape(-1, 1)
+        noise = minimum_temperature / self.gain
 
         return self.noise_performance * noise.to(units.Jy)
 

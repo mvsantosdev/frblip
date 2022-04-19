@@ -166,13 +166,15 @@ def load_file(file):
 
     """
 
-    output = numpy.load(file, allow_pickle=True)
-    output = dict(output)
+    npz = numpy.load(file, allow_pickle=True)
+    output = dict(npz)
 
     output.update({
             key: value.item()
             for key, value in output.items()
             if value.ndim == 0
         })
+
+    npz.close()
 
     return output

@@ -34,6 +34,7 @@ class FastRadioBursts(object):
                  phistar=339, gamma=-1.79, wint=(.13, .33), si=(-5, 5),
                  zmin=0, zmax=6, ra=(0, 24), dec=(-90, 90), start=None,
                  low_frequency=10.0, high_frequency=10000.0,
+                 low_frequency_cal=400.0, high_frequency_cal=1400.0,
                  gal_method='yt2020_analytic', gal_nside=128,
                  host_source='luo18', host_model=('ALG', 'YMW16'),
                  cosmology='Planck_18', verbose=True):
@@ -93,6 +94,7 @@ class FastRadioBursts(object):
         self.__load_params(n_frb, days, log_Lstar, log_L0, phistar,
                            gamma, wint, si, ra, dec, zmin, zmax, cosmology,
                            low_frequency, high_frequency, start,
+                           low_frequency_cal, high_frequency_cal,
                            gal_nside, gal_method, host_source, host_model)
         self.__frb_rate(n_frb, days)
         self.__random()
@@ -308,8 +310,8 @@ class FastRadioBursts(object):
     def __S0(self):
         _sip1 = self.spectral_index + 1
         z_factor = (1 + self.redshift)**_sip1
-        nu_lp = (self.low_frequency / units.MHz)**_sip1
-        nu_hp = (self.high_frequency / units.MHz)**_sip1
+        nu_lp = (self.low_frequency_cal / units.MHz)**_sip1
+        nu_hp = (self.high_frequency_cal / units.MHz)**_sip1
         return self.__flux * z_factor / (nu_hp - nu_lp)
 
     @cached_property
@@ -431,7 +433,7 @@ class FastRadioBursts(object):
                 '\nMake sure that the survey is also',
                 'restricted to this region.'
             )
-            sky_fraction = self.area / units.astrophys.sp
+            sky_fraction = self.area / units.spat
             self.rate = self.__sky_rate * sky_fraction.to(1)
         else:
             self.rate = self.__sky_rate
@@ -453,6 +455,7 @@ class FastRadioBursts(object):
     def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
                       gamma, wint, si, ra, dec, zmin, zmax, cosmology,
                       low_frequency, high_frequency, start,
+                      low_frequency_cal, high_frequency_cal,
                       gal_nside, gal_method, host_source, host_model):
 
         self.zmin = zmin
@@ -470,6 +473,8 @@ class FastRadioBursts(object):
         self.dec_range = numpy.array(dec) * units.degree
         self.low_frequency = low_frequency * units.MHz
         self.high_frequency = high_frequency * units.MHz
+        self.low_frequency_cal = low_frequency_cal * units.MHz
+        self.high_frequency_cal = high_frequency_cal * units.MHz
         self.cosmology = cosmology
         self.host_source = host_source
         self.host_model = host_model
@@ -513,16 +518,18 @@ class FastRadioBursts(object):
             'height={:.3f}.'.format(height), end='\n\n'
         )
 
-        frequency_bands = telescope.frequency_bands
+        channels = telescope.channels
+        frequency_range = telescope.frequency_range
         sampling_time = telescope.sampling_time
 
-        zmin = (self.low_frequency / frequency_bands[-1] - 1).clip(0)
-        zmax = self.high_frequency / frequency_bands[0] - 1
+        zmax = self.high_frequency / frequency_range[0] - 1
+        zmin = self.low_frequency / frequency_range[-1] - 1
+        zmin = zmin.clip(0)
 
         altaz = self.altaz(location) if altaz is None else altaz
         in_range = (self.redshift > zmin) & (self.redshift < zmax)
-        visible = (altaz.alt > 0)
-        obs = in_range & visible
+        visible = altaz.alt > 0
+        obs = visible & in_range
 
         vis_frac = 100 * visible.mean()
         range_frac = 100 * in_range.mean()
@@ -541,12 +548,13 @@ class FastRadioBursts(object):
         if array is not None:
             xyz = altaz.cartesian.xyz[:2]
             time_array = array @ xyz / constants.c
-            time_array = time_array.to(units.ms)
+            time_array = time_array.T.to(units.ms)
         else:
             time_array = None
 
-        observation = Observation(response, noise, frequency_bands,
-                                  sampling_time, altaz, time_array)
+        observation = Observation(response, noise, channels,
+                                  frequency_range, sampling_time,
+                                  altaz, time_array)
 
         n_obs = len(self.observations)
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
@@ -846,7 +854,7 @@ class FastRadioBursts(object):
         return self.__get('_FastRadioBursts__counts', names,
                           channels, total=total, level=level)
 
-    def interferometry(self, *names, time_delay=False):
+    def interferometry(self, namei, namej, time_delay=False):
         """
 
         Parameters
@@ -861,18 +869,17 @@ class FastRadioBursts(object):
 
         """
 
-        observations = [self[name] for name in names]
+        obsi = self[namei]
+        obsj = self[namej]
+
         n_scopes = numpy.sum([
-            obs.time_array.shape[0] if hasattr(obs, 'time_array') else 1
-            for obs in observations
+            obsi.time_array.shape[0] if hasattr(obsi, 'time_array') else 1,
+            obsj.time_array.shape[0] if hasattr(obsj, 'time_array') else 1
         ]).sum()
 
         if n_scopes > 1:
-
-            key = '_'.join(names)
-            key = 'INTF_{}'.format(key)
-            interferometry = Interferometry(*observations,
-                                            time_delay=time_delay)
+            key = 'INTF_{}_{}'.format(namei, namej)
+            interferometry = Interferometry(obsi, obsj, time_delay=time_delay)
             self.observations[key] = interferometry
         else:
             warnings.warn('Self interferometry will not be computed.')

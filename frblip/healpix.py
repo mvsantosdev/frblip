@@ -21,16 +21,19 @@ class HealPixMap(HEALPix):
     def __init__(self, nside=None, order='ring', phistar=339,
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
                  low_frequency=10, high_frequency=10000,
+                 low_frequency_cal=400, high_frequency_cal=1400,
                  cosmology='Planck_18', zmin=0.0, zmax=30.0):
 
         super().__init__(nside, order)
 
         self.__load_params(phistar, alpha, log_Lstar, log_L0,
                            low_frequency, high_frequency,
+                           low_frequency_cal, high_frequency_cal,
                            cosmology, zmin, zmax)
 
     def __load_params(self, phistar, alpha, log_Lstar, log_L0,
                       low_frequency, high_frequency,
+                      low_frequency_cal, high_frequency_cal,
                       cosmology, zmin, zmax):
 
         self.log_L0 = log_L0 * units.LogUnit(units.erg / units.s)
@@ -39,6 +42,8 @@ class HealPixMap(HEALPix):
         self.alpha = alpha
         self.low_frequency = low_frequency * units.MHz
         self.high_frequency = high_frequency * units.MHz
+        self.low_frequency_cal = low_frequency_cal * units.MHz
+        self.high_frequency_cal = high_frequency_cal * units.MHz
         self.cosmology = cosmology
         self.zmin = zmin
         self.zmax = zmax
@@ -169,7 +174,9 @@ class HealPixMap(HEALPix):
         response[mask] = telescope.response(altaz[mask])
 
         array = telescope.array
-        frequency_bands = telescope.frequency_bands
+        frequency_range = telescope.frequency_range
+        channels = telescope.channels
+
         sampling_time = telescope.sampling_time
 
         if array is not None:
@@ -179,8 +186,9 @@ class HealPixMap(HEALPix):
         else:
             time_array = None
 
-        observation = Observation(response, noise, frequency_bands,
-                                  sampling_time, altaz, time_array)
+        observation = Observation(response, noise, channels,
+                                  frequency_range, sampling_time,
+                                  altaz, time_array)
 
         observation.pix = numpy.flatnonzero(mask)
 
@@ -232,8 +240,8 @@ class HealPixMap(HEALPix):
         response = self.__response(name, channels, spectral_index)
         sip = 1 + spectral_index
 
-        nu_low = self.low_frequency / units.MHz
-        nu_high = self.high_frequency / units.MHz
+        nu_low = self.low_frequency_cal / units.MHz
+        nu_high = self.high_frequency_cal / units.MHz
 
         si_factor = nu_high**sip - nu_low**sip
         signal = response / si_factor
@@ -270,18 +278,23 @@ class HealPixMap(HEALPix):
         zgrid = numpy.linspace(zmin, zmax, 200)
 
         lum_dist = self.__cosmology.luminosity_distance(zgrid)
-        Lthre = 4 * numpy.pi * lum_dist[:, numpy.newaxis]**2 * sgrid
-        Lthre = Lthre / (1 + zgrid[:, numpy.newaxis])**(1 + spectral_index)
+        dz = self.__zdist.angular_density(zgrid)
+
+        dz = dz[:, numpy.newaxis]
+        zgrid = zgrid[:, numpy.newaxis]
+        lum_dist = lum_dist[:, numpy.newaxis]
+
+        Lthre = 4 * numpy.pi * lum_dist**2 * sgrid
+        Lthre = Lthre / (1 + zgrid)**(1 + spectral_index)
 
         xthre = Lthre.to(self.log_Lstar.unit) - self.log_Lstar
-        xthre = xthre.to(1).value.clip(self.__lumdist.xmin,
-                                       self.__lumdist.xmax)
+        xmin, xmax = self.__lumdist.xmin, self.__lumdist.xmax
+        xthre = xthre.to(1).value.clip(xmin, xmax)
 
         norm = self.phistar / self.__lumdist.pdf_norm
         lum_integral = norm * self.__lumdist.sf(xthre).clip(0.0, 1.0)
-        dz = self.__zdist.angular_density(zgrid)
 
-        integrand = (dz[:, numpy.newaxis] * lum_integral)
+        integrand = lum_integral * dz
         zintegral = numpy.trapz(x=zgrid, y=integrand, axis=0)
         zintegral = zintegral * self.pixel_area
 
@@ -313,9 +326,10 @@ class HealPixMap(HEALPix):
         smin = sensitivity.min().data
         smax = sensitivity.max().data
 
-        frequency_bands = self[name].frequency_bands
-        zmax = self.high_frequency / frequency_bands[0] - 1
-        zmin = (self.low_frequency / frequency_bands[-1] - 1).clip(0)
+        frequency_range = self[name].frequency_range
+        zmax = self.high_frequency / frequency_range[0] - 1
+        zmin = self.low_frequency / frequency_range[-1] - 1
+        zmin = zmin.clip(0)
 
         specific_rate = self.__specific_rate(smin, smax, zmin, zmax,
                                              rate_unit, spectral_index)
@@ -558,7 +572,7 @@ class HealPixMap(HEALPix):
         return self.__get('_HealPixMap__sensitivity', names, channels,
                           spectral_index=spectral_index, total=total)
 
-    def interferometry(self, *names, time_delay=True):
+    def interferometry(self, namei, namej, time_delay=False):
         """
 
         Parameters
@@ -573,18 +587,17 @@ class HealPixMap(HEALPix):
 
         """
 
-        observations = [self[name] for name in names]
+        obsi = self[namei]
+        obsj = self[namej]
+
         n_scopes = numpy.sum([
-            obs.time_array.shape[0] if hasattr(obs, 'time_array') else 1
-            for obs in observations
+            obsi.time_array.shape[0] if hasattr(obsi, 'time_array') else 1,
+            obsj.time_array.shape[0] if hasattr(obsj, 'time_array') else 1
         ]).sum()
 
         if n_scopes > 1:
-
-            key = '_'.join(names)
-            key = 'INTF_{}'.format(key)
-            interferometry = Interferometry(*observations,
-                                            time_delay=time_delay)
+            key = 'INTF_{}_{}'.format(namei, namej)
+            interferometry = Interferometry(obsi, obsj, time_delay=time_delay)
             self.observations[key] = interferometry
         else:
             warnings.warn('Self interferometry will not be computed.')
