@@ -1,8 +1,6 @@
 import os
 import sys
 
-import warnings
-
 import numpy
 
 from numpy import random
@@ -694,6 +692,30 @@ class FastRadioBursts(object):
         detected = self.__detected(name, channels, SNR, total, level)
         return detected.sum(0)
 
+    def __baselines_counts(self, name, channels=False, reference='MAIN'):
+
+        ref_detections = self.detected(reference, total=True)
+        beams = self[name].response.shape[-1]
+        base_lines = numpy.arange(beams)
+
+        key = 'INTF_{}_{}'.format(reference, name)
+        if key not in self.observations:
+            self.interferometry(reference, name)
+
+        detections = self.detected(key, total=True, level=0)
+        detections = (ref_detections[:, numpy.newaxis] * detections).sum(1)
+        count = (detections[..., numpy.newaxis] > base_lines).sum(0)
+
+        if beams > 1:
+            key = 'INTF_{}'.format(name)
+            if key not in self.observations:
+                self.interferometry(name)
+            detections = self.detected(key)
+            detections = (ref_detections[:, numpy.newaxis] * detections).sum(1)
+            count += (detections[..., numpy.newaxis] > base_lines).sum(0)
+
+        return count
+
     def __get(self, func_name=None, names=None, channels=False, **kwargs):
 
         func = self.__getattribute__(func_name)
@@ -845,6 +867,8 @@ class FastRadioBursts(object):
              (Default value = False)
         total :
              (Default value = False)
+        level :
+             (Default value = None)
 
         Returns
         -------
@@ -854,7 +878,28 @@ class FastRadioBursts(object):
         return self.__get('_FastRadioBursts__counts', names,
                           channels, total=total, level=level)
 
-    def interferometry(self, namei, namej, time_delay=False):
+    def baselines_counts(self, names=None, channels=False, reference='MAIN'):
+
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+        channels :
+             (Default value = False)
+        reference :
+             (Default value = 'MAIN')
+
+        Returns
+        -------
+
+        """
+
+        return self.__get('_FastRadioBursts__baselines_counts',
+                          names, channels, reference=reference)
+
+    def interferometry(self, namei, namej=None, time_delay=False):
         """
 
         Parameters
@@ -869,20 +914,13 @@ class FastRadioBursts(object):
 
         """
 
-        obsi = self[namei]
-        obsj = self[namej]
-
-        n_scopes = numpy.sum([
-            obsi.time_array.shape[0] if hasattr(obsi, 'time_array') else 1,
-            obsj.time_array.shape[0] if hasattr(obsj, 'time_array') else 1
-        ]).sum()
-
-        if n_scopes > 1:
-            key = 'INTF_{}_{}'.format(namei, namej)
-            interferometry = Interferometry(obsi, obsj, time_delay=time_delay)
-            self.observations[key] = interferometry
+        obsi, obsj = self[namei], self[namej]
+        if namej is None:
+            key = 'INTF_{}'.format(namei)
         else:
-            warnings.warn('Self interferometry will not be computed.')
+            key = 'INTF_{}_{}'.format(namei, namej)
+        interferometry = Interferometry(obsi, obsj, time_delay=time_delay)
+        self.observations[key] = interferometry
 
     def split_beams(self, name, key='BEAM'):
         """

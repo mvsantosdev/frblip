@@ -1,8 +1,8 @@
 import numpy
 
-from scipy.special import hyp1f1, erf
-
 from itertools import combinations
+
+from scipy.special import hyp1f1, erf
 
 from astropy.time import Time
 from astropy import coordinates, units
@@ -388,87 +388,82 @@ def time_difference(obsi, obsj):
     return squeeze_but_one(dt)
 
 
-def cross_response(obsi, obsj):
-    """
-
-    Parameters
-    ----------
-    obsi :
-
-    obsj :
-
-
-    Returns
-    -------
-
-    """
-
-    respi = obsi.response[..., numpy.newaxis]
-    respj = obsj.response[:, numpy.newaxis]
-    return numpy.sqrt(respi * respj / 2)
-
-
-def cross_noise(obsi, obsj, width):
-    """
-
-    Parameters
-    ----------
-    obsi :
-
-    obsj :
-
-
-    Returns
-    -------
-
-    """
-
-    wi = obsi.frequency_range.diff()
-    wj = obsj.frequency_range.diff()
-
-    noisei = obsi.noise[:, numpy.newaxis] * numpy.sqrt(wi / width)
-    noisej = obsj.noise[numpy.newaxis] * numpy.sqrt(wj / width)
-    return numpy.sqrt(noisei * noisej / 2).to(units.Jy)
-
-
 class Interferometry():
     """ """
 
-    def __init__(self, obsi, obsj, time_delay=False):
-
-        freqs = numpy.column_stack([
-            obsi.frequency_range,
-            obsj.frequency_range,
-        ])
-
-        nu_min = freqs[0].max()
-        nu_max = freqs[-1].min()
-        self.frequency_range = units.Quantity([nu_min, nu_max])
-        width = self.frequency_range.diff()
-
-        sampling_time = numpy.stack([
-            obsi.sampling_time,
-            obsj.sampling_time
-        ])
-        self.sampling_time = sampling_time.max()
-
-        self.response = cross_response(obsi, obsj)
-        self.response = squeeze_but_one(self.response)
-        self.time_delay = time_difference(obsi, obsj)
-
-        self.pairs = self.time_delay.shape[-1]
+    def __init__(self, obsi, obsj=None, time_delay=False):
 
         if time_delay:
             self.get_response = self.__time_delay
         else:
             self.get_response = self.__no_time_delay
-            self.response = self.pairs * self.response
 
-        self.noise = cross_noise(obsi, obsj, width)
-        self.noise = self.noise / numpy.sqrt(self.pairs)
-        self.noise = self.noise.squeeze()
+        if obsj is None:
 
-        self.channels = 1
+            response = obsi.response
+            beams = response.shape[-1]
+
+            if beams > 1:
+
+                noise = obsi.noise
+                self.frequency_range = obsi.frequency_range
+                self.channels = obsi.channels
+                self.sampling_time = obsi.sampling_time
+
+                response = numpy.column_stack([
+                    response[:, i] * response[:, j]
+                    for i, j in combinations(range(beams), 2)
+                ])
+                self.response = numpy.sqrt(response / 2)
+
+                if noise.size == 1:
+                    self.noise = noise / numpy.sqrt(2)
+                elif noise.size == beams:
+                    noise = numpy.column_stack([
+                        noise[:, i] * noise[:, j]
+                        for i, j in combinations(range(beams), 2)
+                    ])
+                    self.noise = numpy.sqrt(noise / 2)
+            else:
+                raise Exception('FRBlip does not compute self',
+                                'correlations of single beams.')
+        else:
+
+            respi = obsi.response[..., numpy.newaxis]
+            respj = obsj.response[:, numpy.newaxis]
+            self.response = numpy.sqrt(respi * respj / 2)
+            self.response = squeeze_but_one(self.response)
+
+            self.time_delay = time_difference(obsi, obsj)
+            self.pairs = self.time_delay.shape[-1]
+
+            if time_delay:
+                self.get_response = self.__time_delay
+            else:
+                self.get_response = self.__no_time_delay
+                self.response = self.pairs * self.response
+
+            freqi = obsi.frequency_range
+            freqj = obsj.frequency_range
+            nu_1, nu_2 = numpy.column_stack([freqi, freqj])
+            self.frequency_range = units.Quantity([nu_1.max(), nu_2.min()])
+
+            wi = freqi.diff()
+            wj = freqj.diff()
+            wij = self.frequency_range.diff()
+
+            noisei = obsi.noise[:, numpy.newaxis]
+            noisej = obsj.noise[numpy.newaxis]
+            noise = 0.5 * noisei * noisej * wi * wj
+            noise = numpy.sqrt(noise / self.pairs) / wij
+            self.noise = noise.to(units.Jy)
+
+            ti = obsi.sampling_time
+            tj = obsj.sampling_time
+            sampling_time = numpy.stack([ti, tj])
+            self.sampling_time = sampling_time.max()
+
+            self.channels = 1
 
     def get_noise(self, channels=False):
         """
