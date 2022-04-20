@@ -191,7 +191,7 @@ class Observation():
         if channels:
             channels = numpy.sqrt(self.channels)
             return self.noise[..., numpy.newaxis] * channels
-        return self.noise
+        return self.noise.squeeze()
 
     def pattern(self, spectral_index=None, channels=False):
         """
@@ -481,7 +481,7 @@ class Interferometry():
         if channels:
             channels = numpy.sqrt(self.channels)
             return self.noise[..., numpy.newaxis] * channels
-        return self.noise
+        return self.noise.squeeze()
 
     def get_frequency(self, channels=False):
         """

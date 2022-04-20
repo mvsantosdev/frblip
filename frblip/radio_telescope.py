@@ -174,8 +174,7 @@ class RadioTelescope(object):
         scaled_time = band_width * self.sampling_time
         noise_scale = numpy.sqrt(self.polarizations * scaled_time)
         minimum_temperature = self.system_temperature / noise_scale
-        noise = minimum_temperature / self.gain
-
+        noise = minimum_temperature / self.__gain
         return self.noise_performance * noise.to(units.Jy)
 
     def __no_offset_response(self, altaz):
@@ -246,7 +245,15 @@ class RadioTelescope(object):
         radius = numpy.arccos(arg).to(units.deg)
         self.radius = numpy.atleast_1d(radius)
 
-        self.n_beam = self.directivity.size
+        self.beams = self.directivity.size
+        if (self.beams == 1) and (self.az.size > 1):
+            sizes = self.az.size, self.alt.size
+            self.beams = numpy.unique(sizes)
+            assert self.beams.size == 1
+            self.beams = self.beams.item()
+
+        value = numpy.full(self.beams, self.gain.value)
+        self.__gain = value * self.gain.unit
 
         if self.kind in ('tophat', 'bessel', 'gaussian'):
             self.__response.set_radius(directivity)
