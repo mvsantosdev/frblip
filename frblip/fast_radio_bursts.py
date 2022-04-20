@@ -632,18 +632,20 @@ class FastRadioBursts(object):
 
         observation = self[name]
         response = observation.get_response(self.spectral_index, channels)
-        return response
+        return response.squeeze()
 
     def __signal(self, name, channels=False):
 
         response = self.__response(name, channels)
         signal = response.T * self.__S0
-        return numpy.abs(signal).T
+        signal = numpy.abs(signal).T
+        return signal.squeeze()
 
     def __noise(self, name, channels=False):
 
         observation = self[name]
-        return observation.get_noise(channels)
+        noise = observation.get_noise(channels)
+        return noise.squeeze()
 
     def __sensitivity(self, name, channels=False):
 

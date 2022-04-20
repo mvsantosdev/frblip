@@ -189,8 +189,9 @@ class Observation():
         """
 
         if channels:
-            channels = numpy.sqrt(self.channels)
-            return self.noise[..., numpy.newaxis] * channels
+            value = numpy.sqrt(self.channels)
+            value = numpy.full(self.channels, value)
+            return self.noise[..., numpy.newaxis] * value
         return self.noise.squeeze()
 
     def pattern(self, spectral_index=None, channels=False):
@@ -242,8 +243,7 @@ class Observation():
         nu = self.get_frequency(channels)
         S = density_flux(spectral_index, nu)
         pattern = self.pattern()
-        response = pattern[..., numpy.newaxis] * S[:, numpy.newaxis]
-        return squeeze_but_one(response)
+        return pattern[..., numpy.newaxis] * S[:, numpy.newaxis]
 
     def time_difference(self):
         """ """
@@ -479,8 +479,9 @@ class Interferometry():
         """
 
         if channels:
-            channels = numpy.sqrt(self.channels)
-            return self.noise[..., numpy.newaxis] * channels
+            value = numpy.sqrt(self.channels)
+            value = numpy.full(self.channels, value)
+            return self.noise[..., numpy.newaxis] * value
         return self.noise.squeeze()
 
     def get_frequency(self, channels=False):
@@ -533,9 +534,7 @@ class Interferometry():
 
         lvls = range(1, self.response.ndim)
         signal = numpy.expand_dims(signal, axis=tuple(lvls))
-        signal = self.response[..., numpy.newaxis] * signal
-
-        return squeeze_but_one(signal)
+        return self.response[..., numpy.newaxis] * signal
 
     def __time_delay(self, spectral_index, channels=False):
 
@@ -543,6 +542,4 @@ class Interferometry():
 
         interf = interferometry_density_flux(spectral_index, nu,
                                              self.time_delay)
-        signal = self.response * interf
-
-        return squeeze_but_one(signal)
+        return self.response * interf
