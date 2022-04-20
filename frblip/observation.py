@@ -416,14 +416,12 @@ class Interferometry():
                 ])
                 self.response = numpy.sqrt(response / 2)
 
-                if noise.size == 1:
-                    self.noise = noise / numpy.sqrt(2)
-                elif noise.size == beams:
-                    noise = numpy.column_stack([
-                        noise[:, i] * noise[:, j]
-                        for i, j in combinations(range(beams), 2)
-                    ])
-                    self.noise = numpy.sqrt(noise / 2)
+                noise = numpy.column_stack([
+                    noise[i] * noise[j]
+                    for i, j in combinations(range(beams), 2)
+                ])
+                self.noise = numpy.sqrt(noise / 2)
+
             else:
                 raise Exception('FRBlip does not compute self',
                                 'correlations of single beams.')
