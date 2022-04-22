@@ -1,5 +1,6 @@
 numpy
 pandas
+xarray
 scipy
 astropy
 astropy-healpix

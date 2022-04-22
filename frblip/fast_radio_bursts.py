@@ -2,6 +2,7 @@ import os
 import sys
 
 import numpy
+import xarray
 
 from numpy import random
 
@@ -35,11 +36,11 @@ class FastRadioBursts(object):
                  low_frequency_cal=400.0, high_frequency_cal=1400.0,
                  gal_method='yt2020_analytic', gal_nside=128,
                  host_source='luo18', host_model=('ALG', 'YMW16'),
-                 cosmology='Planck_18', verbose=True):
+                 cosmology='Planck_18', free_electron_bias='Takahashi2021',
+                 verbose=True):
 
         """
         Creates a FRB population object.
-
         Parameters
         ----------
         n_frb : int
@@ -78,12 +79,13 @@ class FastRadioBursts(object):
             DM_gal nside
         cosmology : cosmology model
             default: 'Planck_18'
+        free_electron_bias: str
+            free electron bias model
+            default: 'Takahashi2021'
         verbose : bool
-
         Returns
         -------
         out: FastRadioBursts object.
-
         """
 
         old_target = sys.stdout
@@ -93,7 +95,8 @@ class FastRadioBursts(object):
                            gamma, wint, si, ra, dec, zmin, zmax, cosmology,
                            low_frequency, high_frequency, start,
                            low_frequency_cal, high_frequency_cal,
-                           gal_nside, gal_method, host_source, host_model)
+                           gal_nside, gal_method, host_source, host_model,
+                           free_electron_bias)
         self.__frb_rate(n_frb, days)
         self.__random()
 
@@ -126,10 +129,11 @@ class FastRadioBursts(object):
         idx :
 
         inplace :
-             (Default value = False)
+            (Default value = False)
 
         Returns
         -------
+
 
         """
 
@@ -165,14 +169,15 @@ class FastRadioBursts(object):
         Parameters
         ----------
         start :
-             (Default value = 0)
+            (Default value = 0)
         stop :
-             (Default value = None)
+            (Default value = None)
         step :
-             (Default value = 1)
+            (Default value = 1)
 
         Returns
         -------
+
 
         """
 
@@ -186,16 +191,17 @@ class FastRadioBursts(object):
         Parameters
         ----------
         size :
-             (Default value = 1)
+            (Default value = 1)
         start :
-             (Default value = 0)
+            (Default value = 0)
         stop :
-             (Default value = None)
+            (Default value = None)
         retindex :
-             (Default value = False)
+            (Default value = False)
 
         Returns
         -------
+
 
         """
 
@@ -213,7 +219,7 @@ class FastRadioBursts(object):
     @cached_property
     def __cosmology(self):
         params = builtin[self.cosmology]
-        return Cosmology(**params)
+        return Cosmology(**params, free_electron_bias=self.free_electron_bias)
 
     @cached_property
     def __xmin(self):
@@ -254,6 +260,7 @@ class FastRadioBursts(object):
 
     @cached_property
     def emitted_pulse_width(self):
+        """ """
         return (1 + self.redshift) * self.pulse_width
 
     @cached_property
@@ -311,6 +318,13 @@ class FastRadioBursts(object):
         nu_lp = (self.low_frequency_cal / units.MHz)**_sip1
         nu_hp = (self.high_frequency_cal / units.MHz)**_sip1
         return self.__flux * z_factor / (nu_hp - nu_lp)
+
+    def peak_density_flux(self, frequency):
+        si = self.spectral_index.reshape(-1, 1)
+        nu_factor = (frequency / units.MHz)**(si + 1)
+        nu_factor = nu_factor.diff(axis=-1) / frequency.diff()
+        output = self.__S0.reshape(-1, 1) * nu_factor
+        return output.squeeze()
 
     @cached_property
     def itrs(self):
@@ -384,6 +398,7 @@ class FastRadioBursts(object):
         Returns
         -------
 
+
         """
 
         loc = location.get_itrs()
@@ -402,10 +417,11 @@ class FastRadioBursts(object):
         location :
 
         interp :
-             (Default value = 300)
+            (Default value = 300)
 
         Returns
         -------
+
 
         """
 
@@ -454,7 +470,8 @@ class FastRadioBursts(object):
                       gamma, wint, si, ra, dec, zmin, zmax, cosmology,
                       low_frequency, high_frequency, start,
                       low_frequency_cal, high_frequency_cal,
-                      gal_nside, gal_method, host_source, host_model):
+                      gal_nside, gal_method, host_source, host_model,
+                      free_electron_bias):
 
         self.zmin = zmin
         self.zmax = zmax
@@ -473,6 +490,7 @@ class FastRadioBursts(object):
         self.high_frequency = high_frequency * units.MHz
         self.low_frequency_cal = low_frequency_cal * units.MHz
         self.high_frequency_cal = high_frequency_cal * units.MHz
+        self.free_electron_bias = free_electron_bias
         self.cosmology = cosmology
         self.host_source = host_source
         self.host_model = host_model
@@ -504,8 +522,6 @@ class FastRadioBursts(object):
 
         if 'observations' not in self.__dict__:
             self.observations = {}
-
-        noise = telescope.noise()
 
         location = telescope.location if location is None else location
         lon, lat, height = location.lon, location.lat, location.height
@@ -550,13 +566,26 @@ class FastRadioBursts(object):
         else:
             time_array = None
 
-        observation = Observation(response, noise, channels,
-                                  frequency_range, sampling_time,
-                                  altaz, time_array)
-
         n_obs = len(self.observations)
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
         obs_name = obs_name.replace(' ', '_')
+
+        width = telescope.frequency_range.diff()
+
+        S0 = self.__S0 / width
+        S0 = (S0 / units.Jy).to(1)
+        S0 = xarray.DataArray(S0, dims='FRB')
+        response = xarray.DataArray(response, dims=('FRB', obs_name))
+        response = response * S0
+        response.name = 'Response'
+
+        noise = telescope.noise()
+        noise = (noise / units.Jy).to(1)
+        noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
+
+        observation = Observation(response, noise, channels,
+                                  frequency_range, sampling_time,
+                                  altaz, time_array)
 
         self.observations[obs_name] = observation
 
@@ -569,16 +598,19 @@ class FastRadioBursts(object):
         telescopes :
 
         location :
-             (Default value = None)
+            (Default value = None)
         start :
-             (Default value = None)
+            (Default value = None)
         name :
-             (Default value = None)
+            (Default value = None)
         altaz :
-             (Default value = None)
+            (Default value = None)
+        verbose :
+            (Default value = True)
 
         Returns
         -------
+
 
         """
 
@@ -599,10 +631,11 @@ class FastRadioBursts(object):
         Parameters
         ----------
         names :
-             (Default value = None)
+            (Default value = None)
 
         Returns
         -------
+
 
         """
 
@@ -614,111 +647,72 @@ class FastRadioBursts(object):
             for name in names:
                 del self.observations[name]
 
-    def clear_xcorr(self, names=None):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-
-        Returns
-        -------
-
-        """
-        del self.__xcorr
-
-    def __response(self, name, channels=False):
+    def __signal(self, name, channels=1):
 
         observation = self[name]
-        response = observation.get_response(self.spectral_index, channels)
-        return response.squeeze()
+        spectral_index = self.spectral_index
+        return observation.get_response(spectral_index, channels)
 
-    def __signal(self, name, channels=False):
-
-        response = self.__response(name, channels)
-        signal = response.T * self.__S0
-        signal = numpy.abs(signal).T
-        return signal.squeeze()
-
-    def __noise(self, name, channels=False):
+    def __noise(self, name, channels=1):
 
         observation = self[name]
-        noise = observation.get_noise(channels)
-        return noise.squeeze()
+        return observation.get_noise(channels)
 
-    def __sensitivity(self, name, channels=False):
-
-        return 1 / self.__response_to_noise(name, channels)
-
-    def __response_to_noise(self, name, channels=False):
-
-        response = self.__response(name, channels)
-        noise = self.__noise(name, channels)
-
-        return response / noise
-
-    def __signal_to_noise(self, name, channels=False, total=False, level=None):
+    def __signal_to_noise(self, name, channels=1, total=False, level=None):
 
         signal = self.__signal(name, channels)
         noise = self.__noise(name, channels)
 
-        snr = (signal / noise).value
+        snr = signal / noise
 
         if total:
-            if level is None:
-                if channels:
-                    lvl = numpy.arange(1, snr.ndim - 1)
-                    snr = numpy.apply_over_axes(numpy.max, snr, lvl)
-                else:
-                    snr = snr.reshape((self.n_frb, -1))
-                    snr = snr.max(-1)
-            else:
-                lvl = 1 + numpy.atleast_1d(level)
-                snr = numpy.apply_over_axes(numpy.max, snr, lvl)
+            lvl = snr.dims[1:-1]
+            return snr.max(lvl)
+        if level is not None:
+            return snr.max(level)
+        return snr
 
-        return numpy.squeeze(snr)
-
-    def __detected(self, name, channels=False, SNR=None, total=False,
+    def __detected(self, name, channels=1, SNR=None, total=False,
                    level=None):
 
-        S = numpy.arange(1, 11) if SNR is None else SNR
         snr = self.__signal_to_noise(name, channels, total, level)
-        snr = numpy.nan_to_num(snr, nan=0.0, posinf=0.0)
+        S = numpy.arange(1, 11) if SNR is None else SNR
+        S = xarray.DataArray(S, dims='SNR')
+        return snr > S
 
-        return snr[..., numpy.newaxis] > S
-
-    def __counts(self, name, channels=False, SNR=None, total=False,
+    def __counts(self, name, channels=1, SNR=None, total=False,
                  level=None):
 
         detected = self.__detected(name, channels, SNR, total, level)
-        return detected.sum(0)
+        return detected.sum('FRB')
 
-    def __baselines_counts(self, name, channels=False, reference='MAIN'):
+    def __baselines_counts(self, name, channels=1, reference='MAIN'):
 
         ref_detections = self.detected(reference, total=True)
         beams = self[name].response.shape[-1]
-        base_lines = numpy.arange(beams)
+        number = beams * (beams - 1) // 2
+        base_lines = numpy.arange(number + 1)
+        base_lines = xarray.DataArray(base_lines, dims='BASELINES')
 
         key = 'INTF_{}_{}'.format(reference, name)
         if key not in self.observations:
             self.interferometry(reference, name)
 
-        detections = self.detected(key, total=True, level=0)
-        detections = (ref_detections[:, numpy.newaxis] * detections).sum(1)
-        count = (detections[..., numpy.newaxis] > base_lines).sum(0)
+        detections = self.detected(key, level=reference)
+        detections = (ref_detections * detections).sum(name)
+        count = (detections > base_lines).sum('FRB')
 
         if beams > 1:
             key = 'INTF_{}'.format(name)
             if key not in self.observations:
                 self.interferometry(name)
             detections = self.detected(key)
-            detections = (ref_detections[:, numpy.newaxis] * detections).sum(1)
-            count += (detections[..., numpy.newaxis] > base_lines).sum(0)
+            detections = (ref_detections * detections).sum(name)
+            count += (detections > base_lines).sum('FRB')
 
         return count
 
-    def __get(self, func_name=None, names=None, channels=False, **kwargs):
+    def __get(self, func_name=None, names=None, channels=1, **kwargs):
 
         func = self.__getattribute__(func_name)
 
@@ -732,169 +726,128 @@ class FastRadioBursts(object):
             for name in names
         }
 
-    def response(self, names=None, channels=False):
+    def signal(self, names=None, channels=1):
         """
 
         Parameters
         ----------
         names :
-             (Default value = None)
+            (Default value = None)
         channels :
-             (Default value = False)
+            (Default value = False)
 
         Returns
         -------
 
-        """
-
-        return self.__get('_FastRadioBursts__response', names, channels)
-
-    def signal(self, names=None, channels=False):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
 
         """
 
         return self.__get('_FastRadioBursts__signal', names, channels)
 
-    def noise(self, names=None, channels=False):
+    def noise(self, names=None, channels=1):
         """
 
         Parameters
         ----------
         names :
-             (Default value = None)
+            (Default value = None)
         channels :
-             (Default value = False)
+            (Default value = False)
 
         Returns
         -------
+
 
         """
 
         return self.__get('_FastRadioBursts__noise', names, channels)
 
-    def response_to_noise(self, names=None, channels=False):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-
-        return self.__get('_FastRadioBursts__response_to_noise',
-                          names, channels)
-
-    def sensitivity(self, names=None, channels=False):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-
-        return self.__get('_FastRadioBursts__sensitivity',
-                          names, channels)
-
-    def signal_to_noise(self, names=None, channels=False, total=False,
+    def signal_to_noise(self, names=None, channels=1, total=False,
                         level=None):
         """
 
         Parameters
         ----------
         names :
-             (Default value = None)
+            (Default value = None)
         channels :
-             (Default value = False)
+            (Default value = False)
+        total :
+            (Default value = False)
+        level :
+            (Default value = None)
 
         Returns
         -------
+
 
         """
 
         return self.__get('_FastRadioBursts__signal_to_noise', names,
                           channels, total=total, level=level)
 
-    def detected(self, names=None, channels=False, total=False, level=None):
+    def detected(self, names=None, channels=1, total=False, level=None):
         """
 
         Parameters
         ----------
         names :
-             (Default value = None)
+            (Default value = None)
         channels :
-             (Default value = False)
+            (Default value = False)
         total :
-             (Default value = False)
+            (Default value = False)
+        level :
+            (Default value = None)
 
         Returns
         -------
+
 
         """
 
         return self.__get('_FastRadioBursts__detected', names,
                           channels, total=total, level=level)
 
-    def counts(self, names=None, channels=False, total=False, level=None):
+    def counts(self, names=None, channels=1, total=False, level=None):
         """
 
         Parameters
         ----------
         names :
-             (Default value = None)
+            (Default value = None)
         channels :
-             (Default value = False)
+            (Default value = False)
         total :
-             (Default value = False)
+            (Default value = False)
         level :
-             (Default value = None)
+            (Default value = None)
 
         Returns
         -------
+
 
         """
 
         return self.__get('_FastRadioBursts__counts', names,
                           channels, total=total, level=level)
 
-    def baselines_counts(self, names=None, channels=False, reference='MAIN'):
+    def baselines_counts(self, names=None, channels=1, reference='MAIN'):
 
         """
 
         Parameters
         ----------
         names :
-             (Default value = None)
+            (Default value = None)
         channels :
-             (Default value = False)
+            (Default value = False)
         reference :
-             (Default value = 'MAIN')
+            (Default value = 'MAIN')
 
         Returns
         -------
+
 
         """
 
@@ -906,13 +859,16 @@ class FastRadioBursts(object):
 
         Parameters
         ----------
-        *names :
+        namei : str
 
+        namej : str
+            (Default value = None)
         time_delay :
-             (Default value = True)
+            (Default value = True)
 
         Returns
         -------
+
 
         """
 
@@ -923,29 +879,6 @@ class FastRadioBursts(object):
             key = 'INTF_{}_{}'.format(namei, namej)
         interferometry = Interferometry(obsi, obsj, time_delay=time_delay)
         self.observations[key] = interferometry
-
-    def split_beams(self, name, key='BEAM'):
-        """
-
-        Parameters
-        ----------
-        name :
-
-        key :
-             (Default value = 'BEAM')
-
-        Returns
-        -------
-
-        """
-
-        observation = self.observations.pop(name)
-        splitted = observation.split_beams()
-
-        self.observations.update({
-            '{}_{}_{}'.format(name, key, beam): obs
-            for beam, obs in enumerate(splitted)
-        })
 
     def to_dict(self):
         """ """
@@ -987,12 +920,6 @@ class FastRadioBursts(object):
             and value.unit != ''
         })
 
-        """out_dict.update({
-            key: value.value
-            for key, value in out_dict.items()
-            if hasattr(value, 'unit')
-        })"""
-
         return out_dict
 
     def save(self, file, compressed=True):
@@ -1003,10 +930,11 @@ class FastRadioBursts(object):
         file :
 
         compressed :
-             (Default value = True)
+            (Default value = True)
 
         Returns
         -------
+
 
         """
         out_dict = self.to_dict()
@@ -1026,6 +954,7 @@ class FastRadioBursts(object):
 
         Returns
         -------
+
 
         """
 
@@ -1064,6 +993,7 @@ class FastRadioBursts(object):
 
         Returns
         -------
+
 
         """
         input_dict = load_file(file)

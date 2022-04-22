@@ -30,6 +30,7 @@ class Cosmology(pyccl.Cosmology):
                  mass_function='tinker10',
                  halo_concentration='duffy2008',
                  emulator_neutrinos='strict',
+                 free_electron_bias='Takahashi2021',
                  extra_parameters=None):
 
         self.Omega_c = Omega_c
@@ -56,6 +57,12 @@ class Cosmology(pyccl.Cosmology):
                          baryons_power_spectrum, mass_function,
                          halo_concentration, emulator_neutrinos,
                          extra_parameters)
+
+        if free_electron_bias == 'Takahashi2021':
+            self.__free_electrons_bias = self.__takahashi2021
+        elif type(free_electron_bias) in (float, int):
+            self.__free_electrons_bias = self.__constant_ebias
+            self.__eb = free_electron_bias
 
     def scale_factor(self, z):
         """
@@ -163,12 +170,15 @@ class Cosmology(pyccl.Cosmology):
         a = self.scale_factor(z)
         return super().growth_rate(a)
 
-    def __free_electrons_bias(self, k, z=0):
+    def __takahashi2021(self, k, z=0):
 
         bs2 = 0.971 - 0.013 * z
         g = 1.91 - 0.59 * z + 0.10 * z**2
         ks = 4.36 - 3.24 * z + 3.10 * z**2 - 0.42 * z**3
         return bs2 / (1 + (k / ks)**g)
+
+    def __constant_ebias(self, k, z=0):
+        return self.__eb
 
     def free_electrons_bias(self, k, z=0):
         """
@@ -185,7 +195,7 @@ class Cosmology(pyccl.Cosmology):
 
         """
         ki = k / units.Mpc
-        return self.__free_electrons_bias(ki, z)
+        return self.__ebias(ki, z)
 
     def __linear_matter_power(self, k, z=0):
         a = self.scale_factor(z)
@@ -300,20 +310,10 @@ class Cosmology(pyccl.Cosmology):
 
     def __dm_igm_integral(self, z, kmin=0.0, kmax=numpy.inf):
 
-        def integrand(k):
-            """
-
-            Parameters
-            ----------
-            k :
-
-
-            Returns
-            -------
-
-            """
+        def __integrand(k):
             return k * self.__nonlin_electron_power(k, z)
-        integral, _ = quad(integrand, kmin, kmax, limit=100, epsrel=1.49e-7)
+
+        integral, _ = quad(__integrand, kmin, kmax, limit=100, epsrel=1.49e-7)
         return integral
 
     def dm_igm_integral(self, z, kmin=0.0, kmax=numpy.inf, unit=units.Mpc):

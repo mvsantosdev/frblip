@@ -1,6 +1,5 @@
-import warnings
-
 import numpy
+import xarray
 from astropy_healpix import HEALPix
 
 from astropy.time import Time
@@ -8,6 +7,7 @@ from astropy import coordinates, units, constants
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
+from operator import itemgetter
 from functools import cached_property
 
 from .random import Redshift, Schechter
@@ -18,7 +18,7 @@ from .cosmology import Cosmology, builtin
 class HealPixMap(HEALPix):
     """ """
 
-    def __init__(self, nside=None, order='ring', phistar=339,
+    def __init__(self, nside=128, order='ring', phistar=339,
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
                  low_frequency=10, high_frequency=10000,
                  low_frequency_cal=400, high_frequency_cal=1400,
@@ -67,8 +67,21 @@ class HealPixMap(HEALPix):
     def __lumdist(self):
         return Schechter(self.__xmin, self.alpha)
 
-    def __getitem__(self, name):
-        return self.observations[name]
+    def __getitem__(self, idx):
+
+        if isinstance(idx, str):
+            return self.observations[idx]
+        if isinstance(idx, slice):
+            return self.select(idx, inplace=False)
+
+        idx = numpy.array(idx)
+        numeric = numpy.issubdtype(idx.dtype, numpy.signedinteger)
+        boolean = numpy.issubdtype(idx.dtype, numpy.bool_)
+        if numeric or boolean:
+            return self.select(idx, inplace=False)
+        if numpy.issubdtype(idx.dtype, numpy.str_):
+            return itemgetter(*idx)(self.observations)
+        return None
 
     @cached_property
     def pixels(self):
@@ -153,7 +166,9 @@ class HealPixMap(HEALPix):
         if 'observations' not in self.__dict__:
             self.observations = {}
 
-        noise = telescope.noise()
+        n_obs = len(self.observations)
+        obs_name = 'OBS_{}'.format(n_obs) if name is None else name
+        obs_name = obs_name.replace(' ', '_')
 
         location = telescope.location if location is None else location
         altaz = self.altaz(location)
@@ -165,16 +180,22 @@ class HealPixMap(HEALPix):
         sight = coordinates.AltAz(alt=alt, az=az, obstime=self.itrs_time)
         sight = sight.cartesian.xyz[:, numpy.newaxis]
 
+        frequency_range = telescope.frequency_range
+        width = telescope.frequency_range.diff()
+
         altaz = self.altaz(telescope.location)
         xyz = altaz.cartesian.xyz[..., numpy.newaxis]
         cosines = (xyz * sight).sum(0)
         arcs = numpy.arccos(cosines).to(units.deg)
         mask = (arcs < radius).sum(-1) > 0
-        response = numpy.zeros((self.npix, telescope.n_beam))
+        response = numpy.zeros((self.npix, telescope.beams))
         response[mask] = telescope.response(altaz[mask])
 
+        response = response * (units.MHz / width).to(1)
+        dims = 'PIXEL', obs_name
+        response = xarray.DataArray(response, dims=dims, name='Response')
+
         array = telescope.array
-        frequency_range = telescope.frequency_range
         channels = telescope.channels
 
         sampling_time = telescope.sampling_time
@@ -186,15 +207,15 @@ class HealPixMap(HEALPix):
         else:
             time_array = None
 
+        noise = telescope.noise()
+        noise = (noise / units.Jy).to(1)
+        noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
+
         observation = Observation(response, noise, channels,
                                   frequency_range, sampling_time,
                                   altaz, time_array)
 
         observation.pix = numpy.flatnonzero(mask)
-
-        n_obs = len(self.observations)
-        obs_name = 'OBS_{}'.format(n_obs) if name is None else name
-        obs_name = obs_name.replace(' ', '_')
 
         self.observations[obs_name] = observation
 
@@ -224,52 +245,35 @@ class HealPixMap(HEALPix):
         else:
             self.__observe(telescopes, location, name, radius_factor)
 
-    def __pattern(self, name, channels=False, spectral_index=0.0):
-
-        observation = self[name]
-        return observation.pattern(spectral_index, channels)
-
-    def __response(self, name, channels=False, spectral_index=0.0):
+    def __response(self, name, channels=1, spectral_index=0.0):
 
         observation = self[name]
         si = numpy.full(self.npix, spectral_index)
         return observation.get_response(si, channels)
 
-    def __signal(self, name, channels=False, spectral_index=0.0):
-
-        response = self.__response(name, channels, spectral_index)
-        sip = 1 + spectral_index
-
-        nu_low = self.low_frequency_cal / units.MHz
-        nu_high = self.high_frequency_cal / units.MHz
-
-        si_factor = nu_high**sip - nu_low**sip
-        signal = response / si_factor
-
-        return numpy.abs(signal)
-
-    def __noise(self, name, channels=False):
+    def __noise(self, name, channels=1):
 
         observation = self[name]
         return observation.get_noise(channels)
 
     @numpy.errstate(divide='ignore', over='ignore')
-    def __sensitivity(self, name, channels=False, spectral_index=0.0,
-                      total=False):
+    def __sensitivity(self, name, channels=1, spectral_index=0.0,
+                      total=False, level=None):
 
         noise = self.__noise(name, channels)
-        signal = self.__signal(name, channels, spectral_index)
-        sensitivity = noise / signal
+        response = self.__response(name, channels, spectral_index)
+        sensitivity = (1 / response) * noise
 
         if total:
-            axes = range(1, sensitivity.ndim - int(channels))
-            sensitivity = numpy.apply_over_axes(numpy.min, sensitivity, axes)
-
-        return numpy.ma.masked_invalid(sensitivity)
+            lvl = sensitivity.dims[1:-1]
+            return sensitivity.min(lvl)
+        if level is not None:
+            return sensitivity.min(level)
+        return sensitivity
 
     @numpy.errstate(divide='ignore', over='ignore')
-    def __specific_rate(self, smin, smax, zmin, zmax, rate_unit,
-                        spectral_index):
+    def __specific_rate(self, smin, smax, zmin, zmax, frequency_range,
+                        rate_unit, spectral_index):
 
         log_min = units.LogQuantity(smin)
         log_max = units.LogQuantity(smax)
@@ -284,8 +288,15 @@ class HealPixMap(HEALPix):
         zgrid = zgrid[:, numpy.newaxis]
         lum_dist = lum_dist[:, numpy.newaxis]
 
-        Lthre = 4 * numpy.pi * lum_dist**2 * sgrid
-        Lthre = Lthre / (1 + zgrid)**(1 + spectral_index)
+        _sip = 1 + spectral_index
+        nuhp = (self.high_frequency_cal / units.MHz)**_sip
+        nulp = (self.low_frequency_cal / units.MHz)**_sip
+        dnup = (frequency_range / units.MHz)**_sip
+        width = frequency_range.diff()
+        nu_factor = width * (nuhp - nulp) / dnup.diff(axis=-1)
+
+        Lthre = 4 * numpy.pi * nu_factor * lum_dist**2 * sgrid
+        Lthre = Lthre / (1 + zgrid)**_sip
 
         xthre = Lthre.to(self.log_Lstar.unit) - self.log_Lstar
         xmin, xmax = self.__lumdist.xmin, self.__lumdist.xmax
@@ -307,24 +318,25 @@ class HealPixMap(HEALPix):
         return specific_rate
 
     @numpy.errstate(over='ignore')
-    def __si_rate_map(self, name=None, channels=False, sensitivity=None,
+    def __si_rate_map(self, name=None, channels=1, sensitivity=None,
                       SNR=None, time='day', spectral_index=0.0, total=False):
 
         time_unit = units.Unit(time)
         rate_unit = 1 / time_unit
 
-        SNR = numpy.arange(1, 11) if SNR is None else SNR
+        S = numpy.arange(1, 11) if SNR is None else SNR
+        S = xarray.DataArray(S, dims='SNR')
 
         if not isinstance(sensitivity, numpy.ndarray):
             sensitivity = self.__sensitivity(name, channels,
                                              spectral_index,
                                              total)
 
-        sensitivity = sensitivity[..., numpy.newaxis] * SNR
+        sensitivity = sensitivity * S
         sensitivity = numpy.ma.masked_invalid(sensitivity)
 
-        smin = sensitivity.min().data
-        smax = sensitivity.max().data
+        smin = sensitivity.min() * units.Jy
+        smax = sensitivity.max() * units.Jy
 
         frequency_range = self[name].frequency_range
         zmax = self.high_frequency / frequency_range[0] - 1
@@ -332,11 +344,12 @@ class HealPixMap(HEALPix):
         zmin = zmin.clip(0)
 
         specific_rate = self.__specific_rate(smin, smax, zmin, zmax,
-                                             rate_unit, spectral_index)
+                                             frequency_range, rate_unit,
+                                             spectral_index)
 
         return specific_rate(sensitivity)
 
-    def __rate_map(self, name=None, channels=False, sensitivity=None,
+    def __rate_map(self, name=None, channels=1, sensitivity=None,
                    SNR=None, spectral_index=0.0, total=False, time='day'):
 
         sis = numpy.atleast_1d(spectral_index)
@@ -350,7 +363,7 @@ class HealPixMap(HEALPix):
 
         return numpy.squeeze(rates)
 
-    def __rate(self, name=None, channels=False, sensitivity=None,
+    def __rate(self, name=None, channels=1, sensitivity=None,
                SNR=None, spectral_index=0.0, total=False, time='day'):
 
         sis = numpy.atleast_1d(spectral_index)
@@ -364,14 +377,7 @@ class HealPixMap(HEALPix):
 
         return numpy.squeeze(rates)
 
-    def __response_to_noise(self, name, channels=False, spectral_index=0.0):
-
-        response = self.__response(name, spectral_index, channels)
-        noise = self.__noise(name, channels)
-
-        return response / noise
-
-    def __get(self, func_name=None, names=None, channels=False, **kwargs):
+    def __get(self, func_name=None, names=None, channels=1, **kwargs):
 
         func = self.__getattribute__(func_name)
 
@@ -385,7 +391,7 @@ class HealPixMap(HEALPix):
             for name in names
         }
 
-    def rate(self, names=None, sensitivity=None, channels=False,
+    def rate(self, names=None, sensitivity=None, channels=1,
              SNR=None, spectral_index=0.0, total=False, time='day'):
 
         """
@@ -418,7 +424,7 @@ class HealPixMap(HEALPix):
                           sensitivity=sensitivity, total=total,
                           spectral_index=spectral_index, time=time)
 
-    def rate_map(self, names=None, sensitivity=None, channels=False,
+    def rate_map(self, names=None, sensitivity=None, channels=1,
                  SNR=None, spectral_index=0.0, total=False, time='day'):
         """
 
@@ -451,27 +457,7 @@ class HealPixMap(HEALPix):
                           sensitivity=sensitivity, total=total,
                           spectral_index=spectral_index, time=time)
 
-    def pattern(self, names=None, channels=False, spectral_index=0.0):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-        spectral_index :
-             (Default value = 0.0)
-
-        Returns
-        -------
-
-        """
-
-        return self.__get('_HealPixMap__pattern', names, channels,
-                          spectral_index=spectral_index)
-
-    def response(self, names=None, channels=False, spectral_index=0.0):
+    def response(self, names=None, channels=1, spectral_index=0.0):
         """
 
         Parameters
@@ -491,27 +477,7 @@ class HealPixMap(HEALPix):
         return self.__get('_HealPixMap__response', names, channels,
                           spectral_index=spectral_index)
 
-    def signal(self, names=None, channels=False, spectral_index=0.0):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-        spectral_index :
-             (Default value = 0.0)
-
-        Returns
-        -------
-
-        """
-
-        return self.__get('_HealPixMap__signal', names, channels,
-                          spectral_index=spectral_index)
-
-    def noise(self, names=None, channels=False):
+    def noise(self, names=None, channels=1):
         """
 
         Parameters
@@ -528,29 +494,8 @@ class HealPixMap(HEALPix):
 
         return self.__get('_HealPixMap__noise', names, channels)
 
-    def response_to_noise(self, names=None, channels=False,
-                          spectral_index=0.0):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-        spectral_index :
-             (Default value = 0.0)
-
-        Returns
-        -------
-
-        """
-
-        return self.__get('_HealPixMap__response_to_noise', names, channels,
-                          spectral_index=spectral_index)
-
-    def sensitivity(self, names=None, channels=False,
-                    spectral_index=0.0, total=False):
+    def sensitivity(self, names=None, channels=1, spectral_index=0.0,
+                    total=False, level=None):
         """
 
         Parameters
@@ -570,9 +515,10 @@ class HealPixMap(HEALPix):
         """
 
         return self.__get('_HealPixMap__sensitivity', names, channels,
-                          spectral_index=spectral_index, total=total)
+                          spectral_index=spectral_index, total=total,
+                          level=level)
 
-    def interferometry(self, namei, namej, time_delay=False):
+    def interferometry(self, namei, namej=None, time_delay=False):
         """
 
         Parameters
@@ -587,17 +533,10 @@ class HealPixMap(HEALPix):
 
         """
 
-        obsi = self[namei]
-        obsj = self[namej]
-
-        n_scopes = numpy.sum([
-            obsi.time_array.shape[0] if hasattr(obsi, 'time_array') else 1,
-            obsj.time_array.shape[0] if hasattr(obsj, 'time_array') else 1
-        ]).sum()
-
-        if n_scopes > 1:
-            key = 'INTF_{}_{}'.format(namei, namej)
-            interferometry = Interferometry(obsi, obsj, time_delay=time_delay)
-            self.observations[key] = interferometry
+        obsi, obsj = self[namei], self[namej]
+        if namej is None:
+            key = 'INTF_{}'.format(namei)
         else:
-            warnings.warn('Self interferometry will not be computed.')
+            key = 'INTF_{}_{}'.format(namei, namej)
+        interferometry = Interferometry(obsi, obsj, time_delay=time_delay)
+        self.observations[key] = interferometry

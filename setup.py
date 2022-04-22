@@ -15,10 +15,11 @@ bla = setup(
             'data/*.csv'
         ]
     },
-    python_requires='>=3.4',
+    python_requires='>=3.8',
     install_requires=[
         'numpy',
         'pandas',
+        'xarray',
         'scipy',
         'astropy',
         'astropy-healpix',
