@@ -16,7 +16,7 @@ from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
 from .utils import load_params, load_file, sub_dict
 
-from .random import Redshift, Schechter
+from .random import Redshift, Schechter, SpectralIndex
 
 from .random.dispersion_measure import GalacticDM
 from .random.dispersion_measure import InterGalacticDM, HostGalaxyDM
@@ -30,8 +30,9 @@ class FastRadioBursts(object):
     """Class which defines a Fast Radio Burst population"""
 
     def __init__(self, n_frb=None, days=1, log_Lstar=44.46, log_L0=41.96,
-                 phistar=339, gamma=-1.79, wint=(.13, .33), si=(-5, 5),
-                 zmin=0, zmax=6, ra=(0, 24), dec=(-90, 90), start=None,
+                 phistar=339, gamma=-1.79, pulse_width=(-6.917, 0.824),
+                 zmin=0, zmax=6, ra=(0, 24), dec=(-90, 90),
+                 spectral_index='CHIME2021', start=None,
                  low_frequency=10.0, high_frequency=10000.0,
                  low_frequency_cal=400.0, high_frequency_cal=1400.0,
                  gal_method='yt2020_analytic', gal_nside=128,
@@ -92,15 +93,51 @@ class FastRadioBursts(object):
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
 
         self.__load_params(n_frb, days, log_Lstar, log_L0, phistar,
-                           gamma, wint, si, ra, dec, zmin, zmax, cosmology,
-                           low_frequency, high_frequency, start,
-                           low_frequency_cal, high_frequency_cal,
-                           gal_nside, gal_method, host_source, host_model,
+                           gamma, pulse_width, zmin, zmax, ra, dec,
+                           spectral_index, start, low_frequency,
+                           high_frequency, low_frequency_cal,
+                           high_frequency_cal, gal_method, gal_nside,
+                           host_source, host_model, cosmology,
                            free_electron_bias)
         self.__frb_rate(n_frb, days)
         self.__random()
 
         sys.stdout = old_target
+
+    def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
+                      gamma, pulse_width, zmin, zmax, ra, dec, spectral_index,
+                      start, low_frequency, high_frequency, low_frequency_cal,
+                      high_frequency_cal, gal_method, gal_nside, host_source,
+                      host_model, cosmology, free_electron_bias):
+
+        self.zmin = zmin
+        self.zmax = zmax
+        self.log_L0 = log_L0 * units.LogUnit(units.erg / units.s)
+        self.log_Lstar = log_Lstar * units.LogUnit(units.erg / units.s)
+        self.phistar = phistar / (units.Gpc**3 * units.year)
+        self.gamma = gamma
+        self.w_mean, self.w_std = pulse_width
+        self.__spec_idx_dist = SpectralIndex(spectral_index)
+        self.ra_range = numpy.array(ra) * units.hourangle
+        self.dec_range = numpy.array(dec) * units.degree
+        self.low_frequency = low_frequency * units.MHz
+        self.high_frequency = high_frequency * units.MHz
+        self.low_frequency_cal = low_frequency_cal * units.MHz
+        self.high_frequency_cal = high_frequency_cal * units.MHz
+        self.free_electron_bias = free_electron_bias
+        self.cosmology = cosmology
+        self.host_source = host_source
+        self.host_model = host_model
+
+        if start is None:
+            now = Time.now()
+            today = now.iso.split()
+            self.start = Time(today[0])
+        else:
+            self.start = start
+
+        self.gal_nside = gal_nside
+        self.gal_method = gal_method
 
     def __len__(self):
         return self.n_frb
@@ -256,12 +293,12 @@ class FastRadioBursts(object):
     def pulse_width(self):
         """ """
         width = random.lognormal(self.w_mean, self.w_std, size=self.n_frb)
-        return width * units.ms
+        return (width * units.s).to(units.ms)
 
     @cached_property
     def emitted_pulse_width(self):
         """ """
-        return (1 + self.redshift) * self.pulse_width
+        return self.pulse_width / (1 + self.redshift)
 
     @cached_property
     def itrs_time(self):
@@ -274,9 +311,7 @@ class FastRadioBursts(object):
     @cached_property
     def spectral_index(self):
         """ """
-        if hasattr(self, 'si_min') and hasattr(self, 'si_max'):
-            return random.uniform(self.si_min, self.si_max, self.n_frb)
-        return numpy.full(self.n_frb, self.si)
+        return self.__spec_idx_dist.rvs(self.n_frb)
 
     @cached_property
     def icrs(self):
@@ -465,45 +500,6 @@ class FastRadioBursts(object):
         print(self.n_frb, 'FRBs will be simulated, the actual rate is',
               self.rate, '.\nTherefore it corrensponds to', self.duration,
               'of observation. \n')
-
-    def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
-                      gamma, wint, si, ra, dec, zmin, zmax, cosmology,
-                      low_frequency, high_frequency, start,
-                      low_frequency_cal, high_frequency_cal,
-                      gal_nside, gal_method, host_source, host_model,
-                      free_electron_bias):
-
-        self.zmin = zmin
-        self.zmax = zmax
-        self.log_L0 = log_L0 * units.LogUnit(units.erg / units.s)
-        self.log_Lstar = log_Lstar * units.LogUnit(units.erg / units.s)
-        self.phistar = phistar / (units.Gpc**3 * units.year)
-        self.gamma = gamma
-        self.w_mean, self.w_std = wint
-        if isinstance(si, (int, float)):
-            self.si = si
-        else:
-            self.si_min, self.si_max = si
-        self.ra_range = numpy.array(ra) * units.hourangle
-        self.dec_range = numpy.array(dec) * units.degree
-        self.low_frequency = low_frequency * units.MHz
-        self.high_frequency = high_frequency * units.MHz
-        self.low_frequency_cal = low_frequency_cal * units.MHz
-        self.high_frequency_cal = high_frequency_cal * units.MHz
-        self.free_electron_bias = free_electron_bias
-        self.cosmology = cosmology
-        self.host_source = host_source
-        self.host_model = host_model
-
-        if start is None:
-            now = Time.now()
-            today = now.iso.split()
-            self.start = Time(today[0])
-        else:
-            self.start = start
-
-        self.gal_nside = gal_nside
-        self.gal_method = gal_method
 
     def __random(self):
 
