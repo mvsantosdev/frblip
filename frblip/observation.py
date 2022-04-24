@@ -38,63 +38,25 @@ def scattered_gaussian(t, w, ts, t0=0.0):
     return ff / ff.max(0)
 
 
-def density_flux(spectral_index, frequency):
-    """
+def hyp(alpha, x):
 
-    Parameters
-    ----------
-    spectral_index :
-
-    frequency :
-
-
-    Returns
-    -------
-
-    """
-    si = spectral_index.reshape(-1, 1)
-    diff_nu = numpy.diff(frequency)
-    nu = frequency[:, numpy.newaxis]
-    si = spectral_index[numpy.newaxis]
-
-    nup = (nu / units.MHz).to(1).value**(1 + si)
-    flux = numpy.diff(nup, axis=0)
-    return flux.T / diff_nu
-
-
-def __intf(alpha, x):
     result = numpy.zeros_like(x)
 
-    idx = alpha.ravel() == 0
+    idx = alpha == 0
     result[idx] = numpy.sin(x[idx])
 
-    idx = alpha.ravel() != 0
+    idx = alpha != 0
     px = x[idx]
     ix = 1j * px
-
     a1 = alpha[idx] + 1
     h1f1 = hyp1f1(a1, a1 + 1, ix)
     result[idx] = (px**a1) * h1f1.real
+
     return result
 
 
 @numpy.errstate(invalid='ignore')
-def interferometry_density_flux(spectral_index, frequency, time_delays):
-    """
-
-    Parameters
-    ----------
-    spectral_index :
-
-    frequency :
-
-    time_delays :
-
-
-    Returns
-    -------
-
-    """
+def intf_integral(spectral_index, frequency, time_delays):
 
     diff_nu = numpy.diff(frequency)
     si = spectral_index.reshape(-1, 1, 1)
@@ -104,7 +66,7 @@ def interferometry_density_flux(spectral_index, frequency, time_delays):
     k = 2 * numpy.pi * tau
     kx = (k * nu).to(1).value
     kn = (k * units.MHz).to(1).value
-    intf = __intf(si, kx) / kn**(si + 1)
+    intf = hyp(si, kx) / kn**(si + 1)
     intf = numpy.nansum(intf, axis=-1)
 
     flux = numpy.diff(intf, axis=-1)
@@ -114,16 +76,14 @@ def interferometry_density_flux(spectral_index, frequency, time_delays):
 class Observation():
     """ """
 
-    def __init__(self, response=None, noise=None, channels=None,
-                 frequency_range=None, sampling_time=None,
-                 altaz=None, time_array=None):
+    def __init__(self, response=None, noise=None, frequency_range=None,
+                 sampling_time=None, altaz=None, time_array=None):
 
         self.sampling_time = sampling_time
 
         self.response = response
         self.noise = noise
         self.frequency_range = frequency_range
-        self.channels = channels
         self.altaz = altaz
         self.kind = response.dims[0]
 
@@ -173,38 +133,6 @@ class Observation():
         noise = self.noise * xarray.DataArray(noise, dims='CHANNEL')
         return noise
 
-    def pattern(self, spectral_index=None, channels=False):
-        """
-
-        Parameters
-        ----------
-        spectral_index :
-             (Default value = None)
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-        return self.response
-
-    def get_frequency(self, channels=False):
-        """
-
-        Parameters
-        ----------
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-        if channels:
-            return numpy.linspace(*self.frequency_range, self.channels + 1)
-        return self.frequency_range
-
     def get_response(self, spectral_index, channels=1):
         """
 
@@ -219,12 +147,13 @@ class Observation():
         -------
 
         """
-        nu = numpy.linspace(*self.frequency_range, channels + 1)
-        spec_idx = spectral_index.reshape(-1, 1)
-        nu_pow = (nu / units.MHz)**(1 + spec_idx)
-        density_flux = nu_pow.diff(axis=-1) / nu.diff()
-        density_flux = xarray.DataArray(density_flux * self.width,
-                                        dims=(self.kind, 'CHANNEL'))
+        nu = (self.frequency_range / units.MHz).to(1)
+        nu = numpy.linspace(*nu, channels + 1)
+        nu = xarray.DataArray(nu, dims='CHANNEL')
+        spec_idx = xarray.DataArray(spectral_index, dims=self.kind)
+        nu_pow = nu**(1 + spec_idx)
+        density_flux = nu_pow.diff('CHANNEL') / nu.diff('CHANNEL')
+        density_flux = density_flux * (self.width / units.MHz).to(1)
         return self.response * density_flux
 
     def time_difference(self):
@@ -392,7 +321,6 @@ class Interferometry():
                 noise = obsi.noise
                 self.frequency_range = obsi.frequency_range
                 self.width = self.frequency_range.diff()
-                self.channels = obsi.channels
                 self.sampling_time = obsi.sampling_time
 
                 response = numpy.column_stack([
@@ -465,63 +393,29 @@ class Interferometry():
         noise = self.noise * xarray.DataArray(noise, dims='CHANNEL')
         return noise
 
-    def get_frequency(self, channels=False):
-        """
-
-        Parameters
-        ----------
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-        if channels:
-            return numpy.linspace(*self.frequency_range, self.channels + 1)
-        return self.frequency_range
-
-    def pattern(self, spectral_index, channels=False):
-        """
-
-        Parameters
-        ----------
-        spectral_index :
-
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-
-        response = self.get_response(spectral_index, channels)
-
-        nu = self.get_frequency(channels)
-
-        sflux = density_flux(spectral_index, nu)
-        ndims = tuple(range(1, response.ndim - 1))
-        sflux = numpy.expand_dims(sflux, ndims)
-
-        pattern = response / sflux
-
-        return pattern.value
-
     def __no_time_delay(self, spectral_index, channels=1):
 
-        nu = numpy.linspace(*self.frequency_range, channels + 1)
-        spec_idx = spectral_index.reshape(-1, 1)
-        nu_pow = (nu / units.MHz)**(1 + spec_idx)
-        density_flux = nu_pow.diff(axis=-1) / nu.diff()
-        density_flux = xarray.DataArray(density_flux * self.width,
-                                        dims=(self.kind, 'CHANNEL'))
+        nu = (self.frequency_range / units.MHz).to(1)
+        nu = numpy.linspace(*nu, channels + 1)
+        nu = xarray.DataArray(nu, dims='CHANNEL')
+        spec_idx = xarray.DataArray(spectral_index, dims=self.kind)
+        nu_pow = nu**(1 + spec_idx)
+        density_flux = nu_pow.diff('CHANNEL') / nu.diff('CHANNEL')
+        density_flux = density_flux * (self.width / units.MHz).to(1)
         return self.response * density_flux
 
-    def __time_delay(self, spectral_index, channels=False):
+    def __time_delay(self, spectral_index, channels=1):
 
-        nu = self.get_frequency(channels)
+        nu = numpy.linspace(*self.frequency_range, channels + 1)
+        nu = (nu / units.MHz).to(1)
+        nu = xarray.DataArray(nu, dims='CHANNEL')
+        si = xarray.DataArray(spectral_index, dims=self.kind)
 
-        interf = interferometry_density_flux(spectral_index, nu,
-                                             self.time_delay)
-        return self.response * interf
+        k = (2 * numpy.pi * self.time_delay * units.MHz).to(1)
+        k = xarray.DataArray(k, dims=(self.kind, 'BASELINES'))
+        intf = hyp(si, k * nu)
+        dims = ('FRB', 'BASELINES', 'CHANNEL')
+        intf = xarray.DataArray(intf, dims=dims) / k**(si + 1)
+        intf = intf.diff('CHANNEL') / nu.diff('CHANNEL')
+        intf = intf * (self.width / units.MHz).to(1)
+        return self.response * intf

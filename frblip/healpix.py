@@ -196,8 +196,6 @@ class HealPixMap(HEALPix):
         response = xarray.DataArray(response, dims=dims, name='Response')
 
         array = telescope.array
-        channels = telescope.channels
-
         sampling_time = telescope.sampling_time
 
         if array is not None:
@@ -211,9 +209,8 @@ class HealPixMap(HEALPix):
         noise = (noise / units.Jy).to(1)
         noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
 
-        observation = Observation(response, noise, channels,
-                                  frequency_range, sampling_time,
-                                  altaz, time_array)
+        observation = Observation(response, noise, frequency_range,
+                                  sampling_time, altaz, time_array)
 
         observation.pix = numpy.flatnonzero(mask)
 

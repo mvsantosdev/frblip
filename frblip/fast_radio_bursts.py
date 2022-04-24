@@ -511,8 +511,7 @@ class FastRadioBursts(object):
         self.log_luminosity
         self.spectral_index
 
-    def __observe(self, telescope, location=None, start=None,
-                  name=None, altaz=None):
+    def __observe(self, telescope, location=None, name=None, altaz=None):
 
         print('Performing observation for telescope {}...'.format(name))
 
@@ -528,7 +527,6 @@ class FastRadioBursts(object):
             'height={:.3f}.'.format(height), end='\n\n'
         )
 
-        channels = telescope.channels
         frequency_range = telescope.frequency_range
         sampling_time = telescope.sampling_time
 
@@ -579,14 +577,13 @@ class FastRadioBursts(object):
         noise = (noise / units.Jy).to(1)
         noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
 
-        observation = Observation(response, noise, channels,
-                                  frequency_range, sampling_time,
-                                  altaz, time_array)
+        observation = Observation(response, noise, frequency_range,
+                                  sampling_time, altaz, time_array)
 
         self.observations[obs_name] = observation
 
-    def observe(self, telescopes, location=None, start=None,
-                name=None, altaz=None, verbose=True):
+    def observe(self, telescopes, location=None, name=None,
+                altaz=None, verbose=True):
         """
 
         Parameters
@@ -615,9 +612,9 @@ class FastRadioBursts(object):
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
-                self.__observe(telescope, location, start, name, altaz)
+                self.__observe(telescope, location, name, altaz)
         else:
-            self.__observe(telescopes, location, start, name, altaz)
+            self.__observe(telescopes, location, name, altaz)
 
         sys.stdout = old_target
 
