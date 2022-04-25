@@ -180,6 +180,7 @@ class HealPixMap(HEALPix):
         sight = coordinates.AltAz(alt=alt, az=az, obstime=self.itrs_time)
         sight = sight.cartesian.xyz[:, numpy.newaxis]
 
+        sampling_time = telescope.sampling_time
         frequency_range = telescope.frequency_range
         width = telescope.frequency_range.diff()
 
@@ -188,29 +189,27 @@ class HealPixMap(HEALPix):
         cosines = (xyz * sight).sum(0)
         arcs = numpy.arccos(cosines).to(units.deg)
         mask = (arcs < radius).sum(-1) > 0
-        response = numpy.zeros((self.npix, telescope.beams))
-        response[mask] = telescope.response(altaz[mask])
 
+        resp = telescope.response(altaz[mask])
+        response = numpy.zeros((self.npix, *resp.shape[1:]))
+        response[mask] = resp
         response = response * (units.MHz / width).to(1)
         dims = 'PIXEL', obs_name
         response = xarray.DataArray(response, dims=dims, name='Response')
-
-        array = telescope.array
-        sampling_time = telescope.sampling_time
-
-        if array is not None:
-            xyz = altaz.cartesian.xyz[:2]
-            time_array = array @ xyz / constants.c
-            time_array = time_array.to(units.ms)
-        else:
-            time_array = None
+        response.name = 'Response'
 
         noise = telescope.noise()
         noise = (noise / units.Jy).to(1)
         noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
+        noise.name = 'Noise'
 
-        observation = Observation(response, noise, frequency_range,
-                                  sampling_time, altaz, time_array)
+        time_array = telescope.time_array(altaz)
+        time_array = (time_array * units.MHz).to(1)
+        time_array = xarray.DataArray(time_array, dims=('FRB', obs_name))
+        time_array.name = 'Time Array'
+
+        observation = Observation(response, noise, altaz, time_array,
+                                  frequency_range, sampling_time)
 
         observation.pix = numpy.flatnonzero(mask)
 
@@ -515,7 +514,7 @@ class HealPixMap(HEALPix):
                           spectral_index=spectral_index, total=total,
                           level=level)
 
-    def interferometry(self, namei, namej=None, time_delay=False):
+    def interferometry(self, namei, namej=None):
         """
 
         Parameters
@@ -535,5 +534,5 @@ class HealPixMap(HEALPix):
             key = 'INTF_{}'.format(namei)
         else:
             key = 'INTF_{}_{}'.format(namei, namej)
-        interferometry = Interferometry(obsi, obsj, time_delay=time_delay)
+        interferometry = Interferometry(obsi, obsj)
         self.observations[key] = interferometry

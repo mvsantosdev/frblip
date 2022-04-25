@@ -1,36 +1,18 @@
 import numpy
-
 from scipy.special import j1
-
-from astropy import units, coordinates
+from astropy import coordinates
 
 
 class FunctionalPattern(object):
     """ """
 
-    def __init__(self, directivity, alt=90.0, az=0.0, kind='gaussian'):
+    def __init__(self, radius, alt=90.0, az=0.0, kind='gaussian'):
 
-        self.n_beam = numpy.size(az)
-        self.response = self.__getattribute__(kind)
-        self.set_radius(directivity)
+        self.beams = numpy.size(az)
+        self.radius = radius
         self.set_directions(alt, az)
-
-    def set_radius(self, directivity):
-        """
-
-        Parameters
-        ----------
-        directivity :
-
-
-        Returns
-        -------
-
-        """
-
-        solid_angle = 4 * numpy.pi / directivity.to(1 / units.sr)
-        arg = 1 - solid_angle / (2 * numpy.pi * units.sr)
-        self.radius = numpy.arccos(arg)
+        key = '_FunctionalPattern__{}'.format(kind)
+        self.response = self.__getattribute__(key)
 
     def set_directions(self, alt, az):
         """
@@ -49,13 +31,13 @@ class FunctionalPattern(object):
 
         altaz = coordinates.AltAz(alt=alt, az=az)
         self.offsets = coordinates.SkyOffsetFrame(origin=altaz)
-        self.n_beam = az.size
+        self.beams = az.size
 
     def __call__(self, AltAz):
 
         AltAzOffs = [
             AltAz.transform_to(self.offsets[i])
-            for i in range(self.n_beam)
+            for i in range(self.beams)
         ]
 
         cossines = numpy.column_stack([
@@ -67,47 +49,11 @@ class FunctionalPattern(object):
         rescaled_arc = (arcs / self.radius).to(1).value
         return self.response(rescaled_arc)
 
-    def tophat(self, x):
-        """
-
-        Parameters
-        ----------
-        x :
-
-
-        Returns
-        -------
-
-        """
-
+    def __tophat(self, x):
         return numpy.abs(x) <= 1
 
-    def gaussian(self, x):
-        """
-
-        Parameters
-        ----------
-        x :
-
-
-        Returns
-        -------
-
-        """
-
+    def __gaussian(self, x):
         return numpy.exp(-x**2)
 
-    def bessel(self, x):
-        """
-
-        Parameters
-        ----------
-        x :
-
-
-        Returns
-        -------
-
-        """
-
+    def __bessel(self, x):
         return numpy.nan_to_num(j1(2 * x) / x, nan=1.0)**2

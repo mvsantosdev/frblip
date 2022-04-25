@@ -76,33 +76,19 @@ def intf_integral(spectral_index, frequency, time_delays):
 class Observation():
     """ """
 
-    def __init__(self, response=None, noise=None, frequency_range=None,
-                 sampling_time=None, altaz=None, time_array=None):
-
-        self.sampling_time = sampling_time
+    def __init__(self, response=None, noise=None, altaz=None,
+                 time_array=None, frequency_range=None,
+                 sampling_time=None):
 
         self.response = response
         self.noise = noise
-        self.frequency_range = frequency_range
         self.altaz = altaz
+        self.time_array = time_array
+        self.frequency_range = frequency_range
+        self.sampling_time = sampling_time
+
         self.kind = response.dims[0]
-
         self.width = self.frequency_range.diff()
-
-        if time_array is not None:
-            self.time_array = time_array
-            self.__n_array = time_array.shape[0]
-
-        self.__set_response()
-
-    def __set_response(self):
-
-        noise = self.noise is not None
-        response = self.response is not None
-
-        if response and noise:
-            self.__n_beam = self.response.shape[1:]
-            self.__n_telescopes = numpy.size(self.__n_beam)
 
     def __set_coordinates(self):
 
@@ -299,15 +285,10 @@ def time_difference(obsi, obsj):
     return squeeze_but_one(dt)
 
 
-class Interferometry():
+class Interferometry(Observation):
     """ """
 
-    def __init__(self, obsi, obsj=None, time_delay=False):
-
-        if time_delay:
-            self.get_response = self.__time_delay
-        else:
-            self.get_response = self.__no_time_delay
+    def __init__(self, obsi, obsj=None):
 
         self.kind, namei = obsi.response.dims
 
@@ -343,79 +324,37 @@ class Interferometry():
                                 'correlations of single beams.')
         else:
 
-            respi = obsi.response
-            respj = obsj.response
-            self.response = numpy.sqrt(respi * respj / 2)
-            self.response = squeeze_but_one(self.response)
-
-            self.time_delay = time_difference(obsi, obsj)
-            self.pairs = self.time_delay.shape[-1]
-
-            if time_delay:
-                self.get_response = self.__time_delay
-            else:
-                self.get_response = self.__no_time_delay
-                self.response = self.pairs * self.response
-
             freqi = obsi.frequency_range
             freqj = obsj.frequency_range
             nu_1, nu_2 = numpy.column_stack([freqi, freqj])
-            self.frequency_range = units.Quantity([nu_1.max(), nu_2.min()])
+            nu = units.Quantity([nu_1.max(), nu_2.min()])
+            self.frequency_range = nu
 
             wi = freqi.diff()
             wj = freqj.diff()
             self.width = self.frequency_range.diff()
 
+            qi = (wi / self.width).to(1)
+            qj = (wj / self.width).to(1)
+
+            respi = obsi.response * qi
+            respj = obsj.response * qj
+            self.response = numpy.sqrt(respi * respj / 2)
+            sign = numpy.sign(respi)
+            self.response = sign * self.response
+
+            dt = obsi.time_array - obsj.time_array
+            Dt = obsi.altaz.obstime - obsj.altaz.obstime
+            Dt = (Dt * units.MHz).to(1)
+            Dt = xarray.DataArray(Dt, dims='FRB')
+            self.time_delay = dt + Dt
+
             noisei = obsi.noise
             noisej = obsj.noise
-            noise = 0.5 * noisei * noisej * wi * wj
-            self.noise = numpy.sqrt(noise / self.pairs)
-            self.noise = self.noise / self.width
+            noise = noisei * noisej * qi * qj
+            self.noise = numpy.sqrt(noise / 2)
 
             ti = obsi.sampling_time
             tj = obsj.sampling_time
             sampling_time = numpy.stack([ti, tj])
             self.sampling_time = sampling_time.max()
-
-    def get_noise(self, channels=1):
-        """
-
-        Parameters
-        ----------
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-        noise = numpy.full(channels, numpy.sqrt(channels))
-        noise = self.noise * xarray.DataArray(noise, dims='CHANNEL')
-        return noise
-
-    def __no_time_delay(self, spectral_index, channels=1):
-
-        nu = (self.frequency_range / units.MHz).to(1)
-        nu = numpy.linspace(*nu, channels + 1)
-        nu = xarray.DataArray(nu, dims='CHANNEL')
-        spec_idx = xarray.DataArray(spectral_index, dims=self.kind)
-        nu_pow = nu**(1 + spec_idx)
-        density_flux = nu_pow.diff('CHANNEL') / nu.diff('CHANNEL')
-        density_flux = density_flux * (self.width / units.MHz).to(1)
-        return self.response * density_flux
-
-    def __time_delay(self, spectral_index, channels=1):
-
-        nu = numpy.linspace(*self.frequency_range, channels + 1)
-        nu = (nu / units.MHz).to(1)
-        nu = xarray.DataArray(nu, dims='CHANNEL')
-        si = xarray.DataArray(spectral_index, dims=self.kind)
-
-        k = (2 * numpy.pi * self.time_delay * units.MHz).to(1)
-        k = xarray.DataArray(k, dims=(self.kind, 'BASELINES'))
-        intf = hyp(si, k * nu)
-        dims = ('FRB', 'BASELINES', 'CHANNEL')
-        intf = xarray.DataArray(intf, dims=dims) / k**(si + 1)
-        intf = intf.diff('CHANNEL') / nu.diff('CHANNEL')
-        intf = intf * (self.width / units.MHz).to(1)
-        return self.response * intf

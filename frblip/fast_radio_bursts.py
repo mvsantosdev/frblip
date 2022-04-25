@@ -518,6 +518,10 @@ class FastRadioBursts(object):
         if 'observations' not in self.__dict__:
             self.observations = {}
 
+        n_obs = len(self.observations)
+        obs_name = 'OBS_{}'.format(n_obs) if name is None else name
+        obs_name = obs_name.replace(' ', '_')
+
         location = telescope.location if location is None else location
         lon, lat, height = location.lon, location.lat, location.height
 
@@ -527,8 +531,9 @@ class FastRadioBursts(object):
             'height={:.3f}.'.format(height), end='\n\n'
         )
 
-        frequency_range = telescope.frequency_range
         sampling_time = telescope.sampling_time
+        frequency_range = telescope.frequency_range
+        width = telescope.frequency_range.diff()
 
         zmax = self.high_frequency / frequency_range[0] - 1
         zmin = self.low_frequency / frequency_range[-1] - 1
@@ -537,34 +542,19 @@ class FastRadioBursts(object):
         altaz = self.altaz(location) if altaz is None else altaz
         in_range = (self.redshift > zmin) & (self.redshift < zmax)
         visible = altaz.alt > 0
-        obs = visible & in_range
+        mask = visible & in_range
 
         vis_frac = 100 * visible.mean()
         range_frac = 100 * in_range.mean()
-        obs_frac = 100 * obs.mean()
+        obs_frac = 100 * mask.mean()
 
         print('>>> {:.3}% are visible.'.format(vis_frac))
         print('>>> {:.3}% are in frequency range.'.format(range_frac))
         print('>>> {:.3}% are observable.'.format(obs_frac), end='\n\n')
 
-        resp = telescope.response(altaz[obs])
+        resp = telescope.response(altaz[mask])
         response = numpy.zeros((self.n_frb, *resp.shape[1:]))
-        response[obs] = resp
-
-        array = telescope.array
-
-        if array is not None:
-            xyz = altaz.cartesian.xyz[:2]
-            time_array = array @ xyz / constants.c
-            time_array = time_array.T.to(units.ms)
-        else:
-            time_array = None
-
-        n_obs = len(self.observations)
-        obs_name = 'OBS_{}'.format(n_obs) if name is None else name
-        obs_name = obs_name.replace(' ', '_')
-
-        width = telescope.frequency_range.diff()
+        response[mask] = resp
 
         S0 = self.__S0 / width
         S0 = (S0 / units.Jy).to(1)
@@ -576,9 +566,15 @@ class FastRadioBursts(object):
         noise = telescope.noise()
         noise = (noise / units.Jy).to(1)
         noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
+        noise.name = 'Noise'
 
-        observation = Observation(response, noise, frequency_range,
-                                  sampling_time, altaz, time_array)
+        time_array = telescope.time_array(altaz)
+        time_array = (time_array * units.MHz).to(1)
+        time_array = xarray.DataArray(time_array, dims=('FRB', obs_name))
+        time_array.name = 'Time Array'
+
+        observation = Observation(response, noise, altaz, time_array,
+                                  frequency_range, sampling_time)
 
         self.observations[obs_name] = observation
 
@@ -847,7 +843,7 @@ class FastRadioBursts(object):
         return self.__get('_FastRadioBursts__baselines_counts',
                           names, channels, reference=reference)
 
-    def interferometry(self, namei, namej=None, time_delay=False):
+    def interferometry(self, namei, namej=None):
         """
 
         Parameters
@@ -870,7 +866,7 @@ class FastRadioBursts(object):
             key = 'INTF_{}'.format(namei)
         else:
             key = 'INTF_{}_{}'.format(namei, namej)
-        interferometry = Interferometry(obsi, obsj, time_delay=time_delay)
+        interferometry = Interferometry(obsi, obsj)
         self.observations[key] = interferometry
 
     def to_dict(self):
