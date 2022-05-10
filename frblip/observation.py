@@ -3,12 +3,8 @@ import xarray
 
 from itertools import combinations
 
-from scipy.special import hyp1f1, erf
-
-from astropy.time import Time
+from scipy.special import erf
 from astropy import coordinates, units
-
-from .utils import sub_dict, squeeze_but_one
 
 
 def disperse(nu, DM):
@@ -38,41 +34,6 @@ def scattered_gaussian(t, w, ts, t0=0.0):
     return ff / ff.max(0)
 
 
-def hyp(alpha, x):
-
-    result = numpy.zeros_like(x)
-
-    idx = alpha == 0
-    result[idx] = numpy.sin(x[idx])
-
-    idx = alpha != 0
-    px = x[idx]
-    ix = 1j * px
-    a1 = alpha[idx] + 1
-    h1f1 = hyp1f1(a1, a1 + 1, ix)
-    result[idx] = (px**a1) * h1f1.real
-
-    return result
-
-
-@numpy.errstate(invalid='ignore')
-def intf_integral(spectral_index, frequency, time_delays):
-
-    diff_nu = numpy.diff(frequency)
-    si = spectral_index.reshape(-1, 1, 1)
-
-    nu = numpy.atleast_3d(frequency)
-    tau = time_delays[:, numpy.newaxis]
-    k = 2 * numpy.pi * tau
-    kx = (k * nu).to(1).value
-    kn = (k * units.MHz).to(1).value
-    intf = hyp(si, kx) / kn**(si + 1)
-    intf = numpy.nansum(intf, axis=-1)
-
-    flux = numpy.diff(intf, axis=-1)
-    return flux / diff_nu
-
-
 class Observation():
     """ """
 
@@ -93,10 +54,8 @@ class Observation():
     def __set_coordinates(self):
 
         params = self.__dict__
-
-        location = sub_dict(params, pop=True, keys=['lon', 'lat', 'height'])
-        kwargs = sub_dict(params, pop=True, keys=['alt', 'az', 'obstime'])
-        kwargs['obstime'] = Time(kwargs['obstime']).to_datetime()
+        location = {key: params.pop(key) for key in ('lon', 'lat', 'height')}
+        kwargs = {key: params.pop(key) for key in ('alt', 'az', 'obstime')}
 
         if location:
             kwargs['location'] = coordinates.EarthLocation(**location)
@@ -142,85 +101,6 @@ class Observation():
         density_flux = density_flux * (self.width / units.MHz).to(1)
         return self.response * density_flux
 
-    def time_difference(self):
-        """ """
-
-        if hasattr(self, 'time_array'):
-            ran = range(self.__n_array)
-            comb = combinations(ran, 2)
-            i, j = numpy.array([*comb]).T
-            dt = self.time_array[i] - self.time_array[j]
-            return dt.to(units.ns).T
-        return None
-
-    def to_dict(self, flag=''):
-        """
-
-        Parameters
-        ----------
-        flag :
-             (Default value = '')
-
-        Returns
-        -------
-
-        """
-
-        out_dict = {
-            key: value
-            for key, value in self.__dict__.items()
-            if '_Observation__' not in key
-            and value is not None
-        }
-
-        altaz = out_dict.pop('altaz', None)
-
-        if altaz:
-
-            out_dict['az'] = getattr(altaz, 'az', None)
-            out_dict['alt'] = getattr(altaz, 'alt', None)
-            obstime = getattr(altaz, 'obstime', None)
-            obstime = obstime.to_datetime().astype(numpy.str_)
-            out_dict['obstime'] = obstime
-
-            location = getattr(altaz, 'location', None)
-
-            if location:
-
-                out_dict['lon'] = getattr(location, 'lon', None)
-                out_dict['lat'] = getattr(location, 'lat', None)
-                out_dict['height'] = getattr(location, 'height', None)
-
-        out_dict = {
-            '{}{}'.format(flag, key): value
-            for key, value in out_dict.items()
-            if value is not None
-        }
-
-        return out_dict
-
-    @staticmethod
-    def from_dict(kwargs):
-        """
-
-        Parameters
-        ----------
-        kwargs :
-
-
-        Returns
-        -------
-
-        """
-
-        output = Observation.__new__(Observation)
-        output.__dict__.update(kwargs)
-        output.__set_coordinates()
-        output.__set_frequencies()
-        output.__set_response()
-
-        return output
-
     def __getitem__(self, idx):
 
         if isinstance(idx, slice):
@@ -253,42 +133,10 @@ class Observation():
         self.response = response
 
 
-def time_difference(obsi, obsj):
-
-    """
-
-    Parameters
-    ----------
-    obsi :
-
-    obsj :
-
-
-    Returns
-    -------
-
-    """
-
-    ti = obsi.altaz.obstime
-    tj = obsj.altaz.obstime
-
-    n_frb = numpy.unique([ti.size, tj.size]).item(0)
-
-    dt = (tj - ti).to(units.ms)
-
-    t_arrayi = getattr(obsi, 'time_array', numpy.zeros((n_frb, 1)))
-    t_arrayj = getattr(obsj, 'time_array', numpy.zeros((n_frb, 1)))
-
-    Dt = t_arrayj[:, numpy.newaxis] - t_arrayi[..., numpy.newaxis]
-    dt = dt[..., numpy.newaxis] - Dt.reshape(n_frb, -1)
-
-    return squeeze_but_one(dt)
-
-
 class Interferometry(Observation):
     """ """
 
-    def __init__(self, obsi, obsj=None):
+    def __init__(self, obsi, obsj=None, degradation=None):
 
         self.kind, namei = obsi.response.dims
 
@@ -300,6 +148,7 @@ class Interferometry(Observation):
             if beams > 1:
 
                 noise = obsi.noise
+                time_array = obsi.time_array
                 self.frequency_range = obsi.frequency_range
                 self.width = self.frequency_range.diff()
                 self.sampling_time = obsi.sampling_time
@@ -318,6 +167,12 @@ class Interferometry(Observation):
                 ])
                 noise = xarray.DataArray(noise, dims=namei)
                 self.noise = numpy.sqrt(noise / 2)
+
+                time_delay = numpy.column_stack([
+                    time_array[:, i] - time_array[:, j]
+                    for i, j in combinations(range(beams), 2)
+                ])
+                self.time_delay = xarray.DataArray(time_delay, dims=dims)
 
             else:
                 raise Exception('FRBlip does not compute self',
@@ -358,3 +213,23 @@ class Interferometry(Observation):
             tj = obsj.sampling_time
             sampling_time = numpy.stack([ti, tj])
             self.sampling_time = sampling_time.max()
+
+        if degradation is not None:
+            if isinstance(degradation, (float, int)):
+                self.degradation = 1 + numpy.exp(-degradation**2 / 2)
+                self.get_response = self.__degradation
+            elif isinstance(degradation, tuple):
+                self.amp, self.scale, self.power = degradation
+                self.scale = (self.scale * units.MHz).to(1)
+                self.get_response = self.__time_delay_degradation
+
+    def __degradation(self, spectral_index, channels=1):
+        response = super().get_response(spectral_index, channels)
+        return self.degradation * response
+
+    def __time_delay_degradation(self, spectral_index, channels=1):
+
+        response = super().get_response(spectral_index, channels)
+        log = (self.time_delay / self.scale)**self.power
+        degradation = 1 + self.amp * numpy.exp(-log)
+        return degradation * response

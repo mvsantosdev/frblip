@@ -1,3 +1,4 @@
+dill
 numpy
 pandas
 xarray
@@ -6,5 +7,5 @@ astropy
 astropy-healpix
 healpy
 pygedm
-pyccl
 camb
+pyccl

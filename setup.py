@@ -17,6 +17,7 @@ bla = setup(
     },
     python_requires='>=3.8',
     install_requires=[
+        'dill',
         'numpy',
         'pandas',
         'xarray',
@@ -25,7 +26,7 @@ bla = setup(
         'astropy-healpix',
         'healpy',
         'pygedm',
-        'pyccl',
-        'camb'
+        'camb',
+        'pyccl'
     ]
 )

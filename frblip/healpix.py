@@ -22,19 +22,20 @@ class HealPixMap(HEALPix):
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
                  low_frequency=10, high_frequency=10000,
                  low_frequency_cal=400, high_frequency_cal=1400,
-                 cosmology='Planck_18', zmin=0.0, zmax=30.0):
+                 emission_frame=True, cosmology='Planck_18',
+                 zmin=0.0, zmax=30.0):
 
         super().__init__(nside, order)
 
         self.__load_params(phistar, alpha, log_Lstar, log_L0,
                            low_frequency, high_frequency,
                            low_frequency_cal, high_frequency_cal,
-                           cosmology, zmin, zmax)
+                           emission_frame, cosmology, zmin, zmax)
 
     def __load_params(self, phistar, alpha, log_Lstar, log_L0,
                       low_frequency, high_frequency,
                       low_frequency_cal, high_frequency_cal,
-                      cosmology, zmin, zmax):
+                      emission_frame, cosmology, zmin, zmax):
 
         self.log_L0 = log_L0 * units.LogUnit(units.erg / units.s)
         self.log_Lstar = log_Lstar * units.LogUnit(units.erg / units.s)
@@ -44,6 +45,7 @@ class HealPixMap(HEALPix):
         self.high_frequency = high_frequency * units.MHz
         self.low_frequency_cal = low_frequency_cal * units.MHz
         self.high_frequency_cal = high_frequency_cal * units.MHz
+        self.emission_frame = emission_frame
         self.cosmology = cosmology
         self.zmin = zmin
         self.zmax = zmax
@@ -292,7 +294,8 @@ class HealPixMap(HEALPix):
         nu_factor = width * (nuhp - nulp) / dnup.diff(axis=-1)
 
         Lthre = 4 * numpy.pi * nu_factor * lum_dist**2 * sgrid
-        Lthre = Lthre / (1 + zgrid)**_sip
+        if self.emission_frame:
+            Lthre = Lthre / (1 + zgrid)**_sip
 
         xthre = Lthre.to(self.log_Lstar.unit) - self.log_Lstar
         xmin, xmax = self.__lumdist.xmin, self.__lumdist.xmax

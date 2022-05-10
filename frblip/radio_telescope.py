@@ -1,7 +1,11 @@
 import os
 
+import bz2
+import dill
+
 import numpy
 
+from operator import itemgetter
 from functools import cached_property
 
 from astropy import coordinates, units, constants
@@ -10,7 +14,9 @@ from astropy.coordinates.matrix_utilities import rotation_matrix
 from .grid import CartesianGrid
 from .pattern import FunctionalPattern
 
-from .utils import _DATA, load_file, load_params, sub_dict
+
+_ROOT = os.path.abspath(os.path.dirname(__file__))
+_DATA = os.path.join(_ROOT, 'data')
 
 
 noise_performance = {
@@ -47,10 +53,11 @@ class RadioTelescope(object):
 
         """
 
-        name_ = '{}/{}.npz'.format(_DATA, name)
-        name_ = name_ if os.path.exists(name_) else name
-        input_dict = load_file(name_)
-        input_dict = load_params(input_dict)
+        file_name = '{}/{}.pkl'.format(_DATA, name)
+        file_name = file_name if os.path.exists(file_name) else name
+        file = bz2.BZ2File(file_name, 'rb')
+        input_dict = dill.load(file)
+        file.close()
 
         self.__dict__.update(input_dict)
         self.__derived()
@@ -76,15 +83,15 @@ class RadioTelescope(object):
         self.kind = kind
 
         if kind == 'grid':
-            keys = ['grid', 'xrange', 'yrange']
-            grid_params = sub_dict(self.__dict__, keys=keys, pop=True)
-            coords = sub_dict(self.__dict__, keys=['alt', 'az'])
-            grid_params.update(coords)
-            self.__response = CartesianGrid(**grid_params)
+            params = self.__dict__
+            keys = 'grid', 'xrange', 'yrange'
+            grid_params = [params.pop(key) for key in keys]
+            sky_params = itemgetter('alt', 'az')(params)
+            self.__response = CartesianGrid(*grid_params, *sky_params)
         elif kind in patterns:
-            keys = ['kind', 'radius', 'alt', 'az']
-            pattern_params = sub_dict(self.__dict__, keys=keys)
-            self.__response = FunctionalPattern(**pattern_params)
+            keys = 'radius', 'alt', 'az', 'kind'
+            pattern_params = itemgetter(*keys)(self.__dict__)
+            self.__response = FunctionalPattern(*pattern_params)
 
     def __set_array(self, array):
 

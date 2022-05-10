@@ -1,6 +1,9 @@
 import os
 import sys
 
+import bz2
+import dill
+
 import numpy
 import xarray
 
@@ -13,8 +16,6 @@ from astropy.time import Time
 from astropy import units, constants, coordinates
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
-
-from .utils import load_params, load_file, sub_dict
 
 from .random import Redshift, Schechter, SpectralIndex
 
@@ -31,10 +32,10 @@ class FastRadioBursts(object):
 
     def __init__(self, n_frb=None, days=1, log_Lstar=44.46, log_L0=41.96,
                  phistar=339, gamma=-1.79, pulse_width=(-6.917, 0.824),
-                 zmin=0, zmax=6, ra=(0, 24), dec=(-90, 90),
-                 spectral_index='CHIME2021', start=None,
+                 zmin=0, zmax=6, ra=(0, 24), dec=(-90, 90), start=None,
                  low_frequency=10.0, high_frequency=10000.0,
                  low_frequency_cal=400.0, high_frequency_cal=1400.0,
+                 emission_frame=True, spectral_index='CHIME2021',
                  gal_method='yt2020_analytic', gal_nside=128,
                  host_source='luo18', host_model=('ALG', 'YMW16'),
                  cosmology='Planck_18', free_electron_bias='Takahashi2021',
@@ -92,23 +93,23 @@ class FastRadioBursts(object):
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
 
-        self.__load_params(n_frb, days, log_Lstar, log_L0, phistar,
-                           gamma, pulse_width, zmin, zmax, ra, dec,
-                           spectral_index, start, low_frequency,
-                           high_frequency, low_frequency_cal,
-                           high_frequency_cal, gal_method, gal_nside,
-                           host_source, host_model, cosmology,
-                           free_electron_bias)
+        self.__load_params(n_frb, days, log_Lstar, log_L0, phistar, gamma,
+                           pulse_width, zmin, zmax, ra, dec, start,
+                           low_frequency, high_frequency,
+                           low_frequency_cal, high_frequency_cal,
+                           emission_frame, spectral_index, gal_method,
+                           gal_nside, host_source, host_model,
+                           cosmology, free_electron_bias)
         self.__frb_rate(n_frb, days)
-        self.__random()
+        self.__S0
 
         sys.stdout = old_target
 
-    def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar,
-                      gamma, pulse_width, zmin, zmax, ra, dec, spectral_index,
-                      start, low_frequency, high_frequency, low_frequency_cal,
-                      high_frequency_cal, gal_method, gal_nside, host_source,
-                      host_model, cosmology, free_electron_bias):
+    def __load_params(self, n_frb, days, log_Lstar, log_L0, phistar, gamma,
+                      pulse_width, zmin, zmax, ra, dec, start, low_frequency,
+                      high_frequency, low_frequency_cal, high_frequency_cal,
+                      emission_frame, spectral_index, gal_method, gal_nside,
+                      host_source, host_model, cosmology, free_electron_bias):
 
         self.zmin = zmin
         self.zmax = zmax
@@ -128,6 +129,7 @@ class FastRadioBursts(object):
         self.cosmology = cosmology
         self.host_source = host_source
         self.host_model = host_model
+        self.emission_frame = emission_frame
 
         if start is None:
             now = Time.now()
@@ -349,10 +351,13 @@ class FastRadioBursts(object):
     @cached_property
     def __S0(self):
         _sip1 = self.spectral_index + 1
-        z_factor = (1 + self.redshift)**_sip1
         nu_lp = (self.low_frequency_cal / units.MHz)**_sip1
         nu_hp = (self.high_frequency_cal / units.MHz)**_sip1
-        return self.__flux * z_factor / (nu_hp - nu_lp)
+        sflux = self.__flux / (nu_hp - nu_lp)
+        if self.emission_frame:
+            z_factor = (1 + self.redshift)**_sip1
+            return sflux * z_factor
+        return sflux
 
     def peak_density_flux(self, frequency):
         si = self.spectral_index.reshape(-1, 1)
@@ -501,15 +506,17 @@ class FastRadioBursts(object):
               self.rate, '.\nTherefore it corrensponds to', self.duration,
               'of observation. \n')
 
-    def __random(self):
+    def shuffle(self):
 
-        self.icrs
-        self.area
-        self.redshift
-        self.itrs_time
-        self.pulse_width
-        self.log_luminosity
-        self.spectral_index
+        idx = numpy.arange(self.n_frb)
+        numpy.random.shuffle(idx)
+
+        self.__dict__.update({
+            key: value[idx]
+            for key, value in self.__dict__.items()
+            if key not in ('icrs', 'itrs', 'itrs_time')
+            and numpy.size(value) == self.n_frb
+        })
 
     def __observe(self, telescope, location=None, name=None, altaz=None):
 
@@ -843,7 +850,7 @@ class FastRadioBursts(object):
         return self.__get('_FastRadioBursts__baselines_counts',
                           names, channels, reference=reference)
 
-    def interferometry(self, namei, namej=None):
+    def interferometry(self, namei, namej=None, degradation=None):
         """
 
         Parameters
@@ -866,125 +873,37 @@ class FastRadioBursts(object):
             key = 'INTF_{}'.format(namei)
         else:
             key = 'INTF_{}_{}'.format(namei, namej)
-        interferometry = Interferometry(obsi, obsj)
+        interferometry = Interferometry(obsi, obsj, degradation)
         self.observations[key] = interferometry
 
-    def to_dict(self):
-        """ """
-
-        out_dict = {
-            key: name
-            for key, name in self.__dict__.items()
-            if "_FastRadioBursts__" not in key
-        }
-
-        icrs = out_dict.pop('icrs', None)
-        if icrs:
-            out_dict['ra'] = icrs.ra
-            out_dict['dec'] = icrs.dec
-
-        observations = out_dict.pop('observations', None)
-        if observations is not None:
-            keys = [*observations.keys()]
-            out_dict['observations'] = numpy.array([
-                key for key in keys if 'INTF' not in key
-            ])
-
-            for name in out_dict['observations']:
-                flag = '{}__'.format(name)
-                observation = observations[name].to_dict(flag)
-                out_dict.update(observation)
-
-        out_dict['unit'] = {
-            key: value.unit.to_string()
-            for key, value in out_dict.items()
-            if hasattr(value, 'unit')
-            and value.unit != ''
-        }
-
-        out_dict.update({
-            'u_{}'.format(key): value.unit.to_string()
-            for key, value in out_dict.items()
-            if hasattr(value, 'unit')
-            and value.unit != ''
-        })
-
-        return out_dict
-
-    def save(self, file, compressed=True):
+    def save(self, name):
         """
-
         Parameters
         ----------
-        file :
+        name :
 
-        compressed :
-            (Default value = True)
 
         Returns
         -------
-
-
         """
-        out_dict = self.to_dict()
-        if compressed:
-            numpy.savez_compressed(file, **out_dict)
-        else:
-            numpy.savez(file, **out_dict)
+        file_name = '{}.blips'.format(name)
+        file = bz2.BZ2File(file_name, 'wb')
+        dill.dump(self, file, dill.HIGHEST_PROTOCOL)
+        file.close()
 
     @staticmethod
-    def from_dict(params):
+    def load(name):
         """
-
         Parameters
         ----------
-        params :
+        name :
 
 
         Returns
         -------
-
-
         """
-
-        output = FastRadioBursts.__new__(FastRadioBursts)
-        observations = params.pop('observations', None)
-
-        if observations is not None:
-
-            output.observations = {}
-
-            for name in observations:
-                flag = '{}__'.format(name)
-                obs = sub_dict(params, flag=flag, pop=True)
-                obs['response'] = obs.pop('response')
-                observation = Observation.from_dict(obs)
-                output.observations[name] = observation
-
-        ra = params.pop('ra', None)
-        dec = params.pop('dec', None)
-        if ra and dec:
-            icrs = coordinates.SkyCoord(ra, dec, frame='icrs')
-            params['icrs'] = icrs
-
-        output.__dict__.update(params)
-
-        return output
-
-    @staticmethod
-    def load(file):
-        """
-
-        Parameters
-        ----------
-        file :
-
-
-        Returns
-        -------
-
-
-        """
-        input_dict = load_file(file)
-        params = load_params(input_dict)
-        return FastRadioBursts.from_dict(params)
+        file_name = '{}.blips'.format(name)
+        file = bz2.BZ2File(file_name, 'rb')
+        loaded = dill.load(file)
+        file.close()
+        return loaded
