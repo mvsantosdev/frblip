@@ -200,7 +200,7 @@ class HealPixMap(HEALPix):
         response = xarray.DataArray(response, dims=dims, name='Response')
         response.name = 'Response'
 
-        noise = telescope.noise()
+        noise = telescope.noise
         noise = (noise / units.Jy).to(1)
         noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
         noise.name = 'Noise'

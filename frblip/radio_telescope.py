@@ -32,8 +32,8 @@ class RadioTelescope(object):
 
     """Class which defines a Radio Surveynp"""
 
-    def __init__(self, name='bingo', kind='gaussian',
-                 array=None, offset=None, location=None):
+    def __init__(self, name='bingo', kind='gaussian', array=None,
+                 offset=None, location=None, **kwargs):
 
         """
         Creates a RadioTelescope object.
@@ -59,89 +59,53 @@ class RadioTelescope(object):
         input_dict = dill.load(file)
         file.close()
 
+        input_dict.update(kwargs)
+
         self.__dict__.update(input_dict)
-        self.__derived()
-
-        if offset is not None:
-            self.set_offset(*offset)
-            self.response = self.__offset_response
-        else:
-            self.response = self.__no_offset_response
-
-        if location is not None:
-            self.set_location(location)
-
-        self.__set_kind(kind)
-        self.__set_array(array)
-
-    def __set_kind(self, kind):
-
-        patterns = 'tophat', 'bessel', 'gaussian'
-        error_msg = 'Please choose a valid pattern kind'
-        assert kind in (*patterns, 'grid'), error_msg
 
         self.kind = kind
+        self.radius
+        self.__set_array(array)
+        self.__gain
 
-        if kind == 'grid':
+        if offset is not None:
+            self.alt_shift, self.az_shift = offset
+            self.alt_shift = (self.alt_shift - 90) * units.deg
+            self.az_shift = self.az_shift * units.degree
+
+    def __offset_response(self, altaz):
+        altazoff = altaz.transform_to(self.offset)
+        altaz = coordinates.AltAz(alt=altazoff.lat, az=altazoff.lon)
+        return self.pattern(altaz)
+
+    @cached_property
+    def response(self):
+        if hasattr(self, 'alt_shift') and hasattr(self, 'az_shift'):
+            return self.__offset_response
+        return self.pattern
+
+    @cached_property
+    def pattern(self):
+        patterns = 'tophat', 'bessel', 'gaussian'
+        error_msg = 'Please choose a valid pattern kind'
+        assert self.kind in (*patterns, 'grid'), error_msg
+
+        if self.kind == 'grid':
             params = self.__dict__
             keys = 'grid', 'xrange', 'yrange'
             grid_params = [params.pop(key) for key in keys]
             sky_params = itemgetter('alt', 'az')(params)
-            self.__response = CartesianGrid(*grid_params, *sky_params)
-        elif kind in patterns:
+            return CartesianGrid(*grid_params, *sky_params)
+        elif self.kind in patterns:
             keys = 'radius', 'alt', 'az', 'kind'
             pattern_params = itemgetter(*keys)(self.__dict__)
-            self.__response = FunctionalPattern(*pattern_params)
-
-    def __set_array(self, array):
-
-        if array is None:
-            self.array = array
-            self.time_array = self.__none_array
-        else:
-            if hasattr(array, 'unit'):
-                self.array = array
-            else:
-                self.array = array * units.m
-
-            self.time_array = self.__array
-
-            shape = self.array.shape
-            positions, dims = shape
-
-            assert dims == 2
-
-            if (self.beams == 1) and (positions > 1):
-                self.beams = positions
-            elif (self.beams > 1) and (positions > 1):
-                assert self.beams == positions
+            return FunctionalPattern(*pattern_params)
 
     @cached_property
-    def xyz(self):
-        """ """
-        loc = self.location.get_itrs()
-        return loc.cartesian.xyz
+    def offset(self):
 
-    def set_offset(self, alt, az):
-        """
-
-        Parameters
-        ----------
-        alt :
-
-        az :
-
-
-        Returns
-        -------
-
-        """
-
-        alt_shift = (alt - 90) * units.deg
-        az_shift = az * units.degree
-
-        Roty = rotation_matrix(alt_shift, 'y')
-        Rotz = rotation_matrix(-az_shift, 'z')
+        Roty = rotation_matrix(self.alt_shift, 'y')
+        Rotz = rotation_matrix(-self.az_shift, 'z')
         Rot = Rotz @ Roty
 
         us = coordinates.UnitSphericalRepresentation(lon=self.az,
@@ -152,123 +116,98 @@ class RadioTelescope(object):
         self.az = lon.to(units.deg)
         self.alt = lat.to(units.deg)
 
-        altaz = coordinates.AltAz(alt=alt_shift, az=az_shift)
+        altaz = coordinates.AltAz(alt=self.alt_shift, az=self.az_shift)
         self.offset = coordinates.SkyOffsetFrame(origin=altaz)
 
-    def set_directions(self, alt, az):
-        """
+    def __set_array(self, array):
 
-        Parameters
-        ----------
-        alt :
-
-        az :
-
-
-        Returns
-        -------
-
-        """
-        self.__response.set_directions(alt, az)
-
-    def set_location(self, location=None, lon=None, lat=None, height=None):
-        """
-
-        Parameters
-        ----------
-        location :
-             (Default value = None)
-        lon :
-             (Default value = None)
-        lat :
-             (Default value = None)
-        height :
-             (Default value = None)
-
-        Returns
-        -------
-
-        """
-
-        if location is not None:
-            self.location = location
+        if array is None:
+            self.time_array = self.__none_array
         else:
-            coords = dict(lon=lon, lat=lat, height=height)
-            self.location = coordinates.EarthLocation(**coords)
 
-    def noise(self):
+            shape = array.shape
+            positions, dims = shape
+            assert dims == 2, "array is not a bidimensional numpy.ndarray."
+            if (positions > 1) and (self.radius.size == 1):
+                self.radius = numpy.tile(self.radius, positions)
+
+            if hasattr(array, 'unit'):
+                self.array = array
+            else:
+                self.array = array * units.m
+
+            self.time_array = self.__array
+
+    @cached_property
+    def xyz(self):
         """ """
+        loc = self.location.get_itrs()
+        return loc.cartesian.xyz
 
-        band_width = numpy.diff(self.frequency_range)
-        scaled_time = band_width * self.sampling_time
+    @cached_property
+    def band_width(self):
+        return numpy.diff(self.frequency_range)
+
+    @cached_property
+    def minimum_temperature(self):
+        scaled_time = self.band_width * self.sampling_time
         noise_scale = numpy.sqrt(self.polarizations * scaled_time)
-        minimum_temperature = self.system_temperature / noise_scale
-        noise = minimum_temperature / self.__gain
-        if noise.size == 1:
-            noise = numpy.tile(noise, self.beams)
+        return self.system_temperature / noise_scale
+
+    @cached_property
+    def noise(self):
+        noise = self.minimum_temperature / self.__gain
         return self.noise_performance * noise.to(units.Jy)
 
-    def __no_offset_response(self, altaz):
-        response = self.__response(altaz)
-        if response.shape[-1] == 1:
-            response = numpy.tile(response, self.beams)
-        return response
-
-    def __offset_response(self, altaz):
-        altazoff = altaz.transform_to(self.offset)
-        altaz = coordinates.AltAz(alt=altazoff.lat, az=altazoff.lon)
-        response = self.__response(altaz)
-        if response.shape[-1] == 1:
-            return numpy.tile(response, self.beams)
-        return response
-
-    def __derived(self):
-        """ """
+    @cached_property
+    def location(self):
 
         lon = self.__dict__.pop('lon')
         lat = self.__dict__.pop('lat')
         height = self.__dict__.pop('height')
 
-        self.set_location(lon=lon, lat=lat, height=height)
-        self.noise_performance = noise_performance[self.receiver_type]
-        self.set_directivity(self.directivity)
+        coords = dict(lon=lon, lat=lat, height=height)
+        return coordinates.EarthLocation(**coords)
 
-    def set_directivity(self, directivity):
-        """
+    @cached_property
+    def noise_performance(self):
+        return noise_performance[self.receiver_type]
 
-        Parameters
-        ----------
-        directivity :
+    @cached_property
+    def solid_angle(self):
+        directivity = self.directivity.to(1 / units.sr)
+        solid_angle = 4 * numpy.pi / directivity
+        return solid_angle.to(units.sr)
 
+    @cached_property
+    def reference_wavelength(self):
+        return (constants.c / self.reference_frequency).to(units.cm)
 
-        Returns
-        -------
+    @cached_property
+    def effective_area(self):
+        wl = self.reference_wavelength
+        sa = self.solid_angle.value
+        return (wl**2 / sa).to(units.meter**2)
 
-        """
+    @cached_property
+    def gain(self):
+        gain = self.effective_area / constants.k_B
+        return gain.to(units.K / units.Jy) / 2
 
-        self.directivity = numpy.atleast_1d(directivity)
-        self.solid_angle = 4 * numpy.pi / directivity.to(1 / units.sr)
-        reference_wavelength = (constants.c / self.reference_frequency)
-        self.effective_area = reference_wavelength**2 / self.solid_angle.value
-        self.effective_area = self.effective_area.to(units.meter**2)
-        self.gain = 0.5 * (self.effective_area / constants.k_B)
-        self.gain = self.gain.to(units.K / units.Jy)
+    @cached_property
+    def radius(self):
         arg = 1 - self.solid_angle / (2 * numpy.pi * units.sr)
         radius = numpy.arccos(arg).to(units.deg)
-        self.radius = numpy.atleast_1d(radius)
+        return numpy.atleast_1d(radius)
 
-        self.beams = self.directivity.size
-        if (self.beams == 1) and (self.az.size > 1):
-            sizes = self.az.size, self.alt.size
-            self.beams = numpy.unique(sizes)
-            assert self.beams.size == 1
-            self.beams = self.beams.item()
-
-        value = numpy.full(self.beams, self.gain.value)
-        self.__gain = value * self.gain.unit
+    @cached_property
+    def __gain(self):
+        shape = self.pattern.beams
+        value = numpy.full(shape, self.gain.value)
+        return value * self.gain.unit
 
     def __none_array(self, altaz):
-        shape = altaz.size, self.beams
+        shape = altaz.size, self.pattern.beams
         time_array = numpy.zeros(shape)
         return time_array * units.ms
 

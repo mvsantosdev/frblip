@@ -570,7 +570,7 @@ class FastRadioBursts(object):
         response = response * S0
         response.name = 'Response'
 
-        noise = telescope.noise()
+        noise = telescope.noise
         noise = (noise / units.Jy).to(1)
         noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
         noise.name = 'Noise'
@@ -805,7 +805,8 @@ class FastRadioBursts(object):
         return self.__get('_FastRadioBursts__detected', names,
                           channels, total=total, level=level)
 
-    def counts(self, names=None, channels=1, total=False, level=None):
+    def counts(self, names=None, channels=1, SNR=None,
+               total=False, level=None):
         """
 
         Parameters
@@ -825,8 +826,8 @@ class FastRadioBursts(object):
 
         """
 
-        return self.__get('_FastRadioBursts__counts', names,
-                          channels, total=total, level=level)
+        return self.__get('_FastRadioBursts__counts', names, channels,
+                          SNR=SNR, total=total, level=level)
 
     def baselines_counts(self, names=None, channels=1, reference='MAIN'):
 
