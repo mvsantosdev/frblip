@@ -207,10 +207,10 @@ class HealPixMap(HEALPix):
 
         time_array = telescope.time_array(altaz)
         time_array = (time_array * units.MHz).to(1)
-        time_array = xarray.DataArray(time_array, dims=('FRB', obs_name))
+        time_array = xarray.DataArray(time_array, dims=('PIXEL', obs_name))
         time_array.name = 'Time Array'
 
-        observation = Observation(response, noise, altaz, time_array,
+        observation = Observation(altaz, response, noise, time_array,
                                   frequency_range, sampling_time)
 
         observation.pix = numpy.flatnonzero(mask)
@@ -517,7 +517,7 @@ class HealPixMap(HEALPix):
                           spectral_index=spectral_index, total=total,
                           level=level)
 
-    def interferometry(self, namei, namej=None):
+    def interferometry(self, namei, namej=None, degradation=None):
         """
 
         Parameters
@@ -537,5 +537,5 @@ class HealPixMap(HEALPix):
             key = 'INTF_{}'.format(namei)
         else:
             key = 'INTF_{}_{}'.format(namei, namej)
-        interferometry = Interferometry(obsi, obsj)
+        interferometry = Interferometry(obsi, obsj, degradation)
         self.observations[key] = interferometry

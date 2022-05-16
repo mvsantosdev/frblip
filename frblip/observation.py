@@ -37,14 +37,14 @@ def scattered_gaussian(t, w, ts, t0=0.0):
 class Observation():
     """ """
 
-    def __init__(self, response=None, noise=None, altaz=None,
-                 time_array=None, frequency_range=None,
+    def __init__(self, altaz=None, response=None, noise=None,
+                 time_delay=None, frequency_range=None,
                  sampling_time=None):
 
         self.response = response
         self.noise = noise
         self.altaz = altaz
-        self.time_array = time_array
+        self.time_delay = time_delay
         self.frequency_range = frequency_range
         self.sampling_time = sampling_time
 
@@ -138,7 +138,7 @@ class Interferometry(Observation):
 
     def __init__(self, obsi, obsj=None, degradation=None):
 
-        self.kind, namei = obsi.response.dims
+        kind, namei = obsi.response.dims
 
         if obsj is None:
 
@@ -148,31 +148,31 @@ class Interferometry(Observation):
             if beams > 1:
 
                 noise = obsi.noise
-                time_array = obsi.time_array
-                self.frequency_range = obsi.frequency_range
-                self.width = self.frequency_range.diff()
-                self.sampling_time = obsi.sampling_time
+                time_delay = obsi.time_delay
+                frequency_range = obsi.frequency_range
+                width = frequency_range.diff()
+                sampling_time = obsi.sampling_time
 
                 response = numpy.column_stack([
                     response[:, i] * response[:, j]
                     for i, j in combinations(range(beams), 2)
                 ])
-                dims = self.kind, namei
+                dims = kind, namei
                 response = xarray.DataArray(response, dims=dims)
-                self.response = numpy.sqrt(response / 2)
+                response = numpy.sqrt(response / 2)
 
                 noise = numpy.array([
                     noise[i] * noise[j]
                     for i, j in combinations(range(beams), 2)
                 ])
                 noise = xarray.DataArray(noise, dims=namei)
-                self.noise = numpy.sqrt(noise / 2)
+                noise = numpy.sqrt(noise / 2)
 
                 time_delay = numpy.column_stack([
-                    time_array[:, i] - time_array[:, j]
+                    time_delay[:, i] - time_delay[:, j]
                     for i, j in combinations(range(beams), 2)
                 ])
-                self.time_delay = xarray.DataArray(time_delay, dims=dims)
+                time_delay = xarray.DataArray(time_delay, dims=dims)
 
             else:
                 raise Exception('FRBlip does not compute self',
@@ -183,40 +183,45 @@ class Interferometry(Observation):
             freqj = obsj.frequency_range
             nu_1, nu_2 = numpy.column_stack([freqi, freqj])
             nu = units.Quantity([nu_1.max(), nu_2.min()])
-            self.frequency_range = nu
+            frequency_range = nu
 
             wi = freqi.diff()
             wj = freqj.diff()
-            self.width = self.frequency_range.diff()
+            width = frequency_range.diff()
 
-            qi = (wi / self.width).to(1)
-            qj = (wj / self.width).to(1)
+            qi = (wi / width).to(1)
+            qj = (wj / width).to(1)
 
             respi = obsi.response * qi
             respj = obsj.response * qj
-            self.response = numpy.sqrt(respi * respj / 2)
+            response = numpy.sqrt(respi * respj / 2)
             sign = numpy.sign(respi)
-            self.response = sign * self.response
+            response = sign * response
 
-            dt = obsi.time_array - obsj.time_array
+            dt = obsi.time_delay - obsj.time_delay
             Dt = obsi.altaz.obstime - obsj.altaz.obstime
             Dt = (Dt * units.MHz).to(1)
-            Dt = xarray.DataArray(Dt, dims='FRB')
-            self.time_delay = dt + Dt
+            Dt = xarray.DataArray(Dt, dims=kind)
+            time_delay = dt + Dt
 
             noisei = obsi.noise
             noisej = obsj.noise
             noise = noisei * noisej * qi * qj
-            self.noise = numpy.sqrt(noise / 2)
+            noise = numpy.sqrt(noise / 2)
 
             ti = obsi.sampling_time
             tj = obsj.sampling_time
             sampling_time = numpy.stack([ti, tj])
-            self.sampling_time = sampling_time.max()
+            sampling_time = sampling_time.max()
+
+        Observation.__init__(self, response=response,
+                             noise=noise, time_delay=time_delay,
+                             frequency_range=frequency_range,
+                             sampling_time=sampling_time)
 
         if degradation is not None:
             if isinstance(degradation, (float, int)):
-                self.degradation = 1 + numpy.exp(-degradation**2 / 2)
+                self.degradation = numpy.exp(-degradation**2 / 2)
                 self.get_response = self.__degradation
             elif isinstance(degradation, tuple):
                 self.amp, self.scale, self.power = degradation
@@ -224,12 +229,12 @@ class Interferometry(Observation):
                 self.get_response = self.__time_delay_degradation
 
     def __degradation(self, spectral_index, channels=1):
-        response = super().get_response(spectral_index, channels)
+        response = Observation.get_response(self, spectral_index, channels)
         return self.degradation * response
 
     def __time_delay_degradation(self, spectral_index, channels=1):
 
-        response = super().get_response(spectral_index, channels)
+        response = Observation.get_response(self, spectral_index, channels)
         log = (self.time_delay / self.scale)**self.power
-        degradation = 1 + self.amp * numpy.exp(-log)
+        degradation = self.amp * numpy.exp(-log)
         return degradation * response

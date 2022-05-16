@@ -26,6 +26,25 @@ from .observation import Observation, Interferometry
 from .cosmology import Cosmology, builtin
 
 
+def blips(n_frb=None, days=1, log_Lstar=44.46, log_L0=41.96,
+          phistar=339, gamma=-1.79, pulse_width=(-6.917, 0.824),
+          zmin=0, zmax=6, ra=(0, 24), dec=(-90, 90), start=None,
+          low_frequency=10.0, high_frequency=10000.0,
+          low_frequency_cal=400.0, high_frequency_cal=1400.0,
+          emission_frame=True, spectral_index='CHIME2021',
+          gal_method='yt2020_analytic', gal_nside=128,
+          host_source='luo18', host_model=('ALG', 'YMW16'),
+          cosmology='Planck_18', free_electron_bias='Takahashi2021',
+          verbose=True):
+
+    return FastRadioBursts(n_frb, days, log_Lstar, log_L0, phistar, gamma,
+                           pulse_width, zmin, zmax, ra, dec, start,
+                           low_frequency, high_frequency, low_frequency_cal,
+                           high_frequency_cal, emission_frame, spectral_index,
+                           gal_method, gal_nside, host_source, host_model,
+                           cosmology, free_electron_bias, verbose)
+
+
 class FastRadioBursts(object):
 
     """Class which defines a Fast Radio Burst population"""
@@ -43,6 +62,7 @@ class FastRadioBursts(object):
 
         """
         Creates a FRB population object.
+
         Parameters
         ----------
         n_frb : int
@@ -551,13 +571,13 @@ class FastRadioBursts(object):
         visible = altaz.alt > 0
         mask = visible & in_range
 
-        vis_frac = 100 * visible.mean()
-        range_frac = 100 * in_range.mean()
-        obs_frac = 100 * mask.mean()
+        vis_frac = round(100 * visible.mean(), 2)
+        range_frac = round(100 * in_range.mean(), 2)
+        obs_frac = round(100 * mask.mean(), 2)
 
-        print('>>> {:.3}% are visible.'.format(vis_frac))
-        print('>>> {:.3}% are in frequency range.'.format(range_frac))
-        print('>>> {:.3}% are observable.'.format(obs_frac), end='\n\n')
+        print('>>> {}% are visible.'.format(vis_frac))
+        print('>>> {}% are in frequency range.'.format(range_frac))
+        print('>>> {}% are observable.'.format(obs_frac), end='\n\n')
 
         resp = telescope.response(altaz[mask])
         response = numpy.zeros((self.n_frb, *resp.shape[1:]))
@@ -580,7 +600,7 @@ class FastRadioBursts(object):
         time_array = xarray.DataArray(time_array, dims=('FRB', obs_name))
         time_array.name = 'Time Array'
 
-        observation = Observation(response, noise, altaz, time_array,
+        observation = Observation(altaz, response, noise, time_array,
                                   frequency_range, sampling_time)
 
         self.observations[obs_name] = observation
