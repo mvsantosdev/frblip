@@ -45,6 +45,10 @@ def blips(n_frb=None, days=1, log_Lstar=44.46, log_L0=41.96,
                            cosmology, free_electron_bias, verbose)
 
 
+def load(file):
+    return FastRadioBursts.load(file)
+
+
 class FastRadioBursts(object):
 
     """Class which defines a Fast Radio Burst population"""
@@ -641,7 +645,7 @@ class FastRadioBursts(object):
 
         sys.stdout = old_target
 
-    def clear(self, names=None):
+    def clean(self, names=None):
         """
 
         Parameters
@@ -662,6 +666,14 @@ class FastRadioBursts(object):
         else:
             for name in names:
                 del self.observations[name]
+
+    def reduce(self, tol=1):
+
+        snrs = self.signal_to_noise(total=True)
+        snr_max = numpy.column_stack([
+            value for value in snrs.values()
+        ]).max(-1)
+        return self[snr_max >= tol]
 
     def __signal(self, name, channels=1):
 
@@ -897,6 +909,16 @@ class FastRadioBursts(object):
         interferometry = Interferometry(obsi, obsj, degradation)
         self.observations[key] = interferometry
 
+    def copy(self):
+        copy = dill.copy(self)
+        keys = self.__dict__.keys()
+
+        for key in keys:
+            if '_FastRadioBursts__' in key:
+                delattr(copy, key)
+
+        return copy
+
     def save(self, name):
         """
         Parameters
@@ -909,7 +931,8 @@ class FastRadioBursts(object):
         """
         file_name = '{}.blips'.format(name)
         file = bz2.BZ2File(file_name, 'wb')
-        dill.dump(self, file, dill.HIGHEST_PROTOCOL)
+        copy = self.copy()
+        dill.dump(copy, file, dill.HIGHEST_PROTOCOL)
         file.close()
 
     @staticmethod
