@@ -22,7 +22,7 @@ class HealPixMap(HEALPix):
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
                  low_frequency=10, high_frequency=10000,
                  low_frequency_cal=400, high_frequency_cal=1400,
-                 emission_frame=True, cosmology='Planck_18',
+                 emission_frame=False, cosmology='Planck_18',
                  zmin=0.0, zmax=30.0):
 
         super().__init__(nside, order)

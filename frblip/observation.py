@@ -54,8 +54,14 @@ class Observation():
     def __set_coordinates(self):
 
         params = self.__dict__
-        location = {key: params.pop(key) for key in ('lon', 'lat', 'height')}
-        kwargs = {key: params.pop(key) for key in ('alt', 'az', 'obstime')}
+        location = {
+            key: params.pop(key)
+            for key in ('lon', 'lat', 'height')
+        }
+        kwargs = {
+            key: params.pop(key)
+            for key in ('alt', 'az', 'obstime')
+        }
 
         if location:
             kwargs['location'] = coordinates.EarthLocation(**location)

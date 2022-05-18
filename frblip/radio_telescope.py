@@ -32,6 +32,22 @@ class RadioTelescope(object):
 
     """Class which defines a Radio Surveynp"""
 
+    DEFAULT_VALUES = {
+        'az': 0.0 * units.deg,
+        'alt': 90 * units.deg,
+        'lat': 90 * units.deg,
+        'lon': 0.0 * units.deg,
+        'height': 0.0 * units.m,
+        'reference_frequency': 1.5e5 * units.MHz,
+        'system_temperature': 70. * units.k,
+        'receiver_type': 'total-power',
+        'sampling_time': 1. * units.ms,
+        'degradation_factor': 1,
+        'polarizations': 2,
+        'directivity': 20.0 * units.LogUnit(1 / units.sr),
+        'frequency_range': numpy.array([3e-3, 3e5]) * units.MHz
+    }
+
     def __init__(self, name='bingo', kind='gaussian', array=None,
                  offset=None, location=None, **kwargs):
 
@@ -42,10 +58,21 @@ class RadioTelescope(object):
         ----------
         name : str
             File where the telescope parameters are stored.
+            default : 'bingo'
         kind : {'tophat', 'gaussian', 'bessel', 'grid'}
             The kind of the beam pattern.
-        start_time : str
-            Survey start time ().
+            default : 'gaussian'
+        array : numpy.ndarray
+            default : None
+        offset : (float, float)
+            default : None
+        location :
+            default : None
+        kwargs :
+            possible keys: az, alt, lat, lon, height,
+            reference_frequency, system_temperature,
+            receiver_type, sampling_time, degradation_factor,
+            polarizations, directivity, frequency_range
 
         Returns
         -------
@@ -54,12 +81,24 @@ class RadioTelescope(object):
         """
 
         file_name = '{}/{}.pkl'.format(_DATA, name)
-        file_name = file_name if os.path.exists(file_name) else name
-        file = bz2.BZ2File(file_name, 'rb')
-        input_dict = dill.load(file)
-        file.close()
+
+        if os.path.exists(file_name):
+            file = bz2.BZ2File(file_name, 'rb')
+            input_dict = dill.load(file)
+            file.close()
+        elif os.path.exists(name):
+            file = bz2.BZ2File(name, 'rb')
+            input_dict = dill.load(file)
+            file.close()
+        else:
+            input_dict = {}
 
         input_dict.update(kwargs)
+        input_dict.update({
+            key: RadioTelescope.DEFAULT_VALUES[key]
+            for key in RadioTelescope.DEFAULT_VALUES
+            if key not in input_dict
+        })
 
         self.__dict__.update(input_dict)
 
