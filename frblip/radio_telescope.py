@@ -216,7 +216,7 @@ class RadioTelescope(object):
     def solid_angle(self):
         directivity = self.directivity.to(1 / units.sr)
         solid_angle = 4 * numpy.pi / directivity
-        return solid_angle.to(units.sr)
+        return solid_angle.to(units.deg**2)
 
     @cached_property
     def reference_wavelength(self):
@@ -225,7 +225,7 @@ class RadioTelescope(object):
     @cached_property
     def effective_area(self):
         wl = self.reference_wavelength
-        sa = self.solid_angle.value
+        sa = self.solid_angle.to(units.sr).value
         return (wl**2 / sa).to(units.meter**2)
 
     @cached_property

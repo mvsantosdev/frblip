@@ -263,7 +263,10 @@ class HealPixMap(HEALPix):
         sensitivity = (1 / response) * noise
 
         if total:
-            lvl = sensitivity.dims[1:-1]
+            lvl = [
+                dim for dim in sensitivity.dims
+                if dim not in ('PIXEL', 'CHANNEL')
+            ]
             return sensitivity.min(lvl)
         if level is not None:
             return sensitivity.min(level)
@@ -331,8 +334,7 @@ class HealPixMap(HEALPix):
                                              spectral_index,
                                              total)
 
-        sensitivity = sensitivity * S
-        sensitivity = numpy.ma.masked_invalid(sensitivity)
+        sensitivity = numpy.ma.masked_invalid(sensitivity * S)
 
         smin = sensitivity.min() * units.Jy
         smax = sensitivity.max() * units.Jy
