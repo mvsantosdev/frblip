@@ -44,7 +44,7 @@ class RadioTelescope(object):
         'sampling_time': 1. * units.ms,
         'degradation_factor': 1,
         'polarizations': 2,
-        'directivity': 20.0 * units.LogUnit(1 / units.sr),
+        'directivity': 23.9 * units.LogUnit(1 / units.sr),
         'frequency_range': numpy.array([3e-3, 3e5]) * units.MHz
     }
 
@@ -98,6 +98,12 @@ class RadioTelescope(object):
             key: RadioTelescope.DEFAULT_VALUES[key]
             for key in RadioTelescope.DEFAULT_VALUES
             if key not in input_dict
+        })
+
+        input_dict.update({
+            key: numpy.atleast_1d(value)
+            for key, value in input_dict.items()
+            if key not in ('lat', 'lon', 'height', 'receiver_type')
         })
 
         self.__dict__.update(input_dict)

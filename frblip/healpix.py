@@ -163,7 +163,8 @@ class HealPixMap(HEALPix):
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
             return self.icrs.transform_to(frame)
 
-    def __observe(self, telescope, location=None, name=None, radius_factor=1):
+    def __observe(self, telescope, name=None, location=None,
+                  altaz=None, radius_factor=1):
 
         if 'observations' not in self.__dict__:
             self.observations = {}
@@ -173,7 +174,7 @@ class HealPixMap(HEALPix):
         obs_name = obs_name.replace(' ', '_')
 
         location = telescope.location if location is None else location
-        altaz = self.altaz(location)
+        altaz = self.altaz(location) if altaz is None else altaz
 
         az = telescope.az
         alt = telescope.alt
@@ -198,27 +199,23 @@ class HealPixMap(HEALPix):
         response = response * (units.MHz / width).to(1)
         dims = 'PIXEL', obs_name
         response = xarray.DataArray(response, dims=dims, name='Response')
-        response.name = 'Response'
 
         noise = telescope.noise
         noise = (noise / units.Jy).to(1)
         noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
-        noise.name = 'Noise'
 
         time_array = telescope.time_array(altaz)
         time_array = (time_array * units.MHz).to(1)
-        time_array = xarray.DataArray(time_array, dims=('PIXEL', obs_name))
-        time_array.name = 'Time Array'
+        time_array = xarray.DataArray(time_array, dims=dims,
+                                      name='Time Array')
 
         observation = Observation(altaz, response, noise, time_array,
                                   frequency_range, sampling_time)
 
-        observation.pix = numpy.flatnonzero(mask)
-
         self.observations[obs_name] = observation
 
     def observe(self, telescopes, name=None, location=None,
-                radius_factor=1):
+                altaz=None, radius_factor=1):
         """
 
         Parameters
@@ -239,9 +236,9 @@ class HealPixMap(HEALPix):
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
-                self.__observe(telescope, location, name, radius_factor)
+                self.__observe(telescope, name, location, altaz, radius_factor)
         else:
-            self.__observe(telescopes, location, name, radius_factor)
+            self.__observe(telescopes, name, location, altaz, radius_factor)
 
     def __response(self, name, channels=1, spectral_index=0.0):
 
@@ -274,13 +271,14 @@ class HealPixMap(HEALPix):
 
     @numpy.errstate(divide='ignore', over='ignore')
     def __specific_rate(self, smin, smax, zmin, zmax, frequency_range,
-                        rate_unit, spectral_index):
+                        unit, spectral_index, eps=1e-4):
 
         log_min = units.LogQuantity(smin)
         log_max = units.LogQuantity(smax)
-        sgrid = numpy.logspace(log_min, log_max, 1000)
 
-        zgrid = numpy.linspace(zmin, zmax, 200)
+        ngrid = int(1 / eps)
+        sgrid = numpy.logspace(log_min, log_max, ngrid)
+        zgrid = numpy.linspace(zmin, zmax, ngrid)
 
         lum_dist = self.__cosmology.luminosity_distance(zgrid)
         dz = self.__zdist.angular_density(zgrid)
@@ -305,13 +303,13 @@ class HealPixMap(HEALPix):
         xthre = xthre.to(1).value.clip(xmin, xmax)
 
         norm = self.phistar / self.__lumdist.pdf_norm
-        lum_integral = norm * self.__lumdist.sf(xthre).clip(0.0, 1.0)
+        lum_integral = norm * self.__lumdist.sf(xthre)
 
         integrand = lum_integral * dz
         zintegral = numpy.trapz(x=zgrid, y=integrand, axis=0)
         zintegral = zintegral * self.pixel_area
 
-        xp, fp = sgrid, zintegral.to(rate_unit)
+        xp, fp = sgrid, zintegral.to(unit)
 
         def specific_rate(x):
             y = numpy.interp(x=x, xp=xp, fp=fp.value)
@@ -321,10 +319,18 @@ class HealPixMap(HEALPix):
 
     @numpy.errstate(over='ignore')
     def __si_rate_map(self, name=None, channels=1, sensitivity=None,
-                      SNR=None, time='day', spectral_index=0.0, total=False):
+                      SNR=None, unit='year', spectral_index=0.0,
+                      total=False, eps=1e-4):
 
-        time_unit = units.Unit(time)
-        rate_unit = 1 / time_unit
+        if isinstance(unit, str):
+            unit = units.Unit(unit)
+        elif isinstance(unit, units.Quantity):
+            unit = unit.unit
+
+        assert unit.physical_type == 'time', \
+               '{} is not a time unit'.format(unit.to_string())
+
+        rate_unit = 1 / unit
 
         S = numpy.arange(1, 11) if SNR is None else SNR
         S = xarray.DataArray(S, dims='SNR')
@@ -346,33 +352,35 @@ class HealPixMap(HEALPix):
 
         specific_rate = self.__specific_rate(smin, smax, zmin, zmax,
                                              frequency_range, rate_unit,
-                                             spectral_index)
+                                             spectral_index, eps)
 
         return specific_rate(sensitivity)
 
     def __rate_map(self, name=None, channels=1, sensitivity=None,
-                   SNR=None, spectral_index=0.0, total=False, time='day'):
+                   SNR=None, spectral_index=0.0, total=False,
+                   unit='day', eps=1e-4):
 
         sis = numpy.atleast_1d(spectral_index)
 
         rates = numpy.stack([
             self.__si_rate_map(name, channels=channels, SNR=SNR,
                                sensitivity=sensitivity, total=total,
-                               spectral_index=si, time=time)
+                               spectral_index=si, unit=unit, eps=eps)
             for si in sis
         ], axis=0)
 
         return numpy.squeeze(rates)
 
     def __rate(self, name=None, channels=1, sensitivity=None,
-               SNR=None, spectral_index=0.0, total=False, time='day'):
+               SNR=None, spectral_index=0.0, total=False,
+               unit='day', eps=1e-4):
 
         sis = numpy.atleast_1d(spectral_index)
 
         rates = numpy.stack([
             self.__si_rate_map(name, channels=channels, SNR=SNR,
                                sensitivity=sensitivity, total=total,
-                               spectral_index=si, time=time).sum(0)
+                               spectral_index=si, unit=unit, eps=eps).sum(0)
             for si in sis
         ], axis=0)
 
@@ -393,7 +401,8 @@ class HealPixMap(HEALPix):
         }
 
     def rate(self, names=None, sensitivity=None, channels=1,
-             SNR=None, spectral_index=0.0, total=False, time='day'):
+             SNR=None, spectral_index=0.0, total=False,
+             unit='day', eps=1e-4):
 
         """
 
@@ -418,15 +427,18 @@ class HealPixMap(HEALPix):
         if isinstance(sensitivity, numpy.ma.MaskedArray):
             rate = self.__rate(None, channels=channels, SNR=SNR,
                                sensitivity=sensitivity, total=total,
-                               spectral_index=spectral_index, time=time)
+                               spectral_index=spectral_index,
+                               unit=unit, eps=eps)
             return rate
 
         return self.__get('_HealPixMap__rate', names, channels, SNR=SNR,
                           sensitivity=sensitivity, total=total,
-                          spectral_index=spectral_index, time=time)
+                          spectral_index=spectral_index,
+                          unit=unit, eps=eps)
 
     def rate_map(self, names=None, sensitivity=None, channels=1,
-                 SNR=None, spectral_index=0.0, total=False, time='day'):
+                 SNR=None, spectral_index=0.0, total=False,
+                 unit='day', eps=1e-4):
         """
 
         Parameters
@@ -451,12 +463,12 @@ class HealPixMap(HEALPix):
             rate_map = self.__rate_map(None, channels=channels, SNR=SNR,
                                        sensitivity=sensitivity, total=total,
                                        spectral_index=spectral_index,
-                                       time=time)
+                                       unit=unit, eps=eps)
             return rate_map
 
         return self.__get('_HealPixMap__rate_map', names, channels, SNR=SNR,
                           sensitivity=sensitivity, total=total,
-                          spectral_index=spectral_index, time=time)
+                          spectral_index=spectral_index, unit=unit, eps=eps)
 
     def response(self, names=None, channels=1, spectral_index=0.0):
         """

@@ -542,7 +542,8 @@ class FastRadioBursts(object):
             and numpy.size(value) == self.size
         })
 
-    def __observe(self, telescope, location=None, name=None, altaz=None):
+    def __observe(self, telescope, name=None,
+                  location=None, altaz=None):
 
         print('Performing observation for telescope {}...'.format(name))
 
@@ -553,6 +554,14 @@ class FastRadioBursts(object):
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
         obs_name = obs_name.replace(' ', '_')
 
+        sampling_time = telescope.sampling_time
+        frequency_range = telescope.frequency_range
+        width = telescope.frequency_range.diff()
+
+        zmax = self.high_frequency / frequency_range[0] - 1
+        zmin = self.low_frequency / frequency_range[-1] - 1
+        zmin = zmin.clip(0)
+
         location = telescope.location if location is None else location
         lon, lat, height = location.lon, location.lat, location.height
 
@@ -561,14 +570,6 @@ class FastRadioBursts(object):
             'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
             'height={:.3f}.'.format(height), end='\n\n'
         )
-
-        sampling_time = telescope.sampling_time
-        frequency_range = telescope.frequency_range
-        width = telescope.frequency_range.diff()
-
-        zmax = self.high_frequency / frequency_range[0] - 1
-        zmin = self.low_frequency / frequency_range[-1] - 1
-        zmin = zmin.clip(0)
 
         altaz = self.altaz(location) if altaz is None else altaz
         in_range = (self.redshift > zmin) & (self.redshift < zmax)
@@ -609,7 +610,7 @@ class FastRadioBursts(object):
 
         self.observations[obs_name] = observation
 
-    def observe(self, telescopes, location=None, name=None,
+    def observe(self, telescopes, name=None, location=None,
                 altaz=None, verbose=True):
         """
 
@@ -639,9 +640,9 @@ class FastRadioBursts(object):
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
-                self.__observe(telescope, location, name, altaz)
+                self.__observe(telescope, name, location, altaz)
         else:
-            self.__observe(telescopes, location, name, altaz)
+            self.__observe(telescopes, name, location, altaz)
 
         sys.stdout = old_target
 
@@ -706,7 +707,7 @@ class FastRadioBursts(object):
         snr = self.__signal_to_noise(name, channels, total, level)
         S = numpy.arange(1, 11) if SNR is None else SNR
         S = xarray.DataArray(S, dims='SNR')
-        return snr > S
+        return snr >= S
 
     def __counts(self, name, channels=1, SNR=None, total=False,
                  level=None):
