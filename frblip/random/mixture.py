@@ -1,12 +1,13 @@
 import numpy
 
 from scipy.stats import norm
+from scipy.stats import truncnorm
 from scipy.stats import rv_continuous
 
 
 class Mixture(rv_continuous):
 
-    def __init__(self, loc, scale, weights):
+    def __init__(self, loc, scale, weights, trunc=False):
 
         super().__init__()
 
@@ -14,8 +15,11 @@ class Mixture(rv_continuous):
         self.scale = scale
         self.weight = weights / weights.sum()
 
+        self.xmin = 0 if trunc else - numpy.inf
+        self._rvs = self._trunc if trunc else self._no_trunc
+
     def _get_support(self):
-        return - numpy.inf, numpy.inf
+        return self.xmin, numpy.inf
 
     def _pdf(self, x):
         pdfs = numpy.stack([
@@ -45,6 +49,12 @@ class Mixture(rv_continuous):
     def _logsf(self, x):
         return numpy.log(self._sf(x))
 
-    def _rvs(self, size=None, random_state=None):
+    def _no_trunc(self, size=None, random_state=None):
         idxs = numpy.random.choice(self.loc.size, size=size, p=self.weight)
         return numpy.random.normal(loc=self.loc[idxs], scale=self.scale[idxs])
+
+    def _trunc(self, size=None, random_state=None):
+        idxs = numpy.random.choice(self.loc.size, size=size, p=self.weight)
+        loc, scale = self.loc[idxs], self.scale[idxs]
+        z = truncnorm.rvs(a=-loc/scale, b=numpy.inf, size=size)
+        return scale * z + loc

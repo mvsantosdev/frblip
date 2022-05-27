@@ -33,16 +33,16 @@ def blips(size=None, days=1, log_Lstar=44.46, log_L0=41.96,
           low_frequency_cal=400.0, high_frequency_cal=1400.0,
           emission_frame=False, spectral_index='CHIME2021',
           gal_method='yt2020_analytic', gal_nside=128,
-          host_source='luo18', host_model=('ALG', 'YMW16'),
-          cosmology='Planck_18', free_electron_bias='Takahashi2021',
-          verbose=True):
+          host_dist='lognormal', host_source='luo18',
+          host_model=('ALG', 'YMW16'), cosmology='Planck_18',
+          free_electron_bias='Takahashi2021', verbose=True):
 
     return FastRadioBursts(size, days, log_Lstar, log_L0, phistar, gamma,
                            pulse_width, zmin, zmax, ra, dec, start,
                            low_frequency, high_frequency, low_frequency_cal,
                            high_frequency_cal, emission_frame, spectral_index,
-                           gal_method, gal_nside, host_source, host_model,
-                           cosmology, free_electron_bias, verbose)
+                           gal_method, gal_nside, host_dist, host_source,
+                           host_model, cosmology, free_electron_bias, verbose)
 
 
 def load(file):
@@ -60,9 +60,9 @@ class FastRadioBursts(object):
                  low_frequency_cal=400.0, high_frequency_cal=1400.0,
                  emission_frame=True, spectral_index='CHIME2021',
                  gal_method='yt2020_analytic', gal_nside=128,
-                 host_source='luo18', host_model=('ALG', 'YMW16'),
-                 cosmology='Planck_18', free_electron_bias='Takahashi2021',
-                 verbose=True):
+                 host_dist='lognormal', host_source='luo18',
+                 host_model=('ALG', 'YMW16'), cosmology='Planck_18',
+                 free_electron_bias='Takahashi2021', verbose=True):
 
         """
         Creates a FRB population object.
@@ -122,7 +122,7 @@ class FastRadioBursts(object):
                            low_frequency, high_frequency,
                            low_frequency_cal, high_frequency_cal,
                            emission_frame, spectral_index, gal_method,
-                           gal_nside, host_source, host_model,
+                           gal_nside, host_dist, host_source, host_model,
                            cosmology, free_electron_bias)
         self.__frb_rate(size, days)
         self.__S0
@@ -133,7 +133,8 @@ class FastRadioBursts(object):
                       pulse_width, zmin, zmax, ra, dec, start, low_frequency,
                       high_frequency, low_frequency_cal, high_frequency_cal,
                       emission_frame, spectral_index, gal_method, gal_nside,
-                      host_source, host_model, cosmology, free_electron_bias):
+                      host_dist, host_source, host_model,
+                      cosmology, free_electron_bias):
 
         self.zmin = zmin
         self.zmax = zmax
@@ -151,6 +152,7 @@ class FastRadioBursts(object):
         self.high_frequency_cal = high_frequency_cal * units.MHz
         self.free_electron_bias = free_electron_bias
         self.cosmology = cosmology
+        self.host_dist = host_dist
         self.host_source = host_source
         self.host_model = host_model
         self.emission_frame = emission_frame
@@ -417,7 +419,7 @@ class FastRadioBursts(object):
     @cached_property
     def __host_dm(self):
         return HostGalaxyDM(self.host_source, self.host_model,
-                            self.__cosmology)
+                            self.__cosmology, self.host_dist)
 
     @cached_property
     def galactic_dm(self):

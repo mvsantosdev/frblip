@@ -15,7 +15,7 @@ galactic_edge = 30 * units.kpc
 
 class HostGalaxyDM():
 
-    def __init__(self, source, model, cosmology):
+    def __init__(self, source, model, cosmology, dist='lognormal'):
 
         path = '{}/{}_host.csv'.format(_DATA, source)
 
@@ -25,13 +25,25 @@ class HostGalaxyDM():
         scale = models.loc['scale', model].values.ravel()
         weight = models.loc['weight', model].values.ravel()
 
-        self.mixture = Mixture(loc, scale, weight)
+        self.mixture = Mixture(loc, scale, weight, dist == 'normal')
         self.cosmology = cosmology
 
-    def __call__(self, z):
+        key = '_HostGalaxyDM__{}'.format(dist)
+        self.__dist = self.__getattribute__(key)
 
+    def __lognormal(self, z):
         logDM0 = self.mixture.rvs(size=z.shape)
         sfr = self.cosmology.star_formation_rate(z)
         sfr_ratio = numpy.sqrt(sfr / self.cosmology.sfr0)
 
         return sfr_ratio * (10**logDM0) * unit
+
+    def __normal(self, z):
+        DM0 = self.mixture.rvs(size=z.shape)
+        sfr = self.cosmology.star_formation_rate(z)
+        sfr_ratio = numpy.sqrt(sfr / self.cosmology.sfr0)
+
+        return sfr_ratio * DM0 * unit
+
+    def __call__(self, z):
+        return self.__dist(z)
