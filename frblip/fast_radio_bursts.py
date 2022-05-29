@@ -10,7 +10,7 @@ import xarray
 from numpy import random
 
 from operator import itemgetter
-from functools import cached_property
+from functools import partial, cached_property
 
 from astropy.time import Time
 from astropy import units, constants, coordinates
@@ -593,21 +593,20 @@ class FastRadioBursts(object):
         S0 = self.__S0 / width
         S0 = (S0 / units.Jy).to(1)
         S0 = xarray.DataArray(S0, dims='FRB')
-        response = xarray.DataArray(response, dims=('FRB', obs_name))
+        response = xarray.DataArray(response, dims=('FRB', obs_name),
+                                    name='Response')
         response = response * S0
-        response.name = 'Response'
 
         noise = telescope.noise
         noise = (noise / units.Jy).to(1)
         noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
-        noise.name = 'Noise'
 
-        time_array = telescope.time_array(altaz)
-        time_array = (time_array * units.MHz).to(1)
-        time_array = xarray.DataArray(time_array, dims=('FRB', obs_name))
-        time_array.name = 'Time Array'
+        time_delay = telescope.time_array(altaz)
+        time_delay = (time_delay * units.MHz).to(1)
+        time_delay = xarray.DataArray(time_delay, dims=('FRB', obs_name),
+                                      name='Time Delay')
 
-        observation = Observation(altaz, response, noise, time_array,
+        observation = Observation(altaz, response, noise, time_delay,
                                   frequency_range, sampling_time)
 
         self.observations[obs_name] = observation
@@ -689,59 +688,46 @@ class FastRadioBursts(object):
         observation = self[name]
         return observation.get_noise(channels)
 
-    def __signal_to_noise(self, name, channels=1, total=False, level=None):
+    def __signal_to_noise(self, name, channels=1, total=False,
+                          method='max', **kwargs):
+
+        if hasattr(numpy, method):
+            func = getattr(numpy, method)
+        elif hasattr(numpy.linalg, method):
+            func = getattr(numpy.linalg, method)
+            func = partial(func, **kwargs)
 
         signal = self.__signal(name, channels)
         noise = self.__noise(name, channels)
 
         snr = signal / noise
 
-        if total:
-            lvl = snr.dims[1:-1]
-            return snr.max(lvl)
-        if level is not None:
-            return snr.max(level)
-        return snr
+        if isinstance(total, (list, str)):
+            snr = snr.reduce(func, dim=total, **kwargs)
+        elif total:
+            lvl = [
+                dim for dim in snr.dims
+                if dim not in ('FRB', 'CHANNEL')
+            ]
+            snr = snr.reduce(func, dim=lvl, **kwargs)
 
-    def __detected(self, name, channels=1, SNR=None, total=False,
-                   level=None):
+        return snr.squeeze()
 
-        snr = self.__signal_to_noise(name, channels, total, level)
+    def __trigger(self, name, channels=1, SNR=None,
+                  total=False, method='max', **kwargs):
+
+        snr = self.__signal_to_noise(name, channels, total,
+                                     method, **kwargs)
         S = numpy.arange(1, 11) if SNR is None else SNR
-        S = xarray.DataArray(S, dims='SNR')
-        return snr >= S
+        S = xarray.DataArray(numpy.atleast_1d(S), dims='SNR')
+        return (snr >= S).squeeze()
 
     def __counts(self, name, channels=1, SNR=None, total=False,
-                 level=None):
+                 method='max', **kwargs):
 
-        detected = self.__detected(name, channels, SNR, total, level)
+        detected = self.__trigger(name, channels, SNR, total,
+                                  method, **kwargs)
         return detected.sum('FRB')
-
-    def __baselines_counts(self, name, channels=1, reference='MAIN'):
-
-        ref_detections = self.detected(reference, total=True)
-        beams = self[name].response.shape[-1]
-        number = beams * (beams - 1) // 2
-        base_lines = numpy.arange(number + 1)
-        base_lines = xarray.DataArray(base_lines, dims='BASELINES')
-
-        key = 'INTF_{}_{}'.format(reference, name)
-        if key not in self.observations:
-            self.interferometry(reference, name)
-
-        detections = self.detected(key, level=reference)
-        detections = (ref_detections * detections).sum(name)
-        count = (detections > base_lines).sum('FRB')
-
-        if beams > 1:
-            key = 'INTF_{}'.format(name)
-            if key not in self.observations:
-                self.interferometry(name)
-            detections = self.detected(key)
-            detections = (ref_detections * detections).sum(name)
-            count += (detections > base_lines).sum('FRB')
-
-        return count
 
     def __get(self, func_name=None, names=None, channels=1, **kwargs):
 
@@ -794,7 +780,7 @@ class FastRadioBursts(object):
         return self.__get('_FastRadioBursts__noise', names, channels)
 
     def signal_to_noise(self, names=None, channels=1, total=False,
-                        level=None):
+                        method='max', **kwargs):
         """
 
         Parameters
@@ -814,10 +800,11 @@ class FastRadioBursts(object):
 
         """
 
-        return self.__get('_FastRadioBursts__signal_to_noise', names,
-                          channels, total=total, level=level)
+        return self.__get('_FastRadioBursts__signal_to_noise', names, channels,
+                          total=total, method=method, **kwargs)
 
-    def detected(self, names=None, channels=1, total=False, level=None):
+    def trigger(self, names=None, channels=1, SNR=None,
+                total=False, method='max', **kwargs):
         """
 
         Parameters
@@ -837,11 +824,11 @@ class FastRadioBursts(object):
 
         """
 
-        return self.__get('_FastRadioBursts__detected', names,
-                          channels, total=total, level=level)
+        return self.__get('_FastRadioBursts__trigger', names, channels,
+                          SNR=SNR, total=total, method=method, **kwargs)
 
-    def counts(self, names=None, channels=1, SNR=None,
-               total=False, level=None):
+    def counts(self, names=None, channels=1, SNR=None, total=False,
+               method='max', **kwargs):
         """
 
         Parameters
@@ -862,31 +849,10 @@ class FastRadioBursts(object):
         """
 
         return self.__get('_FastRadioBursts__counts', names, channels,
-                          SNR=SNR, total=total, level=level)
+                          SNR=SNR, total=total, method=method, **kwargs)
 
-    def baselines_counts(self, names=None, channels=1, reference='MAIN'):
-
-        """
-
-        Parameters
-        ----------
-        names :
-            (Default value = None)
-        channels :
-            (Default value = False)
-        reference :
-            (Default value = 'MAIN')
-
-        Returns
-        -------
-
-
-        """
-
-        return self.__get('_FastRadioBursts__baselines_counts',
-                          names, channels, reference=reference)
-
-    def interferometry(self, namei, namej=None, degradation=None):
+    def interferometry(self, namei, namej=None, degradation=None,
+                       overwrite=False, return_key=False):
         """
 
         Parameters
@@ -909,8 +875,14 @@ class FastRadioBursts(object):
             key = 'INTF_{}'.format(namei)
         else:
             key = 'INTF_{}_{}'.format(namei, namej)
-        interferometry = Interferometry(obsi, obsj, degradation)
-        self.observations[key] = interferometry
+
+        if (key not in self.observations) or overwrite:
+            interferometry = Interferometry(obsi, obsj, degradation)
+            self.observations[key] = interferometry
+            if return_key:
+                return key
+        else:
+            print('bah')
 
     def copy(self):
         """ """

@@ -333,7 +333,7 @@ class HealPixMap(HEALPix):
         rate_unit = 1 / unit
 
         S = numpy.arange(1, 11) if SNR is None else SNR
-        S = xarray.DataArray(S, dims='SNR')
+        S = xarray.DataArray(numpy.atleast_1d(S), dims='SNR')
 
         if not isinstance(sensitivity, numpy.ndarray):
             sensitivity = self.__sensitivity(name, channels,
