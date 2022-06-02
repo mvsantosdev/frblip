@@ -1,5 +1,6 @@
 import os
 import sys
+import warnings
 
 import bz2
 import dill
@@ -669,13 +670,13 @@ class FastRadioBursts(object):
             for name in names:
                 del self.observations[name]
 
-    def reduce(self, tol=1):
+    def reduce(self, tolerance=0):
 
         snrs = self.signal_to_noise(total=True)
         snr_max = numpy.column_stack([
             value for value in snrs.values()
         ]).max(-1)
-        return self[snr_max >= tol]
+        return self[snr_max >= tolerance]
 
     def __signal(self, name, channels=1):
 
@@ -702,14 +703,15 @@ class FastRadioBursts(object):
 
         snr = signal / noise
 
-        if isinstance(total, (list, str)):
+        if isinstance(total, str) and (total in snr.dims):
             snr = snr.reduce(func, dim=total, **kwargs)
-        elif total:
-            lvl = [
-                dim for dim in snr.dims
-                if dim not in ('FRB', 'CHANNEL')
-            ]
-            snr = snr.reduce(func, dim=lvl, **kwargs)
+        if isinstance(total, list):
+            levels = [*filter(lambda x: x in snr.dims, total)]
+            snr = snr.reduce(func, dim=levels, **kwargs)
+        elif total is True:
+            levels = [*filter(lambda x: x not in ('FRB', 'CHANNEL'),
+                              snr.dims)]
+            snr = snr.reduce(func, dim=levels, **kwargs)
 
         return snr.squeeze()
 
@@ -736,7 +738,14 @@ class FastRadioBursts(object):
         if names is None:
             names = self.observations.keys()
         elif isinstance(names, str):
-            return func(names, channels, **kwargs)
+            if names == 'INTF':
+                names = self.observations.keys()
+                names = [*filter(lambda x: 'INTF' in x, names)]
+            elif names == 'AUTO':
+                names = self.observations.keys()
+                names = [*filter(lambda x: 'INTF' not in x, names)]
+            else:
+                return func(names, channels, **kwargs)
 
         return {
             name: func(name, channels, **kwargs)
@@ -791,8 +800,6 @@ class FastRadioBursts(object):
             (Default value = False)
         total :
             (Default value = False)
-        level :
-            (Default value = None)
 
         Returns
         -------
@@ -815,8 +822,6 @@ class FastRadioBursts(object):
             (Default value = False)
         total :
             (Default value = False)
-        level :
-            (Default value = None)
 
         Returns
         -------
@@ -839,8 +844,6 @@ class FastRadioBursts(object):
             (Default value = False)
         total :
             (Default value = False)
-        level :
-            (Default value = None)
 
         Returns
         -------
@@ -882,7 +885,9 @@ class FastRadioBursts(object):
             if return_key:
                 return key
         else:
-            print('bah')
+            warning_message = '{} is already computed. '.format(key) + \
+                              'You may set overwrite=True to recompute.'
+            warnings.warn(warning_message)
 
     def copy(self):
         """ """

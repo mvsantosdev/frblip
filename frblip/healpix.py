@@ -393,7 +393,14 @@ class HealPixMap(HEALPix):
         if names is None:
             names = self.observations.keys()
         elif isinstance(names, str):
-            return func(names, channels, **kwargs)
+            if names == 'INTF':
+                names = self.observations.keys()
+                names = [*filter(lambda x: 'INTF' in x, names)]
+            elif names == 'AUTO':
+                names = self.observations.keys()
+                names = [*filter(lambda x: 'INTF' not in x, names)]
+            else:
+                return func(names, channels, **kwargs)
 
         return {
             name: func(name, channels, **kwargs)
