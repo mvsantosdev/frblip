@@ -37,9 +37,9 @@ def scattered_gaussian(t, w, ts, t0=0.0):
 class Observation():
     """ """
 
-    def __init__(self, altaz=None, response=None, noise=None,
-                 time_delay=None, frequency_range=None,
-                 sampling_time=None):
+    def __init__(self, altaz=None, peak_density_flux=None,
+                 response=None, noise=None, time_delay=None,
+                 frequency_range=None, sampling_time=None):
 
         self.response = response
         self.noise = noise
@@ -47,6 +47,7 @@ class Observation():
         self.time_delay = time_delay
         self.frequency_range = frequency_range
         self.sampling_time = sampling_time
+        self.peak_density_flux = peak_density_flux
 
         self.kind = response.dims[0]
         self.width = self.frequency_range.diff()
@@ -102,10 +103,12 @@ class Observation():
         nu = numpy.linspace(*nu, channels + 1)
         nu = xarray.DataArray(nu, dims='CHANNEL')
         spec_idx = xarray.DataArray(spectral_index, dims=self.kind)
+        speak = (self.peak_density_flux / units.Jy).to(1)
+        speak = xarray.DataArray(speak, dims=self.kind)
         nu_pow = nu**(1 + spec_idx)
         density_flux = nu_pow.diff('CHANNEL') / nu.diff('CHANNEL')
         density_flux = density_flux * (self.width / units.MHz).to(1)
-        return self.response * density_flux
+        return self.response * speak * density_flux
 
     def __getitem__(self, idx):
 
@@ -158,6 +161,7 @@ class Interferometry(Observation):
                 frequency_range = obsi.frequency_range
                 width = frequency_range.diff()
                 sampling_time = obsi.sampling_time
+                speak = obsi.peak_density_flux
 
                 response = numpy.column_stack([
                     response[:, i] * response[:, j]
@@ -185,6 +189,10 @@ class Interferometry(Observation):
                                 'correlations of single beams.')
         else:
 
+            respi = obsi.response
+            respj = obsj.response
+            response = numpy.sqrt(respi * respj / 2)
+
             freqi = obsi.frequency_range
             freqj = obsj.frequency_range
             nu_1, nu_2 = numpy.column_stack([freqi, freqj])
@@ -198,11 +206,16 @@ class Interferometry(Observation):
             qi = (wi / width).to(1)
             qj = (wj / width).to(1)
 
-            respi = obsi.response * qi
-            respj = obsj.response * qj
-            response = numpy.sqrt(respi * respj / 2)
-            sign = numpy.sign(respi)
-            response = sign * response
+            speaki = obsi.peak_density_flux
+            speakj = obsj.peak_density_flux
+
+            speaki = speaki * wi
+            speakj = speakj * wj
+
+            assert numpy.isclose(speaki, speakj, rtol=1e-15).all(), \
+                   'The observations do not correspond to same dataset'
+
+            speak = speaki / width
 
             dt = obsi.time_delay - obsj.time_delay
             Dt = obsi.altaz.obstime - obsj.altaz.obstime
@@ -210,18 +223,18 @@ class Interferometry(Observation):
             Dt = xarray.DataArray(Dt, dims=kind)
             time_delay = dt + Dt
 
-            noisei = obsi.noise
-            noisej = obsj.noise
-            noise = noisei * noisej * qi * qj
-            noise = numpy.sqrt(noise / 2)
+            noisei = obsi.noise * numpy.sqrt(qi)
+            noisej = obsj.noise * numpy.sqrt(qj)
+            noise = numpy.sqrt(noisei * noisej / 2)
 
             ti = obsi.sampling_time
             tj = obsj.sampling_time
             sampling_time = numpy.stack([ti, tj])
             sampling_time = sampling_time.max()
 
-        Observation.__init__(self, response=response,
-                             noise=noise, time_delay=time_delay,
+        Observation.__init__(self, peak_density_flux=speak,
+                             response=response, noise=noise,
+                             time_delay=time_delay,
                              frequency_range=frequency_range,
                              sampling_time=sampling_time)
 

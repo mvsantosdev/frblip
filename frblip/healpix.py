@@ -193,23 +193,26 @@ class HealPixMap(HEALPix):
         arcs = numpy.arccos(cosines).to(units.deg)
         mask = (arcs < radius).sum(-1) > 0
 
+        dims = 'PIXEL', obs_name
+
         resp = telescope.response(altaz[mask])
         response = numpy.zeros((self.npix, *resp.shape[1:]))
         response[mask] = resp
-        response = response * (units.MHz / width).to(1)
-        dims = 'PIXEL', obs_name
         response = xarray.DataArray(response, dims=dims, name='Response')
+
+        speak = numpy.ones(self.npix) * units.Jy * units.MHz
+        speak = (speak / width).to(units.Jy)
 
         noise = telescope.noise
         noise = (noise / units.Jy).to(1)
         noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
 
-        time_array = telescope.time_array(altaz)
-        time_array = (time_array * units.MHz).to(1)
-        time_array = xarray.DataArray(time_array, dims=dims,
+        time_delay = telescope.time_array(altaz)
+        time_delay = (time_delay * units.MHz).to(1)
+        time_delay = xarray.DataArray(time_delay, dims=dims,
                                       name='Time Array')
 
-        observation = Observation(altaz, response, noise, time_array,
+        observation = Observation(altaz, speak, response, noise, time_delay,
                                   frequency_range, sampling_time)
 
         self.observations[obs_name] = observation
