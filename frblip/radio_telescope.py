@@ -39,7 +39,7 @@ class RadioTelescope(object):
         'lon': 0.0 * units.deg,
         'height': 0.0 * units.m,
         'reference_frequency': 1.5e5 * units.MHz,
-        'system_temperature': 70. * units.k,
+        'system_temperature': 70. * units.K,
         'receiver_type': 'total-power',
         'sampling_time': 1. * units.ms,
         'degradation_factor': 1,

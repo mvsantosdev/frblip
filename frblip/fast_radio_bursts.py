@@ -680,10 +680,9 @@ class FastRadioBursts(object):
     def reduce(self, tolerance=0):
 
         snrs = self.signal_to_noise(total=True)
-        snr_max = numpy.column_stack([
-            value for value in snrs.values()
-        ]).max(-1)
-        return self[snr_max >= tolerance]
+        snr = xarray.concat(snrs.values(), dim='ALL')
+        idx = snr.max('ALL') >= tolerance
+        return self[idx]
 
     def __signal(self, name, channels=1):
 
