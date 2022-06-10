@@ -266,6 +266,42 @@ class RadioTelescope(object):
         value = numpy.full(shape, self.gain.value)
         return value * self.gain.unit
 
+    def to_pkl(self, name):
+
+        output_dict = {
+            attr: getattr(self, attr)
+            for attr in RadioTelescope.DEFAULT_VALUES
+        }
+
+        file_name = '{}.pkl'.format(name)
+        file = bz2.BZ2File(file_name, 'wb')
+        dill.dump(output_dict, file, dill.HIGHEST_PROTOCOL)
+        file.close()
+
+    def to_json(self, name):
+
+        output_dict = {
+            attr: getattr(self, attr)
+            for attr in RadioTelescope.DEFAULT_VALUES
+        }
+
+        output_dict.update({
+            key: value.value
+            for key, value in output_dict.items()
+            if hasattr(value, 'unit')
+        })
+
+        output_dict.update({
+            key: value.tolist() if value.size > 1 else value.item()
+            for key, value in output_dict.items()
+            if isinstance(value, numpy.ndarray)
+        })
+
+        file_name = '{}.json'.format(name)
+        file = open(file_name, 'w', encoding='utf-8')
+        json.dump(output_dict, file, ensure_ascii=False, indent=4)
+        file.close()
+
     def __none_array(self, altaz):
         shape = altaz.size, self.pattern.beams
         time_array = numpy.zeros(shape)
