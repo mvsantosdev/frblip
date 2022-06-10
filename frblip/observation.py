@@ -163,26 +163,22 @@ class Interferometry(Observation):
                 sampling_time = obsi.sampling_time
                 speak = obsi.peak_density_flux
 
-                response = numpy.column_stack([
+                response = xarray.concat([
                     response[:, i] * response[:, j]
                     for i, j in combinations(range(beams), 2)
-                ])
-                dims = kind, namei
-                response = xarray.DataArray(response, dims=dims)
+                ], dim=namei).T
                 response = numpy.sqrt(response / 2)
 
-                noise = numpy.array([
+                noise = xarray.concat([
                     noise[i] * noise[j]
                     for i, j in combinations(range(beams), 2)
-                ])
-                noise = xarray.DataArray(noise, dims=namei)
+                ], dim=namei)
                 noise = numpy.sqrt(noise / 2)
 
-                time_delay = numpy.column_stack([
+                time_delay = xarray.concat([
                     time_delay[:, i] - time_delay[:, j]
                     for i, j in combinations(range(beams), 2)
-                ])
-                time_delay = xarray.DataArray(time_delay, dims=dims)
+                ], dim=namei)
 
             else:
                 raise Exception('FRBlip does not compute self',
