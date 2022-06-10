@@ -1,7 +1,8 @@
 import os
-
 import bz2
 import dill
+import json
+from glob import glob
 
 import numpy
 
@@ -80,24 +81,38 @@ class RadioTelescope(object):
 
         """
 
-        file_name = '{}/{}.pkl'.format(_DATA, name)
+        folder, file_name = os.path.split(name)
+        _, ext = os.path.splitext(file_name)
 
-        if os.path.exists(file_name):
-            file = bz2.BZ2File(file_name, 'rb')
-            input_dict = dill.load(file)
-            file.close()
-        elif os.path.exists(name):
+        if (folder, ext) == ('', ''):
+            pattern = '{}/{}*'.format(_DATA, file_name)
+            paths = glob(pattern)
+            if len(paths) != 1:
+                raise FileNotFoundError(pattern)
+            [name] = paths
+
+            _, ext = os.path.splitext(name)
+
+        if ext == '.pkl':
             file = bz2.BZ2File(name, 'rb')
             input_dict = dill.load(file)
             file.close()
-        else:
-            input_dict = {}
+        elif ext == '.json':
+            file = open(name, 'r')
+            input_dict = json.load(file)
+            file.close()
 
         input_dict.update(kwargs)
         input_dict.update({
             key: RadioTelescope.DEFAULT_VALUES[key]
             for key in RadioTelescope.DEFAULT_VALUES
             if key not in input_dict
+        })
+
+        input_dict.update({
+            key: input_dict[key] * value.unit
+            for key, value in RadioTelescope.DEFAULT_VALUES.items()
+            if hasattr(value, 'unit') and not hasattr(input_dict[key], 'unit')
         })
 
         input_dict.update({
