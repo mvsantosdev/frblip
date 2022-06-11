@@ -20,15 +20,6 @@ _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
 
 
-noise_performance = {
-    'total-power': 1,
-    'switched': 2,
-    'correlation': numpy.sqrt(2),
-    '1bit-digital': 2.21,
-    '2bit-digital': 1.58
-}
-
-
 class RadioTelescope(object):
 
     """Class which defines a Radio Surveynp"""
@@ -45,8 +36,16 @@ class RadioTelescope(object):
         'sampling_time': 1. * units.ms,
         'degradation_factor': 1,
         'polarizations': 2,
-        'directivity': 23.9 * units.LogUnit(1 / units.sr),
+        'directivity': 23.9 * units.dB(1 / units.sr),
         'frequency_range': numpy.array([3e-3, 3e5]) * units.MHz
+    }
+
+    NOISE_PERFORMANCE = {
+        'total-power': 1,
+        'switched': 2,
+        'correlation': numpy.sqrt(2),
+        '1bit-digital': 2.21,
+        '2bit-digital': 1.58
     }
 
     def __init__(self, name='bingo', kind='gaussian', array=None,
@@ -231,7 +230,7 @@ class RadioTelescope(object):
 
     @cached_property
     def noise_performance(self):
-        return noise_performance[self.receiver_type]
+        return RadioTelescope.NOISE_PERFORMANCE[self.receiver_type]
 
     @cached_property
     def solid_angle(self):

@@ -218,8 +218,8 @@ class HealPixMap(HEALPix):
 
         self.observations[obs_name] = observation
 
-    def observe(self, telescopes, name=None, location=None,
-                altaz=None, max_radius=1, dtype=numpy.float32):
+    def observe(self, telescopes, name=None, location=None, altaz=None,
+                max_radius=90 * units.deg, dtype=numpy.float32):
         """
 
         Parameters
@@ -273,7 +273,7 @@ class HealPixMap(HEALPix):
             return sensitivity.min(lvl)
         if level is not None:
             return sensitivity.min(level)
-        return sensitivity
+        return sensitivity.squeeze()
 
     @numpy.errstate(divide='ignore', over='ignore')
     def __specific_rate(self, smin, smax, zmin, zmax, frequency_range,
