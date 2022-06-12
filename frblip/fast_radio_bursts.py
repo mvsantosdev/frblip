@@ -674,13 +674,14 @@ class FastRadioBursts(object):
 
         """
 
-        if names is None:
-            del self.observations
-        elif isinstance(names, str):
-            del self.observations[names]
-        else:
-            for name in names:
-                del self.observations[name]
+        if hasattr(self, 'observations'):
+            if names is None:
+                del self.observations
+            elif isinstance(names, str):
+                del self.observations[names]
+            else:
+                for name in names:
+                    del self.observations[name]
 
     def reduce(self, tolerance=0):
 
