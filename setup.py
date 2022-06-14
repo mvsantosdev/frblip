@@ -18,7 +18,8 @@ bla = setup(
     python_requires='>=3.8',
     install_requires=[
         'dill',
-        'numpy==1.20.3',
+        'numba>=0.55',
+        'numpy>=1.21',
         'pandas',
         'sparse==0.13.0',
         'xarray==0.20.1',
