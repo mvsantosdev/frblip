@@ -586,8 +586,10 @@ class FastRadioBursts(object):
             'height={:.3f}.'.format(height), end='\n\n'
         )
 
-        altaz = self.altaz(location) if altaz is None else altaz
-        in_range = (self.redshift > zmin) & (self.redshift < zmax)
+        if altaz is None:
+            altaz = self.altaz(location)
+
+        in_range = (zmin <= self.redshift) & (self.redshift <= zmax)
         visible = altaz.alt > 0
         mask = visible & in_range
 

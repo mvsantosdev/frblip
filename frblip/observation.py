@@ -134,10 +134,13 @@ class Observation():
         response = self.response[idx]
         altaz = getattr(self, 'altaz', None)
         altaz = altaz[idx] if altaz else None
+        peak_density_flux = self.peak_density_flux[idx]
         if not inplace:
             output = Observation.__new__(Observation)
             output.__dict__.update(self.__dict__)
             output.response = response
+            output.altaz = altaz
+            output.peak_density_flux = peak_density_flux
             return output
         self.response = response
 
