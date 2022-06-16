@@ -302,9 +302,7 @@ class RadioTelescope(object):
         file.close()
 
     def __none_array(self, altaz):
-        shape = altaz.size, self.pattern.beams
-        time_array = numpy.zeros(shape)
-        return time_array * units.ms
+        return None
 
     def __array(self, altaz):
         xy = altaz.cartesian.xyz[:2]

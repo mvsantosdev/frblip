@@ -41,13 +41,14 @@ class Observation():
                  response=None, noise=None, time_delay=None,
                  frequency_range=None, sampling_time=None):
 
+        self.altaz = altaz
+        self.peak_density_flux = peak_density_flux
         self.response = response
         self.noise = noise
-        self.altaz = altaz
-        self.time_delay = time_delay
+        if time_delay is not None:
+            self.time_delay = time_delay
         self.frequency_range = frequency_range
         self.sampling_time = sampling_time
-        self.peak_density_flux = peak_density_flux
 
         self.kind = response.dims[0]
         self.width = self.frequency_range.diff()
@@ -83,6 +84,7 @@ class Observation():
         """
         noise = numpy.full(channels, numpy.sqrt(channels))
         noise = self.noise * xarray.DataArray(noise, dims='CHANNEL')
+        noise.attrs = self.noise.attrs
         return noise
 
     def get_response(self, spectral_index, channels=1):
@@ -103,12 +105,12 @@ class Observation():
         nu = numpy.linspace(*nu, channels + 1)
         nu = xarray.DataArray(nu, dims='CHANNEL')
         spec_idx = xarray.DataArray(spectral_index, dims=self.kind)
-        speak = (self.peak_density_flux / units.Jy).to(1)
-        speak = xarray.DataArray(speak, dims=self.kind)
         nu_pow = nu**(1 + spec_idx)
         density_flux = nu_pow.diff('CHANNEL') / nu.diff('CHANNEL')
         density_flux = density_flux * (self.width / units.MHz).to(1)
-        return self.response * speak * density_flux
+        density_flux = self.response * self.peak_density_flux * density_flux
+        density_flux.attrs = self.peak_density_flux.attrs
+        return density_flux.squeeze()
 
     def __getitem__(self, idx):
 
@@ -160,7 +162,7 @@ class Interferometry(Observation):
             if beams > 1:
 
                 noise = obsi.noise
-                time_delay = obsi.time_delay
+                time_delay = getattr(obsi, 'time_delay', None)
                 frequency_range = obsi.frequency_range
                 width = frequency_range.diff()
                 sampling_time = obsi.sampling_time
@@ -172,16 +174,21 @@ class Interferometry(Observation):
                 ], dim=namei).T
                 response = numpy.sqrt(response / 2)
 
+                unit = noise.attrs['unit']
                 noise = xarray.concat([
                     noise[i] * noise[j]
                     for i, j in combinations(range(beams), 2)
                 ], dim=namei)
                 noise = numpy.sqrt(noise / 2)
+                noise.attrs['unit'] = unit
 
-                time_delay = xarray.concat([
-                    time_delay[:, i] - time_delay[:, j]
-                    for i, j in combinations(range(beams), 2)
-                ], dim=namei)
+                if time_delay is not None:
+                    unit = time_delay.attrs['unit']
+                    time_delay = xarray.concat([
+                        time_delay[:, i] - time_delay[:, j]
+                        for i, j in combinations(range(beams), 2)
+                    ], dim=namei).T
+                    time_delay.attrs['unit'] = unit
 
             else:
                 raise Exception('FRBlip does not compute self',
@@ -216,15 +223,35 @@ class Interferometry(Observation):
 
             speak = speaki / width
 
-            dt = obsi.time_delay - obsj.time_delay
-            Dt = obsi.altaz.obstime - obsj.altaz.obstime
-            Dt = (Dt * units.MHz).to(1)
-            Dt = xarray.DataArray(Dt, dims=kind)
-            time_delay = dt + Dt
+            Dti = obsi.altaz.obstime
+            Dtj = obsj.altaz.obstime
+            Dt = (Dti - Dtj).to(units.ms)
 
-            noisei = obsi.noise * numpy.sqrt(qi)
-            noisej = obsj.noise * numpy.sqrt(qj)
+            dti = getattr(obsi, 'time_delay', 0)
+            if hasattr(dti, 'attrs'):
+                dti = dti * dti.attrs.get('unit', 1).to(Dt.unit)
+
+            dtj = getattr(obsj, 'time_delay', 0)
+            if hasattr(dtj, 'attrs'):
+                dtj = dtj * dtj.attrs.get('unit', 1).to(Dt.unit)
+
+            dt = dti - dtj
+
+            time_delay = dt + xarray.DataArray(Dt, dims=dt.dims[0])
+            time_delay.attrs['unit'] = Dt.unit
+
+            noisei = obsi.noise
+            uniti = noisei.attrs['unit']
+
+            noisej = obsj.noise
+            unitj = noisej.attrs['unit']
+
+            assert uniti == unitj, 'Incompatible noise units.'
+
+            noisei = noisei * numpy.sqrt(qi)
+            noisej = noisej * numpy.sqrt(qj)
             noise = numpy.sqrt(noisei * noisej / 2)
+            noise.attrs['unit'] = uniti
 
             ti = obsi.sampling_time
             tj = obsj.sampling_time

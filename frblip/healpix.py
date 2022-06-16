@@ -1,5 +1,6 @@
 import numpy
 import xarray
+from sparse import COO
 from astropy_healpix import HEALPix
 
 from astropy.time import Time
@@ -164,7 +165,8 @@ class HealPixMap(HEALPix):
             return self.icrs.transform_to(frame)
 
     def __observe(self, telescope, name=None, location=None, altaz=None,
-                  max_radius=90 * units.deg, dtype=numpy.float32):
+                  sparse=True, max_radius=90 * units.deg,
+                  dtype=numpy.float64):
 
         if 'observations' not in self.__dict__:
             self.observations = {}
@@ -199,27 +201,34 @@ class HealPixMap(HEALPix):
         resp = telescope.response(altaz[mask])
         response = numpy.zeros((self.npix, *resp.shape[1:]), dtype=dtype)
         response[mask] = resp
+        if sparse:
+            response = COO(response)
         response = xarray.DataArray(response, dims=dims, name='Response')
 
-        speak = numpy.ones(self.npix) * units.Jy * units.MHz
-        speak = (speak / width).to(units.Jy)
+        sflux = numpy.ones(self.npix)
+        density_flux = (sflux * units.MHz / width).to(1)
+        density_flux = xarray.DataArray(density_flux, dims='PIXEL',
+                                        name='Noise')
 
-        noise = telescope.noise
-        noise = (noise / units.Jy).to(1)
-        noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
+        noi = telescope.noise
+        noise = xarray.DataArray(noi, dims=obs_name, name='Noise')
+        noise.attrs['unit'] = noi.unit
 
         time_delay = telescope.time_array(altaz)
-        time_delay = (time_delay * units.MHz).to(1)
-        time_delay = xarray.DataArray(time_delay, dims=dims,
-                                      name='Time Array')
+        if time_delay is not None:
+            unit = time_delay.unit
+            time_delay = xarray.DataArray(time_delay.value, dims=dims,
+                                          name='Time Delay')
+            time_delay.attrs['unit'] = unit
 
-        observation = Observation(altaz, speak, response, noise, time_delay,
-                                  frequency_range, sampling_time)
+        observation = Observation(altaz, density_flux, response, noise,
+                                  time_delay, frequency_range, sampling_time)
 
         self.observations[obs_name] = observation
 
     def observe(self, telescopes, name=None, location=None, altaz=None,
-                max_radius=90 * units.deg, dtype=numpy.float32):
+                sparse=False, max_radius=90 * units.deg,
+                dtype=numpy.float64):
         """
 
         Parameters
@@ -240,10 +249,10 @@ class HealPixMap(HEALPix):
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
-                self.__observe(telescope, name, location,
-                               altaz, max_radius, dtype)
+                self.__observe(telescope, name, location, altaz,
+                               sparse, max_radius, dtype)
         else:
-            self.__observe(telescopes, name, location,
+            self.__observe(telescopes, name, location, altaz,
                            altaz, max_radius, dtype)
 
     def __response(self, name, channels=1, spectral_index=0.0):
@@ -270,10 +279,12 @@ class HealPixMap(HEALPix):
                 dim for dim in sensitivity.dims
                 if dim not in ('PIXEL', 'CHANNEL')
             ]
-            return sensitivity.min(lvl)
+            sensitivity = sensitivity.min(lvl)
         if level is not None:
-            return sensitivity.min(level)
-        return sensitivity.squeeze()
+            sensitivity = sensitivity.min(level)
+        sensitivity = sensitivity.squeeze()
+        sensitivity.attrs = noise.attrs
+        return sensitivity
 
     @numpy.errstate(divide='ignore', over='ignore')
     def __specific_rate(self, smin, smax, zmin, zmax, frequency_range,
@@ -346,10 +357,14 @@ class HealPixMap(HEALPix):
                                              spectral_index,
                                              total)
 
-        sensitivity = numpy.ma.masked_invalid(sensitivity * s)
+        unit = sensitivity.attrs['unit']
+        sensitivity = sensitivity * s
 
-        smin = sensitivity.min() * units.Jy
-        smax = sensitivity.max() * units.Jy
+        data = sensitivity.data
+        sflux = data.data * unit
+
+        smin = sflux.min()
+        smax = sflux.max()
 
         frequency_range = self[name].frequency_range
         zmax = self.high_frequency / frequency_range[0] - 1
@@ -360,7 +375,13 @@ class HealPixMap(HEALPix):
                                              frequency_range, rate_unit,
                                              spectral_index, eps)
 
-        return specific_rate(sensitivity)
+        rates = specific_rate(sflux)
+
+        rate_map = COO(data.coords, rates, data.shape)
+        rate_map = xarray.DataArray(rate_map, dims=sensitivity.dims)
+        rate_map.attrs['unit'] = rates.unit
+
+        return rate_map
 
     def __rate_map(self, name=None, channels=1, sensitivity=None,
                    snr=None, spectral_index=0.0, total=False,
@@ -368,29 +389,23 @@ class HealPixMap(HEALPix):
 
         sis = numpy.atleast_1d(spectral_index)
 
-        rates = numpy.stack([
+        rates = xarray.concat([
             self.__si_rate_map(name, channels=channels, snr=snr,
                                sensitivity=sensitivity, total=total,
                                spectral_index=si, unit=unit, eps=eps)
             for si in sis
-        ], axis=0)
+        ], dim='Spectral Index')
 
-        return numpy.squeeze(rates)
+        return rates.squeeze()
 
     def __rate(self, name=None, channels=1, sensitivity=None,
                snr=None, spectral_index=0.0, total=False,
                unit='year', eps=1e-4):
 
-        sis = numpy.atleast_1d(spectral_index)
-
-        rates = numpy.stack([
-            self.__si_rate_map(name, channels=channels, snr=snr,
+        return self.__rate_map(name, channels=channels, snr=snr,
                                sensitivity=sensitivity, total=total,
-                               spectral_index=si, unit=unit, eps=eps).sum(0)
-            for si in sis
-        ], axis=0)
-
-        return numpy.squeeze(rates)
+                               spectral_index=spectral_index, unit=unit,
+                               eps=eps).sum('PIXEL', keep_attrs=True)
 
     def __get(self, func_name=None, names=None, channels=1, **kwargs):
 

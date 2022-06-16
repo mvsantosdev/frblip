@@ -558,7 +558,7 @@ class FastRadioBursts(object):
         })
 
     def __observe(self, telescope, name=None, location=None,
-                  altaz=None, sparse=False, dtype=numpy.float32):
+                  altaz=None, sparse=True, dtype=numpy.float64):
 
         print('Performing observation for telescope {}...'.format(name))
 
@@ -601,33 +601,38 @@ class FastRadioBursts(object):
         print('>>> {}% are in frequency range.'.format(range_frac))
         print('>>> {}% are observable.'.format(obs_frac), end='\n\n')
 
+        dims = 'FRB', obs_name
+
         resp = telescope.response(altaz[mask])
         shape = self.size, *resp.shape[1:]
         response = numpy.zeros(shape, dtype=dtype)
         response[mask] = resp
         if sparse:
             response = COO(response)
-        response = xarray.DataArray(response, dims=('FRB', obs_name),
-                                    name='Response')
+        response = xarray.DataArray(response, dims=dims, name='Response')
 
-        peak_density_flux = (self.__S0 / width).to(units.Jy)
+        sflux = (self.__S0 / width).to(units.Jy)
+        density_flux = xarray.DataArray(sflux.value, dims='FRB', name='Noise')
+        density_flux.attrs['unit'] = sflux.unit
 
-        noise = telescope.noise
-        noise = (noise / units.Jy).to(1)
-        noise = xarray.DataArray(noise, dims=obs_name, name='Noise')
+        noi = telescope.noise
+        noise = xarray.DataArray(noi.value, dims=obs_name, name='Noise')
+        noise.attrs['unit'] = noi.unit
 
         time_delay = telescope.time_array(altaz)
-        time_delay = (time_delay * units.MHz).to(1)
-        time_delay = xarray.DataArray(time_delay, dims=('FRB', obs_name),
-                                      name='Time Delay')
+        if time_delay is not None:
+            unit = time_delay.unit
+            time_delay = xarray.DataArray(time_delay.value, dims=dims,
+                                          name='Time Delay')
+            time_delay.attrs['unit'] = unit
 
-        observation = Observation(altaz, peak_density_flux, response, noise,
+        observation = Observation(altaz, density_flux, response, noise,
                                   time_delay, frequency_range, sampling_time)
 
         self.observations[obs_name] = observation
 
     def observe(self, telescopes, name=None, location=None, altaz=None,
-                sparse=False, dtype=numpy.float32, verbose=True):
+                sparse=False, dtype=numpy.float64, verbose=True):
         """
 
         Parameters
@@ -691,6 +696,11 @@ class FastRadioBursts(object):
         snr = xarray.concat(snrs.values(), dim='ALL')
         idx = snr.max('ALL') >= tolerance
         return self[idx.as_numpy()]
+
+    def __time_delay(self, name, channels=1):
+
+        observation = self[name]
+        return getattr(observation, 'time_delay', None)
 
     def __signal(self, name, channels=1):
 
@@ -846,10 +856,32 @@ class FastRadioBursts(object):
             else:
                 return func(names, channels, **kwargs)
 
-        return {
+        output = {
             name: func(name, channels, **kwargs)
             for name in names
         }
+
+        return {
+            name: value
+            for name, value in output.items()
+            if value is not None
+        }
+
+    def time_delay(self, names=None):
+        """
+
+        Parameters
+        ----------
+        names :
+            (Default value = None)
+
+        Returns
+        -------
+
+
+        """
+
+        return self.__get('_FastRadioBursts__time_delay', names, channels=1)
 
     def signal(self, names=None, channels=1):
         """
