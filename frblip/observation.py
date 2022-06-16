@@ -237,7 +237,7 @@ class Interferometry(Observation):
 
             dt = dti - dtj
 
-            time_delay = dt + xarray.DataArray(Dt, dims=dt.dims[0])
+            time_delay = dt + xarray.DataArray(Dt, dims=kind)
             time_delay.attrs['unit'] = Dt.unit
 
             noisei = obsi.noise
