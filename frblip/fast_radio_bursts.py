@@ -62,6 +62,14 @@ def load(file):
     return FastRadioBursts.load(file)
 
 
+def load_catalog(name):
+
+    file = bz2.BZ2File(name, 'rb')
+    catalog = dill.load(file)
+    file.close()
+    return catalog
+
+
 class FastRadioBursts(object):
 
     """Class which defines a Fast Radio Burst population"""
@@ -1075,6 +1083,44 @@ class FastRadioBursts(object):
                 delattr(copy, key)
 
         return copy
+    
+    def catalog(self, dispersion=False):
+
+        catalog = {
+            'spectral_index': self.spectral_index,
+            'redshift': self.redshift,
+            'luminosity Distance': self.__luminosity_distance,
+            'luminosity': self.__luminosity,
+            'flux': self.__flux,
+            'time': self.itrs_time.to_datetime(),
+            'right_ascension': self.icrs.ra,
+            'declination': self.icrs.dec,
+            'galactic_dispersion': self.galactic_dm,
+        }
+
+        if dispersion:
+            catalog.update({
+                'igm_dispersion': self.igm_dm,
+                'host_galaxy_dispersion': self.host_dm,
+                'extra_galactic_dispersion': self.extra_galactic_dm,
+                'dispersion_measure': self.dispersion_measure
+            })
+
+        """if hasattr(self, 'observations'):
+            catalog['signal_to_noise'] = self.signal_to_noise()
+            time_delay = self.time_delay()
+            if time_delay != {}:
+                catalog['time_delay'] = time_delay"""
+
+        return catalog
+
+    def save_catalog(self, name):
+
+        catalog = self.catalog()
+        filename = '{}.cat'.format(name)
+        file = bz2.BZ2File(filename, 'wb')
+        dill.dump(catalog, file, dill.HIGHEST_PROTOCOL)
+        file.close()
 
     def save(self, name):
         """
