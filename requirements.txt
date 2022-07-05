@@ -10,4 +10,4 @@ astropy-healpix
 healpy
 pygedm
 camb
-pyccl
+pyccl==2.3.0

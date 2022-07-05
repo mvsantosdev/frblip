@@ -168,17 +168,22 @@ class Interferometry(Observation):
                 sampling_time = obsi.sampling_time
                 speak = obsi.peak_density_flux
 
+                coords = [
+                    *map(lambda x: '{}x{}'.format(*x),
+                         combinations(range(beams), 2))
+                ]
+
                 response = xarray.concat([
                     response[:, i] * response[:, j]
                     for i, j in combinations(range(beams), 2)
-                ], dim=namei).T
+                ], dim=namei).assign_coords({namei: coords}).T
                 response = numpy.sqrt(response / 2)
 
                 unit = noise.attrs['unit']
                 noise = xarray.concat([
                     noise[i] * noise[j]
                     for i, j in combinations(range(beams), 2)
-                ], dim=namei)
+                ], dim=namei).assign_coords({namei: coords})
                 noise = numpy.sqrt(noise / 2)
                 noise.attrs['unit'] = unit
 
@@ -187,7 +192,7 @@ class Interferometry(Observation):
                     time_delay = xarray.concat([
                         time_delay[:, i] - time_delay[:, j]
                         for i, j in combinations(range(beams), 2)
-                    ], dim=namei).T
+                    ], dim=namei).assign_coords({namei: coords}).T
                     time_delay.attrs['unit'] = unit
 
             else:

@@ -1083,7 +1083,7 @@ class FastRadioBursts(object):
                 delattr(copy, key)
 
         return copy
-    
+
     def catalog(self, dispersion=False):
 
         catalog = {
@@ -1095,22 +1095,16 @@ class FastRadioBursts(object):
             'time': self.itrs_time.to_datetime(),
             'right_ascension': self.icrs.ra,
             'declination': self.icrs.dec,
-            'galactic_dispersion': self.galactic_dm,
         }
 
         if dispersion:
             catalog.update({
+                'galactic_dispersion': self.galactic_dm,
                 'igm_dispersion': self.igm_dm,
                 'host_galaxy_dispersion': self.host_dm,
                 'extra_galactic_dispersion': self.extra_galactic_dm,
                 'dispersion_measure': self.dispersion_measure
             })
-
-        """if hasattr(self, 'observations'):
-            catalog['signal_to_noise'] = self.signal_to_noise()
-            time_delay = self.time_delay()
-            if time_delay != {}:
-                catalog['time_delay'] = time_delay"""
 
         return catalog
 
