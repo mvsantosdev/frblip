@@ -1,3 +1,5 @@
+import dill
+
 import numpy
 import xarray
 
@@ -119,6 +121,10 @@ class Observation():
         idx = numpy.array(idx)
         return self.select(idx)
 
+    def copy(self):
+        """ """
+        return dill.copy(self)
+
     def select(self, idx, inplace=False):
         """
 
@@ -133,18 +139,18 @@ class Observation():
         -------
 
         """
-        response = self.response[idx]
-        altaz = getattr(self, 'altaz', None)
-        altaz = altaz[idx] if altaz else None
-        peak_density_flux = self.peak_density_flux[idx]
+
         if not inplace:
-            output = Observation.__new__(Observation)
-            output.__dict__.update(self.__dict__)
-            output.response = response
-            output.altaz = altaz
-            output.peak_density_flux = peak_density_flux
-            return output
-        self.response = response
+            obs = self.copy()
+            obs.select(idx, inplace=True)
+            return obs
+
+        self.response = self.response[idx]
+        self.peak_density_flux = self.peak_density_flux[idx]
+        if hasattr(self, 'altaz'):
+            self.altaz = self.altaz[idx]
+        if hasattr(self, 'time_delay'):
+            self.time_delay = self.time_delay[idx]
 
 
 class Interferometry(Observation):

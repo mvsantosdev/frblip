@@ -223,31 +223,25 @@ class FastRadioBursts(object):
 
         """
 
-        select_dict = {
+        if not inplace:
+            mock = self.copy(clear=False)
+            mock.select(idx, inplace=True)
+            return mock
+
+        self.__dict__.update({
             name: attr[idx]
             for name, attr in self.__dict__.items()
             if hasattr(attr, 'size')
-            and attr.size == self.size
-        }
+            and numpy.size(attr) == self.size
+        })
 
-        select_dict['size'] = select_dict['redshift'].size
-
-        observations = getattr(self, 'observations', None)
-        if observations is not None:
-            observations = {
+        if hasattr(self, 'observations'):
+            self.observations.update({
                 name: observation[idx]
-                for name, observation in observations.items()
-            }
-            select_dict['observations'] = observations
+                for name, observation in self.observations.items()
+            })
 
-        if not inplace:
-            out_dict = self.__dict__.copy()
-            out_dict.update(select_dict)
-            output = FastRadioBursts.__new__(FastRadioBursts)
-            output.__dict__.update(out_dict)
-            return output
-
-        self.__dict__.update(select_dict)
+        self.size = self.redshift.size
 
     def iterfrbs(self, start=0, stop=None, step=1):
         """
@@ -1073,14 +1067,15 @@ class FastRadioBursts(object):
                                   'You may set overwrite=True to recompute.'
                 warnings.warn(warning_message)
 
-    def copy(self):
+    def copy(self, clear=False):
         """ """
         copy = dill.copy(self)
         keys = self.__dict__.keys()
 
-        for key in keys:
-            if '_FastRadioBursts__' in key:
-                delattr(copy, key)
+        if clear:
+            for key in keys:
+                if '_FastRadioBursts__' in key:
+                    delattr(copy, key)
 
         return copy
 
