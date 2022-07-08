@@ -17,7 +17,6 @@ from .cosmology import Cosmology, builtin
 
 
 class HealPixMap(HEALPix):
-    """ """
 
     def __init__(self, nside=128, order='ring', phistar=339,
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
@@ -88,51 +87,40 @@ class HealPixMap(HEALPix):
 
     @cached_property
     def pixels(self):
-        """ """
+
         return numpy.arange(self.npix)
 
     @cached_property
     def gcrs(self):
-        """ """
+
         pixels = numpy.arange(self.npix)
         ra, dec = self.healpix_to_lonlat(pixels)
         return coordinates.GCRS(ra=ra, dec=dec)
 
     @cached_property
     def itrs(self):
-        """ """
+
         frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.gcrs.transform_to(frame)
 
     @cached_property
     def icrs(self):
-        """ """
+
         frame = coordinates.ICRS()
         return self.gcrs.transform_to(frame)
 
     @cached_property
     def xyz(self):
-        """ """
+
         return self.itrs.cartesian.xyz
 
     @cached_property
     def itrs_time(self):
-        """ """
+
         j2000 = Time('J2000').to_datetime()
         return Time(j2000)
 
     def obstime(self, location):
-        """
-
-        Parameters
-        ----------
-        location :
-
-
-        Returns
-        -------
-
-        """
 
         loc = location.get_itrs()
         loc = loc.cartesian.xyz
@@ -143,19 +131,6 @@ class HealPixMap(HEALPix):
         return self.itrs_time - time_delay
 
     def altaz(self, location, interp=300):
-        """
-
-        Parameters
-        ----------
-        location :
-
-        interp :
-             (Default value = 300)
-
-        Returns
-        -------
-
-        """
 
         obstime = self.obstime(location)
         frame = coordinates.AltAz(location=location, obstime=obstime)
@@ -188,7 +163,6 @@ class HealPixMap(HEALPix):
 
         sampling_time = telescope.sampling_time
         frequency_range = telescope.frequency_range
-        width = telescope.frequency_range.diff()
 
         altaz = self.altaz(telescope.location)
         xyz = altaz.cartesian.xyz[..., numpy.newaxis]
@@ -205,11 +179,6 @@ class HealPixMap(HEALPix):
             response = COO(response)
         response = xarray.DataArray(response, dims=dims, name='Response')
 
-        sflux = numpy.ones(self.npix)
-        density_flux = (sflux * units.MHz / width).to(1)
-        density_flux = xarray.DataArray(density_flux, dims='PIXEL',
-                                        name='Noise')
-
         noi = telescope.noise
         noise = xarray.DataArray(noi, dims=obs_name, name='Noise')
         noise.attrs['unit'] = noi.unit
@@ -221,31 +190,14 @@ class HealPixMap(HEALPix):
                                           name='Time Delay')
             time_delay.attrs['unit'] = unit
 
-        observation = Observation(altaz, density_flux, response, noise,
-                                  time_delay, frequency_range, sampling_time)
+        observation = Observation(altaz, response, noise, time_delay,
+                                  frequency_range, sampling_time)
 
         self.observations[obs_name] = observation
 
     def observe(self, telescopes, name=None, location=None, altaz=None,
                 sparse=False, max_radius=90 * units.deg,
                 dtype=numpy.float64):
-        """
-
-        Parameters
-        ----------
-        telescopes :
-
-        name :
-             (Default value = None)
-        location :
-             (Default value = None)
-        radius_factor :
-             (Default value = 1)
-
-        Returns
-        -------
-
-        """
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
@@ -253,13 +205,14 @@ class HealPixMap(HEALPix):
                                sparse, max_radius, dtype)
         else:
             self.__observe(telescopes, name, location, altaz,
-                           altaz, max_radius, dtype)
+                           sparse, max_radius, dtype)
 
     def __response(self, name, channels=1, spectral_index=0.0):
 
         observation = self[name]
         si = numpy.full(self.npix, spectral_index)
-        return observation.get_response(si, channels)
+        peak_density_flux = observation.get_frequency_response(si, channels)
+        return observation.response * peak_density_flux
 
     def __noise(self, name, channels=1):
 
@@ -432,26 +385,6 @@ class HealPixMap(HEALPix):
              snr=None, spectral_index=0.0, total=False,
              unit='year', eps=1e-4):
 
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-        snr :
-             (Default value = None)
-        spectral_index :
-             (Default value = 0.0)
-        total :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-
         if isinstance(sensitivity, numpy.ma.MaskedArray):
             rate = self.__rate(None, channels=channels, snr=snr,
                                sensitivity=sensitivity, total=total,
@@ -467,25 +400,6 @@ class HealPixMap(HEALPix):
     def rate_map(self, names=None, sensitivity=None, channels=1,
                  snr=None, spectral_index=0.0, total=False,
                  unit='year', eps=1e-4):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-        snr :
-             (Default value = None)
-        spectral_index :
-             (Default value = 0.0)
-        total :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
 
         if isinstance(sensitivity, numpy.ma.MaskedArray):
             rate_map = self.__rate_map(None, channels=channels, snr=snr,
@@ -498,81 +412,31 @@ class HealPixMap(HEALPix):
                           sensitivity=sensitivity, total=total,
                           spectral_index=spectral_index, unit=unit, eps=eps)
 
+    def response_old(self, names=None, channels=1):
+
+        return self.__get('_HealPixMap__response_old', names, channels)
+
+    def response_new(self, names=None, channels=1):
+
+        return self.__get('_HealPixMap__response_new', names, channels)
+
     def response(self, names=None, channels=1, spectral_index=0.0):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-        spectral_index :
-             (Default value = 0.0)
-
-        Returns
-        -------
-
-        """
 
         return self.__get('_HealPixMap__response', names, channels,
                           spectral_index=spectral_index)
 
     def noise(self, names=None, channels=1):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
 
         return self.__get('_HealPixMap__noise', names, channels)
 
     def sensitivity(self, names=None, channels=1, spectral_index=0.0,
                     total=False, level=None):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-        channels :
-             (Default value = False)
-        spectral_index :
-             (Default value = 0.0)
-        total :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
 
         return self.__get('_HealPixMap__sensitivity', names, channels,
                           spectral_index=spectral_index, total=total,
                           level=level)
 
     def interferometry(self, namei, namej=None, degradation=None):
-        """
-
-        Parameters
-        ----------
-        *names :
-
-        time_delay :
-             (Default value = True)
-
-        Returns
-        -------
-
-        """
 
         obsi, obsj = self[namei], self[namej]
         if namej is None:

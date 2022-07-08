@@ -72,8 +72,6 @@ def load_catalog(name):
 
 class FastRadioBursts(object):
 
-    """Class which defines a Fast Radio Burst population"""
-
     def __init__(self, size=None, days=1, log_Lstar=44.46, log_L0=41.96,
                  phistar=339, gamma=-1.79, pulse_width=(-6.917, 0.824),
                  zmin=0, zmax=30, ra=(0, 24), dec=(-90, 90), start=None,
@@ -84,56 +82,6 @@ class FastRadioBursts(object):
                  host_dist='lognormal', host_source='luo18',
                  host_model=('ALG', 'YMW16'), cosmology='Planck_18',
                  free_electron_bias='Takahashi2021', verbose=True):
-
-        """
-        Creates a FRB population object.
-
-        Parameters
-        ----------
-        size : int
-            Number of generated FRBs.
-        days : float
-            Number of days of observation.
-        log_Lstar : float
-            log(erg / s)
-        log_L_0  : float
-            log(erg / s)
-        phistar : floar
-            Gpc^3 / year
-        gamma : float
-            Luminosity Schechter index
-        wint : (float, float)
-            log(ms)
-        si : (float, float)
-            Spectral Index range
-        zmin : float
-            Minimum redshift.
-        zmax : float
-            Maximum redshift.
-        ra : (float, float)
-            Degree
-        dec : (float, float)
-            Degree
-        start : datetime
-            start time
-        low_frequency : float
-            MHz
-        high_frequency : float
-            MHz
-        gal_method : str
-            DM_gal model, default: 'yt2020_analytic'
-        gal_nside : int
-            DM_gal nside
-        cosmology : cosmology model
-            default: 'Planck_18'
-        free_electron_bias: str
-            free electron bias model
-            default: 'Takahashi2021'
-        verbose : bool
-        Returns
-        -------
-        out: FastRadioBursts object.
-        """
 
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
@@ -208,20 +156,6 @@ class FastRadioBursts(object):
         return None
 
     def select(self, idx, inplace=False):
-        """
-
-        Parameters
-        ----------
-        idx :
-
-        inplace :
-            (Default value = False)
-
-        Returns
-        -------
-
-
-        """
 
         if not inplace:
             mock = self.copy(clear=False)
@@ -244,46 +178,12 @@ class FastRadioBursts(object):
         self.size = self.redshift.size
 
     def iterfrbs(self, start=0, stop=None, step=1):
-        """
-
-        Parameters
-        ----------
-        start :
-            (Default value = 0)
-        stop :
-            (Default value = None)
-        step :
-            (Default value = 1)
-
-        Returns
-        -------
-
-
-        """
 
         stop = self.size if stop is None else stop
         for i in range(start, stop, step):
             yield self[i]
 
     def iterchunks(self, size=1, start=0, stop=None, retindex=False):
-        """
-
-        Parameters
-        ----------
-        size :
-            (Default value = 1)
-        start :
-            (Default value = 0)
-        stop :
-            (Default value = None)
-        retindex :
-            (Default value = False)
-
-        Returns
-        -------
-
-
-        """
 
         stop = self.size if stop is None else stop
 
@@ -323,29 +223,29 @@ class FastRadioBursts(object):
 
     @cached_property
     def redshift(self):
-        """ """
+
         return self.__zdist.rvs(size=self.size)
 
     @cached_property
     def log_luminosity(self):
-        """ """
+
         loglum = self.__lumdist.log_rvs(size=self.size)
         return loglum * units.LogUnit() + self.log_Lstar
 
     @cached_property
     def pulse_width(self):
-        """ """
+
         width = random.lognormal(self.w_mean, self.w_std, size=self.size)
         return (width * units.s).to(units.ms)
 
     @cached_property
     def emitted_pulse_width(self):
-        """ """
+
         return self.pulse_width / (1 + self.redshift)
 
     @cached_property
     def itrs_time(self):
-        """ """
+
         time_ms = int(self.duration.to(units.us).value)
         dt = random.randint(time_ms, size=self.size)
         dt = numpy.sort(dt) * units.us
@@ -353,12 +253,12 @@ class FastRadioBursts(object):
 
     @cached_property
     def spectral_index(self):
-        """ """
+
         return self.__spec_idx_dist.rvs(self.size)
 
     @cached_property
     def icrs(self):
-        """ """
+
         sin = numpy.sin(self.dec_range)
         args = random.uniform(*sin, self.size)
         decs = numpy.arcsin(args) * units.rad
@@ -369,7 +269,7 @@ class FastRadioBursts(object):
 
     @cached_property
     def area(self):
-        """ """
+
         x = numpy.sin(self.dec_range).diff().item()
         y = self.ra_range.to(units.rad).diff().item()
         Area = (x * y) * units.rad
@@ -400,27 +300,20 @@ class FastRadioBursts(object):
             return sflux * z_factor
         return sflux
 
-    def peak_density_flux(self, frequency):
-        si = self.spectral_index.reshape(-1, 1)
-        nu_factor = (frequency / units.MHz)**(si + 1)
-        nu_factor = nu_factor.diff(axis=-1) / frequency.diff()
-        output = self.__S0.reshape(-1, 1) * nu_factor
-        return output.squeeze()
-
     @cached_property
     def itrs(self):
-        """ """
+
         itrs_frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.icrs.transform_to(itrs_frame)
 
     @property
     def xyz(self):
-        """ """
+
         return self.itrs.cartesian.xyz
 
     @property
     def galactic(self):
-        """ """
+
         return self.icrs.galactic
 
     @cached_property
@@ -438,26 +331,26 @@ class FastRadioBursts(object):
 
     @cached_property
     def galactic_dm(self):
-        """ """
+
         gl = self.galactic.l
         gb = self.galactic.b
         return self.__gal_dm(gl, gb)
 
     @cached_property
     def igm_dm(self):
-        """ """
+
         z = self.redshift
         return self.__igm_dm(z)
 
     @cached_property
     def host_dm(self):
-        """ """
+
         z = self.redshift
         return self.__host_dm(z)
 
     @cached_property
     def extra_galactic_dm(self):
-        """ """
+
         z = self.redshift
         igm = self.igm_dm
         host = self.host_dm
@@ -465,22 +358,10 @@ class FastRadioBursts(object):
 
     @cached_property
     def dispersion_measure(self):
-        """ """
+
         return self.galactic_dm + self.extra_galactic_dm
 
     def obstime(self, location):
-        """
-
-        Parameters
-        ----------
-        location :
-
-
-        Returns
-        -------
-
-
-        """
 
         loc = location.get_itrs()
         loc = loc.cartesian.xyz
@@ -491,20 +372,6 @@ class FastRadioBursts(object):
         return self.itrs_time - time_delay
 
     def altaz(self, location, interp=300):
-        """
-
-        Parameters
-        ----------
-        location :
-
-        interp :
-            (Default value = 300)
-
-        Returns
-        -------
-
-
-        """
 
         obstime = self.obstime(location)
         frame = coordinates.AltAz(location=location, obstime=obstime)
@@ -573,7 +440,6 @@ class FastRadioBursts(object):
 
         sampling_time = telescope.sampling_time
         frequency_range = telescope.frequency_range
-        width = telescope.frequency_range.diff()
 
         zmax = self.high_frequency / frequency_range[0] - 1
         zmin = self.low_frequency / frequency_range[-1] - 1
@@ -613,10 +479,6 @@ class FastRadioBursts(object):
             response = COO(response)
         response = xarray.DataArray(response, dims=dims, name='Response')
 
-        sflux = (self.__S0 / width).to(units.Jy)
-        density_flux = xarray.DataArray(sflux.value, dims='FRB', name='Noise')
-        density_flux.attrs['unit'] = sflux.unit
-
         noi = telescope.noise
         noise = xarray.DataArray(noi.value, dims=obs_name, name='Noise')
         noise.attrs['unit'] = noi.unit
@@ -628,35 +490,13 @@ class FastRadioBursts(object):
                                           name='Time Delay')
             time_delay.attrs['unit'] = unit
 
-        observation = Observation(altaz, density_flux, response, noise,
-                                  time_delay, frequency_range, sampling_time)
+        observation = Observation(altaz, response, noise, time_delay,
+                                  frequency_range, sampling_time)
 
         self.observations[obs_name] = observation
 
     def observe(self, telescopes, name=None, location=None, altaz=None,
                 sparse=False, dtype=numpy.float64, verbose=True):
-        """
-
-        Parameters
-        ----------
-        telescopes :
-
-        location :
-            (Default value = None)
-        start :
-            (Default value = None)
-        name :
-            (Default value = None)
-        altaz :
-            (Default value = None)
-        verbose :
-            (Default value = True)
-
-        Returns
-        -------
-
-
-        """
 
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
@@ -670,18 +510,6 @@ class FastRadioBursts(object):
         sys.stdout = old_target
 
     def clean(self, names=None):
-        """
-
-        Parameters
-        ----------
-        names :
-            (Default value = None)
-
-        Returns
-        -------
-
-
-        """
 
         if hasattr(self, 'observations'):
             if names is None:
@@ -704,11 +532,22 @@ class FastRadioBursts(object):
         observation = self[name]
         return getattr(observation, 'time_delay', None)
 
-    def __signal(self, name, channels=1):
+    def __peak_density_flux(self, name, channels=1):
 
         observation = self[name]
         spectral_index = self.spectral_index
-        return observation.get_response(spectral_index, channels)
+        response = observation.get_frequency_response(spectral_index, channels)
+        signal = response * self.__S0.value
+        signal.attrs['unit'] = response.attrs['unit'] * self.__S0.unit
+        signal.attrs['unit'] = signal.attrs['unit'].to(units.Jy)
+        return signal
+
+    def __signal(self, name, channels=1):
+        observation = self[name]
+        peak_density_flux = self.__peak_density_flux(name, channels)
+        signal = observation.response * peak_density_flux
+        signal.attrs = peak_density_flux.attrs
+        return signal
 
     def __noise(self, name, channels=1):
 
@@ -870,119 +709,36 @@ class FastRadioBursts(object):
         }
 
     def time_delay(self, names=None):
-        """
-
-        Parameters
-        ----------
-        names :
-            (Default value = None)
-
-        Returns
-        -------
-
-
-        """
 
         return self.__get('_FastRadioBursts__time_delay', names, channels=1)
 
+    def peak_density_flux(self, names=None, channels=1):
+
+        return self.__get('_FastRadioBursts__peak_density_flux',
+                          names, channels)
+
     def signal(self, names=None, channels=1):
-        """
-
-        Parameters
-        ----------
-        names :
-            (Default value = None)
-        channels :
-            (Default value = False)
-
-        Returns
-        -------
-
-
-        """
 
         return self.__get('_FastRadioBursts__signal', names, channels)
 
     def noise(self, names=None, channels=1):
-        """
-
-        Parameters
-        ----------
-        names :
-            (Default value = None)
-        channels :
-            (Default value = False)
-
-        Returns
-        -------
-
-
-        """
 
         return self.__get('_FastRadioBursts__noise', names, channels)
 
     def signal_to_noise(self, names=None, channels=1, total=False,
                         method='max', **kwargs):
-        """
-
-        Parameters
-        ----------
-        names :
-            (Default value = None)
-        channels :
-            (Default value = False)
-        total :
-            (Default value = False)
-
-        Returns
-        -------
-
-
-        """
 
         return self.__get('_FastRadioBursts__signal_to_noise', names, channels,
                           total=total, method=method, **kwargs)
 
     def triggers(self, names=None, channels=1, snr=None,
                  total=False, method='max', **kwargs):
-        """
-
-        Parameters
-        ----------
-        names :
-            (Default value = None)
-        channels :
-            (Default value = False)
-        total :
-            (Default value = False)
-
-        Returns
-        -------
-
-
-        """
 
         return self.__get('_FastRadioBursts__triggers', names, channels,
                           snr=snr, total=total, method=method, **kwargs)
 
     def counts(self, names=None, channels=1, snr=None, total=False,
                method='max', **kwargs):
-        """
-
-        Parameters
-        ----------
-        names :
-            (Default value = None)
-        channels :
-            (Default value = False)
-        total :
-            (Default value = False)
-
-        Returns
-        -------
-
-
-        """
 
         return self.__get('_FastRadioBursts__counts', names, channels,
                           snr=snr, total=total, method=method, **kwargs)
@@ -1025,22 +781,6 @@ class FastRadioBursts(object):
 
     def interferometry(self, namei, namej=None, reference=False,
                        degradation=None, overwrite=False, return_key=False):
-        """
-
-        Parameters
-        ----------
-        namei : str
-
-        namej : str
-            (Default value = None)
-        time_delay :
-            (Default value = True)
-
-        Returns
-        -------
-
-
-        """
 
         if reference:
             names = [
@@ -1068,7 +808,7 @@ class FastRadioBursts(object):
                 warnings.warn(warning_message)
 
     def copy(self, clear=False):
-        """ """
+
         copy = dill.copy(self)
         keys = self.__dict__.keys()
 
@@ -1112,15 +852,7 @@ class FastRadioBursts(object):
         file.close()
 
     def save(self, name):
-        """
-        Parameters
-        ----------
-        name :
 
-
-        Returns
-        -------
-        """
         file_name = '{}.blips'.format(name)
         file = bz2.BZ2File(file_name, 'wb')
         copy = self.copy()
@@ -1129,15 +861,7 @@ class FastRadioBursts(object):
 
     @staticmethod
     def load(file):
-        """
-        Parameters
-        ----------
-        name :
 
-
-        Returns
-        -------
-        """
         file_name = '{}.blips'.format(file)
         file = bz2.BZ2File(file_name, 'rb')
         loaded = dill.load(file)

@@ -37,14 +37,11 @@ def scattered_gaussian(t, w, ts, t0=0.0):
 
 
 class Observation():
-    """ """
 
-    def __init__(self, altaz=None, peak_density_flux=None,
-                 response=None, noise=None, time_delay=None,
+    def __init__(self, altaz=None, response=None, noise=None, time_delay=None,
                  frequency_range=None, sampling_time=None):
 
         self.altaz = altaz
-        self.peak_density_flux = peak_density_flux
         self.response = response
         self.noise = noise
         if time_delay is not None:
@@ -73,46 +70,26 @@ class Observation():
         self.altaz = coordinates.AltAz(**kwargs)
 
     def get_noise(self, channels=1):
-        """
 
-        Parameters
-        ----------
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
         noise = numpy.full(channels, numpy.sqrt(channels))
         noise = self.noise * xarray.DataArray(noise, dims='CHANNEL')
         noise.attrs = self.noise.attrs
         return noise
 
-    def get_response(self, spectral_index, channels=1):
-        """
+    def get_frequency_response(self, spectral_index, channels=1):
 
-        Parameters
-        ----------
-        spectral_index :
-
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-        nu = (self.frequency_range / units.MHz).to(1)
-        nu = numpy.linspace(*nu, channels + 1)
+        nu = numpy.linspace(*self.frequency_range.value, channels + 1)
         nu = xarray.DataArray(nu, dims='CHANNEL')
+        nu.attrs['unit'] = self.frequency_range.unit
         spec_idx = xarray.DataArray(spectral_index, dims=self.kind)
         nu_pow = nu**(1 + spec_idx)
         density_flux = nu_pow.diff('CHANNEL') / nu.diff('CHANNEL')
-        density_flux = density_flux * (self.width / units.MHz).to(1)
-        density_flux = self.response * self.peak_density_flux * density_flux
-        density_flux.attrs = self.peak_density_flux.attrs
-        return density_flux.squeeze()
+        density_flux.attrs['unit'] = 1 / nu.attrs['unit']
+
+        if channels == 1:
+            return density_flux.squeeze('CHANNEL')
+
+        return density_flux.T
 
     def __getitem__(self, idx):
 
@@ -122,23 +99,10 @@ class Observation():
         return self.select(idx)
 
     def copy(self):
-        """ """
+
         return dill.copy(self)
 
     def select(self, idx, inplace=False):
-        """
-
-        Parameters
-        ----------
-        idx :
-
-        inplace :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
 
         if not inplace:
             obs = self.copy()
@@ -154,7 +118,6 @@ class Observation():
 
 
 class Interferometry(Observation):
-    """ """
 
     def __init__(self, obsi, obsj=None, degradation=None):
 
