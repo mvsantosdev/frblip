@@ -490,8 +490,8 @@ class FastRadioBursts(object):
                                           name='Time Delay')
             time_delay.attrs['unit'] = unit
 
-        observation = Observation(altaz, response, noise, time_delay,
-                                  frequency_range, sampling_time)
+        observation = Observation(response, noise, time_delay, frequency_range,
+                                  sampling_time, altaz)
 
         self.observations[obs_name] = observation
 

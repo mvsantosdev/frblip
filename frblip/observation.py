@@ -38,8 +38,8 @@ def scattered_gaussian(t, w, ts, t0=0.0):
 
 class Observation():
 
-    def __init__(self, altaz=None, response=None, noise=None, time_delay=None,
-                 frequency_range=None, sampling_time=None):
+    def __init__(self, response=None, noise=None, time_delay=None,
+                 frequency_range=None, sampling_time=None, altaz=None):
 
         self.altaz = altaz
         self.response = response
@@ -135,7 +135,6 @@ class Interferometry(Observation):
                 frequency_range = obsi.frequency_range
                 width = frequency_range.diff()
                 sampling_time = obsi.sampling_time
-                speak = obsi.peak_density_flux
 
                 coords = [
                     *map(lambda x: '{}x{}'.format(*x),
@@ -186,17 +185,6 @@ class Interferometry(Observation):
             qi = (wi / width).to(1)
             qj = (wj / width).to(1)
 
-            speaki = obsi.peak_density_flux
-            speakj = obsj.peak_density_flux
-
-            speaki = speaki * wi
-            speakj = speakj * wj
-
-            assert numpy.isclose(speaki, speakj, rtol=1e-15).all(), \
-                   'The observations do not correspond to same dataset'
-
-            speak = speaki / width
-
             Dti = obsi.altaz.obstime
             Dtj = obsj.altaz.obstime
             Dt = (Dti - Dtj).to(units.ms)
@@ -232,11 +220,8 @@ class Interferometry(Observation):
             sampling_time = numpy.stack([ti, tj])
             sampling_time = sampling_time.max()
 
-        Observation.__init__(self, peak_density_flux=speak,
-                             response=response, noise=noise,
-                             time_delay=time_delay,
-                             frequency_range=frequency_range,
-                             sampling_time=sampling_time)
+        Observation.__init__(self, response, noise, time_delay,
+                             frequency_range, sampling_time)
 
         if degradation is not None:
             if isinstance(degradation, (float, int)):
