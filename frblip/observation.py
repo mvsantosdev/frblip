@@ -41,13 +41,14 @@ class Observation():
     def __init__(self, response=None, noise=None, time_delay=None,
                  frequency_range=None, sampling_time=None, altaz=None):
 
-        self.altaz = altaz
         self.response = response
         self.noise = noise
         if time_delay is not None:
             self.time_delay = time_delay
         self.frequency_range = frequency_range
         self.sampling_time = sampling_time
+        if altaz is not None:
+            self.altaz = altaz
 
         self.kind = response.dims[0]
         self.width = self.frequency_range.diff()
