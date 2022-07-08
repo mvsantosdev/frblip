@@ -110,7 +110,6 @@ class Observation():
             return obs
 
         self.response = self.response[idx]
-        self.peak_density_flux = self.peak_density_flux[idx]
         if hasattr(self, 'altaz'):
             self.altaz = self.altaz[idx]
         if hasattr(self, 'time_delay'):
