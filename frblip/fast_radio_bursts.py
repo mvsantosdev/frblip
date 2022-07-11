@@ -163,6 +163,8 @@ class FastRadioBursts(object):
             def func(*names, **kwargs):
                 f = partial(getattr(self, name), **kwargs)
                 keys = self.observations.keys() if names == () else names
+                if len(keys) == 1:
+                    return f(*keys)
                 return {
                     key: f(key) for key in keys
                 }
@@ -375,7 +377,7 @@ class FastRadioBursts(object):
 
         return self.itrs_time - time_delay
 
-    def altaz(self, location, interp=300):
+    def altaz_from_location(self, location, interp=300):
 
         obstime = self.obstime(location)
         frame = coordinates.AltAz(location=location, obstime=obstime)
@@ -430,8 +432,8 @@ class FastRadioBursts(object):
             and numpy.size(value) == self.size
         })
 
-    def __observe(self, telescope, name=None, location=None,
-                  altaz=None, sparse=True, dtype=numpy.float64):
+    def __observe(self, telescope, name=None, sparse=True,
+                  dtype=numpy.float64):
 
         print('Performing observation for telescope {}...'.format(name))
 
@@ -449,17 +451,17 @@ class FastRadioBursts(object):
         zmin = self.low_frequency / frequency_range[-1] - 1
         zmin = zmin.clip(0)
 
-        location = telescope.location if location is None else location
-        lon, lat, height = location.lon, location.lat, location.height
-
-        print(
-            'Computing positions for {} FRB'.format(self.size),
-            'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-            'height={:.3f}.'.format(height), end='\n\n'
-        )
-
-        if altaz is None:
-            altaz = self.altaz(location)
+        if 'altaz' in dir(self):
+            altaz = self.altaz
+        else:
+            location = telescope.location
+            lon, lat, height = location.lon, location.lat, location.height
+            print(
+                'Computing positions for {} FRB'.format(self.size),
+                'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
+                'height={:.3f}.'.format(height), end='\n\n'
+            )
+            altaz = self.altaz_from_location(location)
 
         in_range = (zmin <= self.redshift) & (self.redshift <= zmax)
         visible = altaz.alt > 0
@@ -494,22 +496,45 @@ class FastRadioBursts(object):
                                           name='Time Delay')
             time_delay.attrs['unit'] = unit
 
+        if 'altaz' in dir(self):
+            altaz = None
+
         observation = Observation(response, noise, time_delay, frequency_range,
                                   sampling_time, altaz)
 
         self.observations[obs_name] = observation
 
-    def observe(self, telescopes, name=None, location=None, altaz=None,
-                sparse=False, dtype=numpy.float64, verbose=True):
+    def observe(self, telescopes, name=None, location=None, sparse=False,
+                dtype=numpy.float64, verbose=True):
 
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
 
+        if 'altaz' not in dir(self):
+            if isinstance(location, coordinates.EarthLocation):
+                loc = location
+            elif isinstance(location, str):
+                if location in telescopes:
+                    loc = telescopes[location].location
+                else:
+                    loc = coordinates.EarthLocation.of_site(location)
+
+                lon, lat, height = loc.lon, loc.lat, loc.height
+                print(
+                    'Computing positions for {} FRB'.format(self.size),
+                    'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
+                    'height={:.3f}.'.format(height), end='\n\n'
+                )
+                self.altaz = self.altaz_from_location(loc)
+            elif location is not None:
+                error = '{} is not a valid location'.format(location)
+                raise TypeError(error)
+
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
-                self.__observe(telescope, name, location, altaz, sparse, dtype)
+                self.__observe(telescope, name, sparse, dtype)
         else:
-            self.__observe(telescopes, name, location, altaz, sparse, dtype)
+            self.__observe(telescopes, name, sparse, dtype)
 
         sys.stdout = old_target
 
@@ -531,7 +556,12 @@ class FastRadioBursts(object):
         idx = snr.max('ALL') >= tolerance
         return self[idx.as_numpy()]
 
-    def _time_delay(self, name, channels=1):
+    def _altaz(self, name):
+
+        observation = self[name]
+        return getattr(observation, 'altaz', None)
+
+    def _time_delay(self, name):
 
         observation = self[name]
         return getattr(observation, 'time_delay', None)
