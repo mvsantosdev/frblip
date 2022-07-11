@@ -1,3 +1,5 @@
+import dill
+
 import numpy
 import xarray
 
@@ -35,20 +37,18 @@ def scattered_gaussian(t, w, ts, t0=0.0):
 
 
 class Observation():
-    """ """
 
-    def __init__(self, altaz=None, peak_density_flux=None,
-                 response=None, noise=None, time_delay=None,
-                 frequency_range=None, sampling_time=None):
+    def __init__(self, response=None, noise=None, time_delay=None,
+                 frequency_range=None, sampling_time=None, altaz=None):
 
-        self.altaz = altaz
-        self.peak_density_flux = peak_density_flux
         self.response = response
         self.noise = noise
         if time_delay is not None:
             self.time_delay = time_delay
         self.frequency_range = frequency_range
         self.sampling_time = sampling_time
+        if altaz is not None:
+            self.altaz = altaz
 
         self.kind = response.dims[0]
         self.width = self.frequency_range.diff()
@@ -71,46 +71,26 @@ class Observation():
         self.altaz = coordinates.AltAz(**kwargs)
 
     def get_noise(self, channels=1):
-        """
 
-        Parameters
-        ----------
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
         noise = numpy.full(channels, numpy.sqrt(channels))
         noise = self.noise * xarray.DataArray(noise, dims='CHANNEL')
         noise.attrs = self.noise.attrs
         return noise
 
-    def get_response(self, spectral_index, channels=1):
-        """
+    def get_frequency_response(self, spectral_index, channels=1):
 
-        Parameters
-        ----------
-        spectral_index :
-
-        channels :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-        nu = (self.frequency_range / units.MHz).to(1)
-        nu = numpy.linspace(*nu, channels + 1)
+        nu = numpy.linspace(*self.frequency_range.value, channels + 1)
         nu = xarray.DataArray(nu, dims='CHANNEL')
+        nu.attrs['unit'] = self.frequency_range.unit
         spec_idx = xarray.DataArray(spectral_index, dims=self.kind)
         nu_pow = nu**(1 + spec_idx)
         density_flux = nu_pow.diff('CHANNEL') / nu.diff('CHANNEL')
-        density_flux = density_flux * (self.width / units.MHz).to(1)
-        density_flux = self.response * self.peak_density_flux * density_flux
-        density_flux.attrs = self.peak_density_flux.attrs
-        return density_flux.squeeze()
+        density_flux.attrs['unit'] = 1 / nu.attrs['unit']
+
+        if channels == 1:
+            return density_flux.squeeze('CHANNEL')
+
+        return density_flux.T
 
     def __getitem__(self, idx):
 
@@ -119,36 +99,25 @@ class Observation():
         idx = numpy.array(idx)
         return self.select(idx)
 
+    def copy(self):
+
+        return dill.copy(self)
+
     def select(self, idx, inplace=False):
-        """
 
-        Parameters
-        ----------
-        idx :
-
-        inplace :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-        response = self.response[idx]
-        altaz = getattr(self, 'altaz', None)
-        altaz = altaz[idx] if altaz else None
-        peak_density_flux = self.peak_density_flux[idx]
         if not inplace:
-            output = Observation.__new__(Observation)
-            output.__dict__.update(self.__dict__)
-            output.response = response
-            output.altaz = altaz
-            output.peak_density_flux = peak_density_flux
-            return output
-        self.response = response
+            obs = self.copy()
+            obs.select(idx, inplace=True)
+            return obs
+
+        self.response = self.response[idx]
+        if hasattr(self, 'altaz'):
+            self.altaz = self.altaz[idx]
+        if hasattr(self, 'time_delay'):
+            self.time_delay = self.time_delay[idx]
 
 
 class Interferometry(Observation):
-    """ """
 
     def __init__(self, obsi, obsj=None, degradation=None):
 
@@ -166,7 +135,6 @@ class Interferometry(Observation):
                 frequency_range = obsi.frequency_range
                 width = frequency_range.diff()
                 sampling_time = obsi.sampling_time
-                speak = obsi.peak_density_flux
 
                 coords = [
                     *map(lambda x: '{}x{}'.format(*x),
@@ -217,17 +185,6 @@ class Interferometry(Observation):
             qi = (wi / width).to(1)
             qj = (wj / width).to(1)
 
-            speaki = obsi.peak_density_flux
-            speakj = obsj.peak_density_flux
-
-            speaki = speaki * wi
-            speakj = speakj * wj
-
-            assert numpy.isclose(speaki, speakj, rtol=1e-15).all(), \
-                   'The observations do not correspond to same dataset'
-
-            speak = speaki / width
-
             Dti = obsi.altaz.obstime
             Dtj = obsj.altaz.obstime
             Dt = (Dti - Dtj).to(units.ms)
@@ -263,11 +220,8 @@ class Interferometry(Observation):
             sampling_time = numpy.stack([ti, tj])
             sampling_time = sampling_time.max()
 
-        Observation.__init__(self, peak_density_flux=speak,
-                             response=response, noise=noise,
-                             time_delay=time_delay,
-                             frequency_range=frequency_range,
-                             sampling_time=sampling_time)
+        Observation.__init__(self, response, noise, time_delay,
+                             frequency_range, sampling_time)
 
         if degradation is not None:
             if isinstance(degradation, (float, int)):
