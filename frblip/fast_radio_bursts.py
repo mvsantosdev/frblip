@@ -155,6 +155,22 @@ class FastRadioBursts(object):
             return itemgetter(*idx)(self.observations)
         return None
 
+    def __getattr__(self, attr, *args, **kwargs):
+
+        name = '_{}'.format(attr)
+
+        if name in dir(self):
+            def func(*names, **kwargs):
+                f = partial(getattr(self, name), **kwargs)
+                keys = self.observations.keys() if names == () else names
+                return {
+                    key: f(key) for key in keys
+                }
+            return func
+        else:
+            error = "'{}' object has no attribute '{}'"
+            raise AttributeError(error.format(self.__class__, attr))
+
     def select(self, idx, inplace=False):
 
         if not inplace:
@@ -223,29 +239,24 @@ class FastRadioBursts(object):
 
     @cached_property
     def redshift(self):
-
         return self.__zdist.rvs(size=self.size)
 
     @cached_property
     def log_luminosity(self):
-
         loglum = self.__lumdist.log_rvs(size=self.size)
         return loglum * units.LogUnit() + self.log_Lstar
 
     @cached_property
     def pulse_width(self):
-
         width = random.lognormal(self.w_mean, self.w_std, size=self.size)
         return (width * units.s).to(units.ms)
 
     @cached_property
     def emitted_pulse_width(self):
-
         return self.pulse_width / (1 + self.redshift)
 
     @cached_property
     def itrs_time(self):
-
         time_ms = int(self.duration.to(units.us).value)
         dt = random.randint(time_ms, size=self.size)
         dt = numpy.sort(dt) * units.us
@@ -253,7 +264,6 @@ class FastRadioBursts(object):
 
     @cached_property
     def spectral_index(self):
-
         return self.__spec_idx_dist.rvs(self.size)
 
     @cached_property
@@ -302,18 +312,15 @@ class FastRadioBursts(object):
 
     @cached_property
     def itrs(self):
-
         itrs_frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.icrs.transform_to(itrs_frame)
 
     @property
     def xyz(self):
-
         return self.itrs.cartesian.xyz
 
     @property
     def galactic(self):
-
         return self.icrs.galactic
 
     @cached_property
@@ -331,14 +338,12 @@ class FastRadioBursts(object):
 
     @cached_property
     def galactic_dm(self):
-
         gl = self.galactic.l
         gb = self.galactic.b
         return self.__gal_dm(gl, gb)
 
     @cached_property
     def igm_dm(self):
-
         z = self.redshift
         return self.__igm_dm(z)
 
@@ -358,7 +363,6 @@ class FastRadioBursts(object):
 
     @cached_property
     def dispersion_measure(self):
-
         return self.galactic_dm + self.extra_galactic_dm
 
     def obstime(self, location):
@@ -527,40 +531,42 @@ class FastRadioBursts(object):
         idx = snr.max('ALL') >= tolerance
         return self[idx.as_numpy()]
 
-    def __time_delay(self, name, channels=1):
+    def _time_delay(self, name, channels=1):
 
         observation = self[name]
         return getattr(observation, 'time_delay', None)
 
-    def __peak_density_flux(self, name, channels=1):
+    def _peak_density_flux(self, name, channels=1):
 
         observation = self[name]
         spectral_index = self.spectral_index
         response = observation.get_frequency_response(spectral_index, channels)
-        signal = response * self.__S0.value
-        signal.attrs['unit'] = response.attrs['unit'] * self.__S0.unit
-        signal.attrs['unit'] = signal.attrs['unit'].to(units.Jy)
+        S0 = xarray.DataArray(self.__S0.value, dims='FRB')
+        unit = response.attrs['unit'] * self.__S0.unit
+        signal = response * S0
+        signal.attrs['unit'] = unit.to(units.Jy)
         return signal
 
-    def __signal(self, name, channels=1):
+    def _signal(self, name, channels=1):
+
         observation = self[name]
-        peak_density_flux = self.__peak_density_flux(name, channels)
+        peak_density_flux = self._peak_density_flux(name, channels)
         signal = observation.response * peak_density_flux
         signal.attrs = peak_density_flux.attrs
         return signal
 
-    def __noise(self, name, channels=1):
+    def _noise(self, name, channels=1):
 
         observation = self[name]
         return observation.get_noise(channels)
 
-    def __signal_to_noise(self, name, channels=1, total=False,
-                          method='max', **kwargs):
+    def _signal_to_noise(self, name, channels=1, total=False, method='max',
+                         **kwargs):
 
         func = getufunc(method, **kwargs)
 
-        signal = self.__signal(name, channels)
-        noise = self.__noise(name, channels)
+        signal = self._signal(name, channels)
+        noise = self._noise(name, channels)
 
         snr = signal / noise
 
@@ -576,208 +582,21 @@ class FastRadioBursts(object):
 
         return snr.squeeze()
 
-    def __triggers(self, name, channels=1, snr=None,
-                   total=False, method='max', **kwargs):
+    def _triggers(self, name, channels=1, snr=None, total=False,
+                  method='max', **kwargs):
 
-        _snr = self.__signal_to_noise(name, channels, total=total,
-                                      method=method, **kwargs)
+        _snr = self._signal_to_noise(name, channels, total=total,
+                                     method=method, **kwargs)
         s = numpy.arange(1, 11) if snr is None else snr
         s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
         return (_snr >= s).squeeze()
 
-    def __counts(self, name, channels=1, snr=None, total=False,
-                 method='max', **kwargs):
+    def _counts(self, name, channels=1, snr=None, total=False, method='max',
+                **kwargs):
 
-        detected = self.__triggers(name, channels, snr, total,
-                                   method, **kwargs)
+        detected = self._triggers(name, channels, snr, total,
+                                  method, **kwargs)
         return detected.sum('FRB')
-
-    def __count_baselines(self, name, channels=1, snr=None,
-                          reference=None, method='max', **kwargs):
-
-        key = 'INTF_{}'.format(name)
-        triggers = self.__triggers(key, channels, snr=snr)
-        counts = triggers.sum(name)
-
-        if (reference is not None) and isinstance(reference, str):
-            key = 'INTF_{}_{}'.format(name, reference)
-            triggers = self.__triggers(key, channels, snr=snr, total=reference,
-                                       method=method, **kwargs)
-            counts += triggers.sum(name)
-
-        return counts
-
-    def __count_over_baselines(self, name, channels=1, snr=None,
-                               reference=None, baselines=10,
-                               method='max', **kwargs):
-
-        b = xarray.DataArray(numpy.arange(1, baselines+1), dims='Baselines')
-        count_baselines = self.__count_baselines(name, channels=channels,
-                                                 snr=snr, reference=reference,
-                                                 method=method, **kwargs)
-        return (count_baselines > b).sum('FRB')
-
-    def __localize(self, name, channels=1, reference='MAIN',
-                   trigger=1.5, detect=5, localize=3, base=1,
-                   baselines=10, method='sum', **kwargs):
-
-        baselines = xarray.DataArray(numpy.arange(1, baselines+1),
-                                     dims='Baselines')
-
-        intf_keys = ['INTF_{}'.format(name),
-                     'INTF_{}_{}'.format(name, reference)]
-        keys = [name, reference, *intf_keys]
-
-        triggers = self.triggers(keys, channels=channels,
-                                 snr=trigger, total=True)
-        candidates = numpy.any([
-            value for value in triggers.values()
-        ], axis=0)
-        candidates = xarray.DataArray(candidates, dims='FRB')
-
-        func = getufunc(method, **kwargs)
-
-        snr = self.signal_to_noise(keys, channels, total=True,
-                                   method=func, **kwargs)
-        snr = func([
-            value for value in snr.values()
-        ], axis=0)
-        snr = xarray.DataArray(snr, dims='FRB')
-
-        detected = (snr > detect) & candidates
-
-        intf_snr = self.signal_to_noise(intf_keys, channels, total=reference,
-                                        method=func, **kwargs)
-        intf_snr = func([
-            value.sum(name) for value in intf_snr.values()
-        ], axis=0)
-        intf_snr = xarray.DataArray(intf_snr, dims='FRB')
-
-        intf_trig = self.triggers(intf_keys, channels=channels,
-                                  snr=base, total=reference)
-        intf_trig = sum([
-            value.sum(name) for value in intf_trig.values()
-        ])
-
-        localized = (intf_snr > localize) & (intf_trig >= baselines)
-        localized = detected & localized
-
-        return {
-            'candidates': candidates,
-            'detected': detected,
-            'localized': localized
-        }
-
-    def __count_localized(self, name, channels=1, reference='MAIN',
-                          trigger=1.5, detect=5, localize=3, base=1,
-                          baselines=10, method='sum', **kwargs):
-
-        localized = self.__localize(name, channels, reference, trigger,
-                                    detect, localize, base, baselines,
-                                    method, **kwargs)
-
-        return {
-            key: value.sum('FRB').values
-            for key, value in localized.items()
-        }
-
-    def __get(self, func_name=None, names=None, channels=1, **kwargs):
-
-        func = self.__getattribute__(func_name)
-
-        if names is None:
-            names = self.observations.keys()
-        elif isinstance(names, str):
-            if names == 'INTF':
-                names = self.observations.keys()
-                names = [*filter(lambda x: 'INTF' in x, names)]
-            elif names == 'AUTO':
-                names = self.observations.keys()
-                names = [*filter(lambda x: 'INTF' not in x, names)]
-            else:
-                return func(names, channels, **kwargs)
-
-        output = {
-            name: func(name, channels, **kwargs)
-            for name in names
-        }
-
-        return {
-            name: value
-            for name, value in output.items()
-            if value is not None
-        }
-
-    def time_delay(self, names=None):
-
-        return self.__get('_FastRadioBursts__time_delay', names, channels=1)
-
-    def peak_density_flux(self, names=None, channels=1):
-
-        return self.__get('_FastRadioBursts__peak_density_flux',
-                          names, channels)
-
-    def signal(self, names=None, channels=1):
-
-        return self.__get('_FastRadioBursts__signal', names, channels)
-
-    def noise(self, names=None, channels=1):
-
-        return self.__get('_FastRadioBursts__noise', names, channels)
-
-    def signal_to_noise(self, names=None, channels=1, total=False,
-                        method='max', **kwargs):
-
-        return self.__get('_FastRadioBursts__signal_to_noise', names, channels,
-                          total=total, method=method, **kwargs)
-
-    def triggers(self, names=None, channels=1, snr=None,
-                 total=False, method='max', **kwargs):
-
-        return self.__get('_FastRadioBursts__triggers', names, channels,
-                          snr=snr, total=total, method=method, **kwargs)
-
-    def counts(self, names=None, channels=1, snr=None, total=False,
-               method='max', **kwargs):
-
-        return self.__get('_FastRadioBursts__counts', names, channels,
-                          snr=snr, total=total, method=method, **kwargs)
-
-    def count_baselines(self, names=None, channels=1, snr=None,
-                        reference=None, method='max', **kwargs):
-
-        return self.__get('_FastRadioBursts__count_baselines', names,
-                          channels, snr=snr, reference=reference,
-                          method=method, **kwargs)
-
-    def count_over_baselines(self, names=None, channels=1, snr=None,
-                             reference=None, baselines=10, method='max',
-                             **kwargs):
-
-        return self.__get('_FastRadioBursts__count_over_baselines', names,
-                          channels, snr=snr, reference=reference,
-                          baselines=baselines, method=method, **kwargs)
-
-    def localize(self, names=None, channels=1, reference='MAIN', trigger=1.5,
-                 detect=5, localize=3, base=1, baselines=10, method='sum',
-                 **kwargs):
-
-        return self.__get('_FastRadioBursts__localize', names, channels,
-                          reference=reference, trigger=trigger, detect=detect,
-                          localize=localize, base=base, baselines=baselines,
-                          method=method, **kwargs)
-
-    def count_localized(self, names=None, channels=1, reference='MAIN',
-                        trigger=1.5, detect=5, localize=3, base=1,
-                        baselines=10, method='sum', **kwargs):
-
-        kw = dict(
-            names=names, channels=channels, reference=reference,
-            trigger=trigger, detect=detect, localize=localize,
-            base=base, baselines=baselines, method=method, **kwargs
-        )
-
-        return self.__get('_FastRadioBursts__count_localized', **kw)
 
     def interferometry(self, namei, namej=None, reference=False,
                        degradation=None, overwrite=False, return_key=False):
