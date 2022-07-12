@@ -1,3 +1,7 @@
+import os
+import sys
+import warnings
+
 import numpy
 import xarray
 from sparse import COO
@@ -93,6 +97,8 @@ class HealPixMap(HEALPix):
             def func(*names, **kwargs):
                 f = partial(getattr(self, name), **kwargs)
                 keys = self.observations.keys() if names == () else names
+                if len(keys) == 1:
+                    return f(*keys)
                 return {
                     key: f(key) for key in keys
                 }
@@ -146,7 +152,7 @@ class HealPixMap(HEALPix):
 
         return self.itrs_time - time_delay
 
-    def altaz(self, location, interp=300):
+    def altaz_from_location(self, location, interp=300):
 
         obstime = self.obstime(location)
         frame = coordinates.AltAz(location=location, obstime=obstime)
@@ -155,9 +161,8 @@ class HealPixMap(HEALPix):
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
             return self.icrs.transform_to(frame)
 
-    def __observe(self, telescope, name=None, location=None, altaz=None,
-                  sparse=True, max_radius=90 * units.deg,
-                  dtype=numpy.float64):
+    def __observe(self, telescope, name=None,  sparse=True,
+                  max_radius=90 * units.deg, dtype=numpy.float64):
 
         if 'observations' not in self.__dict__:
             self.observations = {}
@@ -166,8 +171,17 @@ class HealPixMap(HEALPix):
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
         obs_name = obs_name.replace(' ', '_')
 
-        location = telescope.location if location is None else location
-        altaz = self.altaz(location) if altaz is None else altaz
+        if 'altaz' in dir(self):
+            altaz = self.altaz
+        else:
+            location = telescope.location
+            lon, lat, height = location.lon, location.lat, location.height
+            print(
+                'Computing positions for {} PIXEL'.format(self.npix),
+                'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
+                'height={:.3f}.'.format(height), end='\n\n'
+            )
+            altaz = self.altaz_from_location(location)
 
         az = telescope.az
         alt = telescope.alt
@@ -180,7 +194,6 @@ class HealPixMap(HEALPix):
         sampling_time = telescope.sampling_time
         frequency_range = telescope.frequency_range
 
-        altaz = self.altaz(telescope.location)
         xyz = altaz.cartesian.xyz[..., numpy.newaxis]
         cosines = (xyz * sight).sum(0)
         arcs = numpy.arccos(cosines).to(units.deg)
@@ -206,22 +219,48 @@ class HealPixMap(HEALPix):
                                           name='Time Delay')
             time_delay.attrs['unit'] = unit
 
+        if 'altaz' in dir(self):
+            altaz = None
+
         observation = Observation(response, noise, time_delay, frequency_range,
                                   sampling_time, altaz)
 
         self.observations[obs_name] = observation
 
-    def observe(self, telescopes, name=None, location=None, altaz=None,
+    def observe(self, telescopes, name=None, location=None,
                 sparse=False, max_radius=90 * units.deg,
-                dtype=numpy.float64):
+                dtype=numpy.float64, verbose=False):
+
+        old_target = sys.stdout
+        sys.stdout = old_target if verbose else open(os.devnull, 'w')
+
+        if 'altaz' not in dir(self):
+            if isinstance(location, coordinates.EarthLocation):
+                loc = location
+            elif isinstance(location, str):
+                if location in telescopes:
+                    loc = telescopes[location].location
+                else:
+                    loc = coordinates.EarthLocation.of_site(location)
+
+                lon, lat, height = loc.lon, loc.lat, loc.height
+                print(
+                    'Computing positions for {} FRB'.format(self.size),
+                    'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
+                    'height={:.3f}.'.format(height), end='\n\n'
+                )
+                self.altaz = self.altaz_from_location(loc)
+            elif location is not None:
+                error = '{} is not a valid location'.format(location)
+                raise TypeError(error)
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
-                self.__observe(telescope, name, location, altaz,
-                               sparse, max_radius, dtype)
+                self.__observe(telescope, name, sparse, max_radius, dtype)
         else:
-            self.__observe(telescopes, name, location, altaz,
-                           sparse, max_radius, dtype)
+            self.__observe(telescopes, name, sparse, max_radius, dtype)
+
+        sys.stdout = old_target
 
     def _response(self, name, channels=1, spectral_index=0.0):
 
@@ -374,12 +413,28 @@ class HealPixMap(HEALPix):
                               spectral_index=spectral_index, unit=unit,
                               eps=eps).sum('PIXEL', keep_attrs=True)
 
-    def interferometry(self, namei, namej=None, degradation=None):
+    def interferometry(self, namei, namej=None, reference=False,
+                       degradation=None, overwrite=False):
 
-        obsi, obsj = self[namei], self[namej]
-        if namej is None:
-            key = 'INTF_{}'.format(namei)
+        if reference:
+            names = [
+                name for name in self.observations
+                if (name != namei) and ('INTF' not in name)
+            ]
+            for namej in names:
+                self.interferometry(namej)
+                self.interferometry(namej, namei)
         else:
-            key = 'INTF_{}_{}'.format(namei, namej)
-        interferometry = Interferometry(obsi, obsj, degradation)
-        self.observations[key] = interferometry
+            obsi, obsj = self[namei], self[namej]
+            if namej is None:
+                key = 'INTF_{}'.format(namei)
+            else:
+                key = 'INTF_{}_{}'.format(namei, namej)
+
+            if (key not in self.observations) or overwrite:
+                interferometry = Interferometry(obsi, obsj, degradation)
+                self.observations[key] = interferometry
+            else:
+                warning_message = '{} is already computed. '.format(key) + \
+                                  'You may set overwrite=True to recompute.'
+                warnings.warn(warning_message)

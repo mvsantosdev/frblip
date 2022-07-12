@@ -629,7 +629,7 @@ class FastRadioBursts(object):
         return detected.sum('FRB')
 
     def interferometry(self, namei, namej=None, reference=False,
-                       degradation=None, overwrite=False, return_key=False):
+                       degradation=None, overwrite=False):
 
         if reference:
             names = [
@@ -649,8 +649,6 @@ class FastRadioBursts(object):
             if (key not in self.observations) or overwrite:
                 interferometry = Interferometry(obsi, obsj, degradation)
                 self.observations[key] = interferometry
-                if return_key:
-                    return key
             else:
                 warning_message = '{} is already computed. '.format(key) + \
                                   'You may set overwrite=True to recompute.'
