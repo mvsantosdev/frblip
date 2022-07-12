@@ -70,6 +70,22 @@ class Observation():
 
         self.altaz = coordinates.AltAz(**kwargs)
 
+    def get_obstime(self):
+
+        if hasattr(self, 'altaz'):
+            return self.altaz.obstime
+        size = self.response.sizes[self.kind]
+        return numpy.zeros(size) * units.ms
+
+    def get_time_delay(self):
+
+        if hasattr(self, 'time_delay'):
+            return self.time_delay
+        values = numpy.zeros_like(self.response.as_numpy())
+        dims = self.response.dims
+        return xarray.DataArray(values, dims=dims,
+                                attrs={'unit': units.ms})
+
     def get_noise(self, channels=1):
 
         noise = numpy.full(channels, numpy.sqrt(channels))
@@ -185,22 +201,27 @@ class Interferometry(Observation):
             qi = (wi / width).to(1)
             qj = (wj / width).to(1)
 
-            Dti = obsi.altaz.obstime
-            Dtj = obsj.altaz.obstime
-            Dt = (Dti - Dtj).to(units.ms)
+            dti = obsi.get_time_delay()
+            dti.values = dti.values * dti.unit.to(units.ms)
 
-            dti = getattr(obsi, 'time_delay', 0)
-            if hasattr(dti, 'attrs'):
-                dti = dti * dti.attrs.get('unit', 1).to(Dt.unit)
-
-            dtj = getattr(obsj, 'time_delay', 0)
-            if hasattr(dtj, 'attrs'):
-                dtj = dtj * dtj.attrs.get('unit', 1).to(Dt.unit)
+            dtj = obsj.get_time_delay()
+            dtj.values = dtj.values * dtj.unit.to(units.ms)
 
             dt = dti - dtj
+            dt.attrs['unit'] = units.ms
 
-            time_delay = dt + xarray.DataArray(Dt, dims=kind)
-            time_delay.attrs['unit'] = Dt.unit
+            obs_ti = obsi.get_obstime()
+            obs_tj = obsj.get_obstime()
+
+            dt_obs = (obs_ti - obs_tj).to(units.ms)
+            dt_obs = xarray.DataArray(dt_obs.value, dims=dt.dims[0],
+                                      attrs={'unit': dt_obs.unit})
+
+            time_delay = dt + dt_obs
+            time_delay.attrs['unit'] = units.ms
+
+            if (time_delay == 0).values.all():
+                time_delay = None
 
             noisei = obsi.noise
             uniti = noisei.attrs['unit']

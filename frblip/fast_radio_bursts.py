@@ -428,7 +428,7 @@ class FastRadioBursts(object):
         self.__dict__.update({
             key: value[idx]
             for key, value in self.__dict__.items()
-            if key not in ('icrs', 'itrs', 'itrs_time')
+            if key not in ('icrs', 'itrs', 'itrs_time', 'altaz')
             and numpy.size(value) == self.size
         })
 
