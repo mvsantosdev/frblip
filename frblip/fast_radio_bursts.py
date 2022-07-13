@@ -95,6 +95,7 @@ class FastRadioBursts(object):
                            cosmology, free_electron_bias)
         self.__frb_rate(size, days)
         self.__S0
+        self.kind = 'FRB'
 
         sys.stdout = old_target
 
@@ -379,6 +380,16 @@ class FastRadioBursts(object):
 
     def altaz_from_location(self, location, interp=300):
 
+        lon = location.lon
+        lat = location.lat
+        height = location.height
+
+        print(
+            'Computing positions for {} sources'.format(self.size),
+            'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
+            'height={:.3f}.'.format(height), end='\n\n'
+        )
+
         obstime = self.obstime(location)
         frame = coordinates.AltAz(location=location, obstime=obstime)
         interp_time = interp * units.s
@@ -432,8 +443,7 @@ class FastRadioBursts(object):
             and numpy.size(value) == self.size
         })
 
-    def __observe(self, telescope, name=None, sparse=True,
-                  dtype=numpy.float64):
+    def __observe(self, telescope, name=None, sparse=True, dtype=numpy.double):
 
         print('Performing observation for telescope {}...'.format(name))
 
@@ -447,35 +457,30 @@ class FastRadioBursts(object):
         sampling_time = telescope.sampling_time
         frequency_range = telescope.frequency_range
 
-        zmax = self.high_frequency / frequency_range[0] - 1
-        zmin = self.low_frequency / frequency_range[-1] - 1
-        zmin = zmin.clip(0)
-
         if 'altaz' in dir(self):
             altaz = self.altaz
         else:
             location = telescope.location
-            lon, lat, height = location.lon, location.lat, location.height
-            print(
-                'Computing positions for {} FRB'.format(self.size),
-                'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-                'height={:.3f}.'.format(height), end='\n\n'
-            )
             altaz = self.altaz_from_location(location)
+
+        """zmax = self.high_frequency / frequency_range[0] - 1
+        zmin = self.low_frequency / frequency_range[-1] - 1
+        zmin = zmin.clip(0)
 
         in_range = (zmin <= self.redshift) & (self.redshift <= zmax)
         visible = altaz.alt > 0
-        mask = visible & in_range
+        mask = visible & in_range"""
+        mask = altaz.alt > 0
 
-        vis_frac = round(100 * visible.mean(), 2)
+        """vis_frac = round(100 * visible.mean(), 2)
         range_frac = round(100 * in_range.mean(), 2)
         obs_frac = round(100 * mask.mean(), 2)
 
         print('>>> {}% are visible.'.format(vis_frac))
         print('>>> {}% are in frequency range.'.format(range_frac))
-        print('>>> {}% are observable.'.format(obs_frac), end='\n\n')
+        print('>>> {}% are observable.'.format(obs_frac), end='\n\n')"""
 
-        dims = 'FRB', obs_name
+        dims = self.kind, obs_name
 
         resp = telescope.response(altaz[mask])
         shape = self.size, *resp.shape[1:]
@@ -505,7 +510,7 @@ class FastRadioBursts(object):
         self.observations[obs_name] = observation
 
     def observe(self, telescopes, name=None, location=None, sparse=False,
-                dtype=numpy.float64, verbose=True):
+                dtype=numpy.double, verbose=True):
 
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
@@ -519,12 +524,6 @@ class FastRadioBursts(object):
                 else:
                     loc = coordinates.EarthLocation.of_site(location)
 
-                lon, lat, height = loc.lon, loc.lat, loc.height
-                print(
-                    'Computing positions for {} FRB'.format(self.size),
-                    'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-                    'height={:.3f}.'.format(height), end='\n\n'
-                )
                 self.altaz = self.altaz_from_location(loc)
             elif location is not None:
                 error = '{} is not a valid location'.format(location)
@@ -581,7 +580,9 @@ class FastRadioBursts(object):
 
         observation = self[name]
         peak_density_flux = self._peak_density_flux(name, channels)
-        signal = observation.response * peak_density_flux
+        in_range = observation.in_range(self.redshift, self.low_frequency,
+                                        self.high_frequency)
+        signal = observation.response * peak_density_flux * in_range
         signal.attrs = peak_density_flux.attrs
         return signal
 

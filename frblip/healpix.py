@@ -36,6 +36,8 @@ class HealPixMap(HEALPix):
                            low_frequency_cal, high_frequency_cal,
                            emission_frame, cosmology, zmin, zmax)
 
+        self.kind = 'PIXEL'
+
     def __load_params(self, phistar, alpha, log_Lstar, log_L0,
                       low_frequency, high_frequency,
                       low_frequency_cal, high_frequency_cal,
@@ -107,38 +109,36 @@ class HealPixMap(HEALPix):
             error = "'{}' object has no attribute '{}'"
             raise AttributeError(error.format(self.__class__, attr))
 
+    @property
+    def size(self):
+        return self.npix
+
     @cached_property
     def pixels(self):
-
         return numpy.arange(self.npix)
 
     @cached_property
     def gcrs(self):
-
         pixels = numpy.arange(self.npix)
         ra, dec = self.healpix_to_lonlat(pixels)
         return coordinates.GCRS(ra=ra, dec=dec)
 
     @cached_property
     def itrs(self):
-
         frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.gcrs.transform_to(frame)
 
     @cached_property
     def icrs(self):
-
         frame = coordinates.ICRS()
         return self.gcrs.transform_to(frame)
 
     @cached_property
     def xyz(self):
-
         return self.itrs.cartesian.xyz
 
     @cached_property
     def itrs_time(self):
-
         j2000 = Time('J2000').to_datetime()
         return Time(j2000)
 
@@ -154,6 +154,16 @@ class HealPixMap(HEALPix):
 
     def altaz_from_location(self, location, interp=300):
 
+        lon = location.lon
+        lat = location.lat
+        height = location.height
+
+        print(
+            'Computing positions for {} sources'.format(self.size),
+            'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
+            'height={:.3f}.'.format(height), end='\n\n'
+        )
+
         obstime = self.obstime(location)
         frame = coordinates.AltAz(location=location, obstime=obstime)
         interp_time = interp * units.s
@@ -161,8 +171,7 @@ class HealPixMap(HEALPix):
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
             return self.icrs.transform_to(frame)
 
-    def __observe(self, telescope, name=None,  sparse=True,
-                  max_radius=90 * units.deg, dtype=numpy.float64):
+    def __observe(self, telescope, name=None, sparse=True, dtype=numpy.double):
 
         if 'observations' not in self.__dict__:
             self.observations = {}
@@ -175,31 +184,14 @@ class HealPixMap(HEALPix):
             altaz = self.altaz
         else:
             location = telescope.location
-            lon, lat, height = location.lon, location.lat, location.height
-            print(
-                'Computing positions for {} PIXEL'.format(self.npix),
-                'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-                'height={:.3f}.'.format(height), end='\n\n'
-            )
             altaz = self.altaz_from_location(location)
-
-        az = telescope.az
-        alt = telescope.alt
-        if isinstance(max_radius, (float, int)):
-            max_radius = max_radius * telescope.radius
-
-        sight = coordinates.AltAz(alt=alt, az=az, obstime=self.itrs_time)
-        sight = sight.cartesian.xyz[:, numpy.newaxis]
 
         sampling_time = telescope.sampling_time
         frequency_range = telescope.frequency_range
 
-        xyz = altaz.cartesian.xyz[..., numpy.newaxis]
-        cosines = (xyz * sight).sum(0)
-        arcs = numpy.arccos(cosines).to(units.deg)
-        mask = (arcs < max_radius).sum(-1) > 0
+        mask = altaz.alt > 0
 
-        dims = 'PIXEL', obs_name
+        dims = self.kind, obs_name
 
         resp = telescope.response(altaz[mask])
         response = numpy.zeros((self.npix, *resp.shape[1:]), dtype=dtype)
@@ -227,9 +219,8 @@ class HealPixMap(HEALPix):
 
         self.observations[obs_name] = observation
 
-    def observe(self, telescopes, name=None, location=None,
-                sparse=False, max_radius=90 * units.deg,
-                dtype=numpy.float64, verbose=False):
+    def observe(self, telescopes, name=None, location=None, sparse=False,
+                dtype=numpy.double, verbose=True):
 
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
@@ -243,12 +234,6 @@ class HealPixMap(HEALPix):
                 else:
                     loc = coordinates.EarthLocation.of_site(location)
 
-                lon, lat, height = loc.lon, loc.lat, loc.height
-                print(
-                    'Computing positions for {} FRB'.format(self.size),
-                    'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-                    'height={:.3f}.'.format(height), end='\n\n'
-                )
                 self.altaz = self.altaz_from_location(loc)
             elif location is not None:
                 error = '{} is not a valid location'.format(location)
@@ -256,9 +241,9 @@ class HealPixMap(HEALPix):
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
-                self.__observe(telescope, name, sparse, max_radius, dtype)
+                self.__observe(telescope, name, sparse, dtype)
         else:
-            self.__observe(telescopes, name, sparse, max_radius, dtype)
+            self.__observe(telescopes, name, sparse, dtype)
 
         sys.stdout = old_target
 

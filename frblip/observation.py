@@ -93,6 +93,16 @@ class Observation():
         noise.attrs = self.noise.attrs
         return noise
 
+    def in_range(self, redshift, low_frequency, high_frequency):
+
+        zmax = high_frequency / self.frequency_range[0] - 1
+        zmin = low_frequency / self.frequency_range[-1] - 1
+        zmin = zmin.clip(0)
+
+        in_range = (zmin <= redshift) & (redshift <= zmax)
+        return xarray.DataArray(in_range.astype(numpy.intp),
+                                dims=self.kind)
+
     def get_frequency_response(self, spectral_index, channels=1):
 
         nu = numpy.linspace(*self.frequency_range.value, channels + 1)
