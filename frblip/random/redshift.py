@@ -9,7 +9,7 @@ from scipy.stats import rv_continuous
 class Redshift(rv_continuous):
     """ """
 
-    def __init__(self, zmin=0.0, zmax=6, eps=1e-3, cosmology=None):
+    def __init__(self, zmin=0.0, zmax=6, cosmology=None, eps=1e-3):
 
         super().__init__()
 

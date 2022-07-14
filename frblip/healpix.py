@@ -1,26 +1,22 @@
-import os
-import sys
-import warnings
-
 import numpy
 import xarray
 from sparse import COO
 from astropy_healpix import HEALPix
 
 from astropy.time import Time
-from astropy import coordinates, units, constants
-from astropy.coordinates.erfa_astrom import erfa_astrom
-from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
 from operator import itemgetter
-from functools import partial, cached_property
+from functools import cached_property
 
 from .random import Redshift, Schechter
-from .observation import Observation, Interferometry
 from .cosmology import Cosmology, builtin
 
+from astropy import units, coordinates
 
-class HealPixMap(HEALPix):
+from .basic_sampler import BasicSampler
+
+
+class HealPixMap(BasicSampler, HEALPix):
 
     def __init__(self, nside=128, order='ring', phistar=339,
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
@@ -29,7 +25,7 @@ class HealPixMap(HEALPix):
                  emission_frame=False, cosmology='Planck_18',
                  zmin=0.0, zmax=30.0):
 
-        super().__init__(nside, order)
+        HEALPix.__init__(self, nside, order)
 
         self.__load_params(phistar, alpha, log_Lstar, log_L0,
                            low_frequency, high_frequency,
@@ -56,6 +52,12 @@ class HealPixMap(HEALPix):
         self.zmin = zmin
         self.zmax = zmax
 
+    def __getitem__(self, keys):
+
+        if isinstance(keys, str):
+            return self.observations[keys]
+        return itemgetter(*keys)(self.observations)
+
     @cached_property
     def __cosmology(self):
         params = builtin[self.cosmology]
@@ -74,40 +76,6 @@ class HealPixMap(HEALPix):
     @cached_property
     def __lumdist(self):
         return Schechter(self.__xmin, self.alpha)
-
-    def __getitem__(self, idx):
-
-        if isinstance(idx, str):
-            return self.observations[idx]
-        if isinstance(idx, slice):
-            return self.select(idx, inplace=False)
-
-        idx = numpy.array(idx)
-        numeric = numpy.issubdtype(idx.dtype, numpy.signedinteger)
-        boolean = numpy.issubdtype(idx.dtype, numpy.bool_)
-        if numeric or boolean:
-            return self.select(idx, inplace=False)
-        if numpy.issubdtype(idx.dtype, numpy.str_):
-            return itemgetter(*idx)(self.observations)
-        return None
-
-    def __getattr__(self, attr, *args, **kwargs):
-
-        name = '_{}'.format(attr)
-
-        if name in dir(self):
-            def func(*names, **kwargs):
-                f = partial(getattr(self, name), **kwargs)
-                keys = self.observations.keys() if names == () else names
-                if len(keys) == 1:
-                    return f(*keys)
-                return {
-                    key: f(key) for key in keys
-                }
-            return func
-        else:
-            error = "'{}' object has no attribute '{}'"
-            raise AttributeError(error.format(self.__class__, attr))
 
     @property
     def size(self):
@@ -141,111 +109,6 @@ class HealPixMap(HEALPix):
     def itrs_time(self):
         j2000 = Time('J2000').to_datetime()
         return Time(j2000)
-
-    def obstime(self, location):
-
-        loc = location.get_itrs()
-        loc = loc.cartesian.xyz
-
-        path = loc @ self.xyz
-        time_delay = path / constants.c
-
-        return self.itrs_time - time_delay
-
-    def altaz_from_location(self, location, interp=300):
-
-        lon = location.lon
-        lat = location.lat
-        height = location.height
-
-        print(
-            'Computing positions for {} sources'.format(self.size),
-            'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-            'height={:.3f}.'.format(height), end='\n\n'
-        )
-
-        obstime = self.obstime(location)
-        frame = coordinates.AltAz(location=location, obstime=obstime)
-        interp_time = interp * units.s
-
-        with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
-            return self.icrs.transform_to(frame)
-
-    def __observe(self, telescope, name=None, sparse=True, dtype=numpy.double):
-
-        if 'observations' not in self.__dict__:
-            self.observations = {}
-
-        n_obs = len(self.observations)
-        obs_name = 'OBS_{}'.format(n_obs) if name is None else name
-        obs_name = obs_name.replace(' ', '_')
-
-        if 'altaz' in dir(self):
-            altaz = self.altaz
-        else:
-            location = telescope.location
-            altaz = self.altaz_from_location(location)
-
-        sampling_time = telescope.sampling_time
-        frequency_range = telescope.frequency_range
-
-        mask = altaz.alt > 0
-
-        dims = self.kind, obs_name
-
-        resp = telescope.response(altaz[mask])
-        response = numpy.zeros((self.npix, *resp.shape[1:]), dtype=dtype)
-        response[mask] = resp
-        if sparse:
-            response = COO(response)
-        response = xarray.DataArray(response, dims=dims, name='Response')
-
-        noi = telescope.noise
-        noise = xarray.DataArray(noi, dims=obs_name, name='Noise')
-        noise.attrs['unit'] = noi.unit
-
-        time_delay = telescope.time_array(altaz)
-        if time_delay is not None:
-            unit = time_delay.unit
-            time_delay = xarray.DataArray(time_delay.value, dims=dims,
-                                          name='Time Delay')
-            time_delay.attrs['unit'] = unit
-
-        if 'altaz' in dir(self):
-            altaz = None
-
-        observation = Observation(response, noise, time_delay, frequency_range,
-                                  sampling_time, altaz)
-
-        self.observations[obs_name] = observation
-
-    def observe(self, telescopes, name=None, location=None, sparse=False,
-                dtype=numpy.double, verbose=True):
-
-        old_target = sys.stdout
-        sys.stdout = old_target if verbose else open(os.devnull, 'w')
-
-        if 'altaz' not in dir(self):
-            if isinstance(location, coordinates.EarthLocation):
-                loc = location
-            elif isinstance(location, str):
-                if location in telescopes:
-                    loc = telescopes[location].location
-                else:
-                    loc = coordinates.EarthLocation.of_site(location)
-
-                self.altaz = self.altaz_from_location(loc)
-            elif location is not None:
-                error = '{} is not a valid location'.format(location)
-                raise TypeError(error)
-
-        if type(telescopes) is dict:
-            for name, telescope in telescopes.items():
-                self.__observe(telescope, name, sparse, dtype)
-        else:
-            self.__observe(telescopes, name, sparse, dtype)
-
-        sys.stdout = old_target
 
     def _response(self, name, channels=1, spectral_index=0.0):
 
@@ -397,29 +260,3 @@ class HealPixMap(HEALPix):
                               sensitivity=sensitivity, total=total,
                               spectral_index=spectral_index, unit=unit,
                               eps=eps).sum('PIXEL', keep_attrs=True)
-
-    def interferometry(self, namei, namej=None, reference=False,
-                       degradation=None, overwrite=False):
-
-        if reference:
-            names = [
-                name for name in self.observations
-                if (name != namei) and ('INTF' not in name)
-            ]
-            for namej in names:
-                self.interferometry(namej)
-                self.interferometry(namej, namei)
-        else:
-            obsi, obsj = self[namei], self[namej]
-            if namej is None:
-                key = 'INTF_{}'.format(namei)
-            else:
-                key = 'INTF_{}_{}'.format(namei, namej)
-
-            if (key not in self.observations) or overwrite:
-                interferometry = Interferometry(obsi, obsj, degradation)
-                self.observations[key] = interferometry
-            else:
-                warning_message = '{} is already computed. '.format(key) + \
-                                  'You may set overwrite=True to recompute.'
-                warnings.warn(warning_message)
