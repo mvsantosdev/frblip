@@ -17,7 +17,7 @@ bla = setup(
     },
     python_requires='>=3.8',
     install_requires=[
-        'dill',
+        'dill==0.3.4',
         'numba>=0.55',
         'numpy>=1.21',
         'pandas',
