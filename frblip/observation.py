@@ -91,6 +91,8 @@ class Observation():
         noise = numpy.full(channels, numpy.sqrt(channels))
         noise = self.noise * xarray.DataArray(noise, dims='CHANNEL')
         noise.attrs = self.noise.attrs
+        if channels == 1:
+            return noise.squeeze('CHANNEL')
         return noise
 
     def in_range(self, redshift, low_frequency, high_frequency):

@@ -10,7 +10,7 @@ import xarray
 from numpy import random
 
 from operator import itemgetter
-from functools import partial, cached_property
+from functools import cached_property
 
 from astropy.time import Time
 from astropy import units, coordinates
@@ -22,18 +22,7 @@ from .random.dispersion_measure import InterGalacticDM, HostGalaxyDM
 
 from .cosmology import Cosmology, builtin
 
-from .basic_sampler import BasicSampler
-
-
-def getufunc(method, **kwargs):
-
-    if callable(method):
-        return method
-    elif hasattr(numpy, method):
-        return getattr(numpy, method)
-    elif hasattr(numpy.linalg, method):
-        func = getattr(numpy.linalg, method)
-        return partial(func, **kwargs)
+from .basic_sampler import getufunc, BasicSampler
 
 
 def blips(size=None, days=1, log_Lstar=44.46, log_L0=41.96,
@@ -436,8 +425,8 @@ class FastRadioBursts(BasicSampler):
         observation = self[name]
         return observation.get_noise(channels)
 
-    def _signal_to_noise(self, name, channels=1, total=False, method='max',
-                         **kwargs):
+    def _signal_to_noise(self, name, channels=1, total=False,
+                         method='max', **kwargs):
 
         func = getufunc(method, **kwargs)
 
@@ -452,7 +441,7 @@ class FastRadioBursts(BasicSampler):
             levels = [*filter(lambda x: x in snr.dims, total)]
             snr = snr.reduce(func, dim=levels, **kwargs)
         elif total is True:
-            levels = [*filter(lambda x: x not in ('FRB', 'CHANNEL'),
+            levels = [*filter(lambda x: x not in (self.kind, 'CHANNEL'),
                               snr.dims)]
             snr = snr.reduce(func, dim=levels, **kwargs)
 
