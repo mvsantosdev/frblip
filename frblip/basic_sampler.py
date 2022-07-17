@@ -34,19 +34,29 @@ class BasicSampler(object):
     def __len__(self):
         return self.size
 
-    def __getattr__(self, attr, *args, **kwargs):
+    def __getattr__(self, attr, todense=None):
 
         name = '_{}'.format(attr)
 
         if name in dir(self):
             def func(*names, **kwargs):
+                todense = kwargs.pop('todense', True)
                 f = partial(getattr(self, name), **kwargs)
                 keys = self.observations.keys() if names == () else names
                 if len(keys) == 1:
-                    return f(*keys)
-                return {
+                    output = f(*keys)
+                    if todense:
+                        return output.as_numpy()
+                    return output
+                output = {
                     key: f(key) for key in keys
                 }
+                if todense:
+                    return {
+                        key: value.as_numpy()
+                        for key, value in output.items()
+                    }
+                return output
             return func
         else:
             class_name = type(self).__name__

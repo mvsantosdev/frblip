@@ -232,6 +232,8 @@ class HealPixMap(BasicSampler, HEALPix):
 
         unit = sensitivity.unit
         data = sensitivity.data
+        if not isinstance(data.data, COO):
+            data = COO(data, fill_value=numpy.inf)
         sflux = data.data * unit
 
         smin = sflux.min()
