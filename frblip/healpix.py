@@ -56,7 +56,10 @@ class HealPixMap(BasicSampler, HEALPix):
 
         if isinstance(keys, str):
             return self.observations[keys]
-        return itemgetter(*keys)(self.observations)
+        keys = numpy.array(keys)
+        if numpy.issubdtype(keys.dtype, numpy.str_):
+            return itemgetter(*keys)(self.observations)
+        return None
 
     @cached_property
     def __cosmology(self):
