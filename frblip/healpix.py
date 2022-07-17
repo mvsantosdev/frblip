@@ -232,7 +232,7 @@ class HealPixMap(BasicSampler, HEALPix):
 
         unit = sensitivity.unit
         data = sensitivity.data
-        if not isinstance(data.data, COO):
+        if not isinstance(data, COO):
             data = COO(data, fill_value=numpy.inf)
         sflux = data.data * unit
 
@@ -254,7 +254,7 @@ class HealPixMap(BasicSampler, HEALPix):
 
         rate_map = self.get_rate_map(sensitivity, unit, zmin, zmax,
                                      spectral_index, eps)
-        return rate_map.sum('PIXEL')
+        return rate_map.sum('PIXEL', keep_attrs=True)
 
     def _si_rate_map(self, name=None, channels=1, sensitivity=None,
                      snr=None, unit='year', spectral_index=0.0,
