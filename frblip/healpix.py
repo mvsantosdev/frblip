@@ -13,7 +13,7 @@ from .cosmology import Cosmology, builtin
 
 from astropy import units, coordinates
 
-from .basic_sampler import getufunc, BasicSampler
+from .basic_sampler import BasicSampler
 
 
 class HealPixMap(BasicSampler, HEALPix):
@@ -162,63 +162,31 @@ class HealPixMap(BasicSampler, HEALPix):
 
         return specific_rate
 
-    def _response(self, name, channels=1, spectral_index=0.0):
+    def _redshift_range(self, name, channels=1):
+
+        observation = self[name]
+        return observation.redshift_range(self.low_frequency,
+                                          self.high_frequency)
+
+    def _noise(self, name, channels=1, total=False):
+
+        observation = self[name]
+        return observation.get_noise(channels, total)
+
+    def _sensitivity(self, name, spectral_index=0.0, channels=1, total=False):
 
         observation = self[name]
         spec_idx = numpy.full(self.size, spectral_index)
         freq_resp = observation.get_frequency_response(spec_idx, channels)
-        response = observation.response * freq_resp
-        response.attrs = freq_resp.attrs
-        return response
+        noise = self._noise(name, channels, total)
 
-    def _noise(self, name, channels=1):
-
-        observation = self[name]
-        return observation.get_noise(channels)
-
-    def _response_to_noise(self, name, channels=1, spectral_index=0.0,
-                           total=False, method='max', **kwargs):
-
-        func = getufunc(method, **kwargs)
-        response = self._response(name, channels, spectral_index)
-        noise = self._noise(name, channels)
-        resp_to_noise = response / noise
-
-        if isinstance(total, str) and (total in resp_to_noise.dims):
-            resp_to_noise = resp_to_noise.reduce(func, dim=total, **kwargs)
-        if isinstance(total, list):
-            levels = [*filter(lambda x: x in response.dims, total)]
-            resp_to_noise = resp_to_noise.reduce(func, dim=levels, **kwargs)
-        elif total is True:
-            levels = [*filter(lambda x: x not in (self.kind, 'CHANNEL'),
-                              resp_to_noise.dims)]
-            resp_to_noise = resp_to_noise.reduce(func, dim=levels, **kwargs)
-
-        resp_to_noise.attrs['unit'] = response.unit / noise.unit
-        return resp_to_noise
-
-    def _sensitivity(self, name, channels=1, spectral_index=0.0,
-                     total=False, method='max', **kwargs):
-
-        resp_to_noise = self._response_to_noise(name, channels, spectral_index,
-                                                total, method, **kwargs)
-        sensitivity = 1 / resp_to_noise
-        sensitivity.attrs['unit'] = 1 / resp_to_noise.unit
-        sensitivity.attrs['unit'] = sensitivity.unit.to(units.MHz * units.Jy)
+        sensitivity = noise / freq_resp
+        sensitivity.attrs['unit'] = noise.unit / freq_resp.unit
         return sensitivity
 
-    def _redshift_range(self, name, channels=1):
-
-        frequency_range = self[name].frequency_range
-        zmax = self.high_frequency / frequency_range[0] - 1
-        zmin = self.low_frequency / frequency_range[-1] - 1
-        zmin = zmin.clip(0)
-
-        return zmin.value, zmax.value
-
     @numpy.errstate(over='ignore')
-    def get_rate_map(self, sensitivity, unit='year', zmin=0, zmax=30,
-                     spectral_index=0.0, eps=1e-4):
+    def get_rate_map(self, sensitivity, zmin=0, zmax=30,
+                     spectral_index=0.0, unit='year', eps=1e-4):
 
         if isinstance(unit, str):
             unit = units.Unit(unit)
@@ -249,49 +217,45 @@ class HealPixMap(BasicSampler, HEALPix):
 
         return rate_map
 
-    def get_rate(self, sensitivity, unit='year', zmin=0, zmax=30,
-                 spectral_index=0.0, eps=1e-4):
+    def get_rate(self, sensitivity, zmin=0, zmax=30,
+                 spectral_index=0.0, unit='year', eps=1e-4):
 
-        rate_map = self.get_rate_map(sensitivity, unit, zmin, zmax,
-                                     spectral_index, eps)
+        rate_map = self.get_rate_map(sensitivity, zmin, zmax,
+                                     spectral_index, unit, eps)
         return rate_map.sum('PIXEL', keep_attrs=True)
 
-    def _si_rate_map(self, name=None, channels=1, sensitivity=None,
-                     snr=None, unit='year', spectral_index=0.0,
-                     eps=1e-4, total=False, method='max', **kwargs):
+    def _si_rate_map(self, name=None, spectral_index=0.0, snr=None,
+                     channels=1, unit='year', total=False, eps=1e-4):
 
         s = numpy.arange(1, 11) if snr is None else snr
         s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
 
-        sensitivity = self._sensitivity(name, channels, spectral_index,
-                                        total, method, **kwargs)
+        sensitivity = self._sensitivity(name, spectral_index,
+                                        channels, total)
 
         sens = sensitivity * s
         sens.attrs = sensitivity.attrs
 
         zmin, zmax = self._redshift_range(name)
 
-        return self.get_rate_map(sens, unit='year', zmin=zmin, zmax=zmax,
-                                 spectral_index=0.0, eps=1e-4)
+        return self.get_rate_map(sens, zmin, zmax, spectral_index, unit, eps)
 
-    def _rate_map(self, name=None, channels=1, sensitivity=None, snr=None,
-                  unit='year', spectral_index=0.0, eps=1e-4, total=False,
-                  method='max', **kwargs):
+    def _rate_map(self, name=None, spectral_index=0.0, snr=None,
+                  channels=1, unit='year', total=False, eps=1e-4):
 
         spec_idxs = numpy.atleast_1d(spectral_index)
 
         rates = xarray.concat([
-            self._si_rate_map(name, channels, sensitivity, snr, unit,
-                              spec_idx, eps, total, method, **kwargs)
+            self._si_rate_map(name, spectral_index, snr,
+                              channels, unit, total, eps)
             for spec_idx in spec_idxs
         ], dim='Spectral Index')
 
         return rates.squeeze()
 
-    def _rate(self, name=None, channels=1, sensitivity=None, snr=None,
-              unit='year', spectral_index=0.0, eps=1e-4, total=False,
-              method='max', **kwargs):
+    def _rate(self, name=None, spectral_index=0.0, snr=None,
+              channels=1, unit='year', total=False, eps=1e-4):
 
-        rate_map = self._rate_map(name, channels, sensitivity, snr, unit,
-                                  spectral_index, eps, total, method, **kwargs)
+        rate_map = self._rate_map(name, spectral_index, snr,
+                                  channels, unit, total, eps)
         return rate_map.sum('PIXEL', keep_attrs=True)

@@ -18,17 +18,6 @@ from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 from .observation import Observation, Interferometry
 
 
-def getufunc(method, **kwargs):
-
-    if callable(method):
-        return method
-    elif hasattr(numpy, method):
-        return getattr(numpy, method)
-    elif hasattr(numpy.linalg, method):
-        func = getattr(numpy.linalg, method)
-        return partial(func, **kwargs)
-
-
 class BasicSampler(object):
 
     def __len__(self):

@@ -22,7 +22,7 @@ from .random.dispersion_measure import InterGalacticDM, HostGalaxyDM
 
 from .cosmology import Cosmology, builtin
 
-from .basic_sampler import getufunc, BasicSampler
+from .basic_sampler import BasicSampler
 
 
 def blips(size=None, days=1, log_Lstar=44.46, log_L0=41.96,
@@ -416,36 +416,21 @@ class FastRadioBursts(BasicSampler):
         peak_density_flux = self._peak_density_flux(name, channels)
         in_range = observation.in_range(self.redshift, self.low_frequency,
                                         self.high_frequency)
-        signal = observation.response * peak_density_flux * in_range
+        signal = peak_density_flux * in_range
         signal.attrs = peak_density_flux.attrs
         return signal
 
-    def _noise(self, name, channels=1):
+    def _noise(self, name, total=False, channels=1):
 
         observation = self[name]
-        return observation.get_noise(channels)
+        return observation.get_noise(total, channels)
 
-    def _signal_to_noise(self, name, channels=1, total=False,
-                         method='max', **kwargs):
-
-        func = getufunc(method, **kwargs)
+    def _signal_to_noise(self, name, total=False, channels=1):
 
         signal = self._signal(name, channels)
-        noise = self._noise(name, channels)
+        noise = self._noise(name, channels, total)
 
-        snr = signal / noise
-
-        if isinstance(total, str) and (total in snr.dims):
-            snr = snr.reduce(func, dim=total, **kwargs)
-        if isinstance(total, list):
-            levels = [*filter(lambda x: x in snr.dims, total)]
-            snr = snr.reduce(func, dim=levels, **kwargs)
-        elif total is True:
-            levels = [*filter(lambda x: x not in (self.kind, 'CHANNEL'),
-                              snr.dims)]
-            snr = snr.reduce(func, dim=levels, **kwargs)
-
-        return snr.squeeze()
+        return signal / noise
 
     def _triggers(self, name, channels=1, snr=None, total=False,
                   method='max', **kwargs):
