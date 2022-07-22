@@ -147,6 +147,15 @@ class Observation():
 
         return density_flux.T
 
+    def update(self, duration=0):
+
+        kw = {
+            'alt': self.altaz.alt,
+            'az': self.altaz.az,
+            'obstime': self.altaz.obstime + duration
+        }
+        self.altaz = coordinates.AltAz(**kw)
+
     def copy(self):
 
         return dill.copy(self)

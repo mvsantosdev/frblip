@@ -371,7 +371,21 @@ class FastRadioBursts(BasicSampler):
               self.rate, '.\nTherefore it corrensponds to', self.duration,
               'of observation. \n')
 
-    def shuffle(self):
+    def update(self):
+
+        self.itrs_time = self.itrs_time + self.duration
+        if 'altaz' in dir(self):
+            kw = {
+                'alt': self.altaz.alt,
+                'az': self.altaz.az,
+                'obstime': self.altaz.obstime + self.duration
+            }
+            self.altaz = coordinates.AltAz(**kw)
+        else:
+            for name in self.observations:
+                self.observations[name].update(self.duration)
+
+    def shuffle(self, update=True):
 
         idx = numpy.arange(self.size)
         numpy.random.shuffle(idx)
@@ -382,6 +396,9 @@ class FastRadioBursts(BasicSampler):
             if key not in ('icrs', 'itrs', 'itrs_time', 'altaz')
             and numpy.size(value) == self.size
         })
+
+        if update:
+            self.update()
 
     def reduce(self, tolerance=0):
 
@@ -464,7 +481,8 @@ class FastRadioBursts(BasicSampler):
             altaz = catalog.pop('altaz')
             catalog.update({
                 'altitude': altaz.alt,
-                'azimuth': altaz.az
+                'azimuth': altaz.az,
+                'obstime': altaz.obstime
             })
 
         observations = {}
@@ -481,7 +499,7 @@ class FastRadioBursts(BasicSampler):
                         name: getattr(value, coord)
                         for name, value in altaz.items()
                     }
-                    for coord in ('alt', 'az')
+                    for coord in ('alt', 'az', 'obstime')
                 })
             observations = valfilter(lambda x: x is not None,
                                      observations)
