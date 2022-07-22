@@ -11,6 +11,7 @@ from numpy import random
 
 from operator import itemgetter
 from functools import cached_property
+from toolz.dicttoolz import merge, valmap, valfilter
 
 from astropy.time import Time
 from astropy import units, coordinates
@@ -257,7 +258,7 @@ class FastRadioBursts(BasicSampler):
         return Area.to(units.degree**2)
 
     @cached_property
-    def __luminosity_distance(self):
+    def luminosity_distance(self):
         z = self.redshift
         return self.__cosmology.luminosity_distance(z)
 
@@ -266,8 +267,8 @@ class FastRadioBursts(BasicSampler):
         return self.log_luminosity.to(units.erg / units.s)
 
     @cached_property
-    def __flux(self):
-        surface = 4 * numpy.pi * self.__luminosity_distance**2
+    def flux(self):
+        surface = 4 * numpy.pi * self.luminosity_distance**2
         return (self.__luminosity / surface).to(units.Jy * units.MHz)
 
     @cached_property
@@ -275,7 +276,7 @@ class FastRadioBursts(BasicSampler):
         _sip1 = self.spectral_index + 1
         nu_lp = (self.low_frequency_cal / units.MHz)**_sip1
         nu_hp = (self.high_frequency_cal / units.MHz)**_sip1
-        sflux = self.__flux / (nu_hp - nu_lp)
+        sflux = self.flux / (nu_hp - nu_lp)
         if self.emission_frame:
             z_factor = (1 + self.redshift)**_sip1
             return sflux * z_factor
@@ -428,53 +429,83 @@ class FastRadioBursts(BasicSampler):
     def _signal_to_noise(self, name, total=False, channels=1):
 
         signal = self._signal(name, channels)
-        noise = self._noise(name, channels, total)
+        noise = self._noise(name, total, channels)
 
         return signal / noise
 
-    def _triggers(self, name, channels=1, snr=None, total=False,
-                  method='max', **kwargs):
+    def _triggers(self, name, snr=None, total=False, channels=1):
 
-        _snr = self._signal_to_noise(name, channels, total=total,
-                                     method=method, **kwargs)
+        _snr = self._signal_to_noise(name, total, channels)
         s = numpy.arange(1, 11) if snr is None else snr
         s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
         return (_snr >= s).squeeze()
 
-    def _counts(self, name, channels=1, snr=None, total=False, method='max',
-                **kwargs):
+    def _counts(self, name, channels=1, snr=None, total=False):
 
-        detected = self._triggers(name, channels, snr, total,
-                                  method, **kwargs)
-        return detected.sum('FRB')
+        triggers = self._triggers(name, snr, total, channels)
+        return triggers.sum('FRB')
 
-    def catalog(self, dispersion=False):
+    def catalog(self, tolerance=1):
 
         catalog = {
-            'spectral_index': self.spectral_index,
-            'redshift': self.redshift,
-            'luminosity Distance': self.__luminosity_distance,
-            'luminosity': self.__luminosity,
-            'flux': self.__flux,
-            'time': self.itrs_time.to_datetime(),
-            'right_ascension': self.icrs.ra,
-            'declination': self.icrs.dec,
+            attr: value
+            for attr, value in self.__dict__.items()
+            if numpy.size(value) == self.size
+            and '_FastRadioBursts__' not in attr
         }
 
-        if dispersion:
+        icrs = catalog.pop('icrs')
+        catalog.update({
+            'right_ascension': icrs.ra,
+            'declination': icrs.dec
+        })
+
+        if 'altaz' in catalog:
+            altaz = catalog.pop('altaz')
             catalog.update({
-                'galactic_dispersion': self.galactic_dm,
-                'igm_dispersion': self.igm_dm,
-                'host_galaxy_dispersion': self.host_dm,
-                'extra_galactic_dispersion': self.extra_galactic_dm,
-                'dispersion_measure': self.dispersion_measure
+                'altitude': altaz.alt,
+                'azimuth': altaz.az
             })
 
-        return catalog
+        observations = {}
 
-    def save_catalog(self, name):
+        if 'observations' in dir(self):
+            observations.update({
+                'signal_to_noise': self.signal_to_noise(),
+                'time_delay': self.time_delay()
+            })
+            if 'altaz' not in dir(self):
+                altaz = self.altaz()
+                observations.update({
+                    coord: {
+                        name: getattr(value, coord)
+                        for name, value in altaz.items()
+                    }
+                    for coord in ('alt', 'az')
+                })
+            observations = valfilter(lambda x: x is not None,
+                                     observations)
 
-        catalog = self.catalog()
+        catalog = valfilter(lambda x: x is not None, catalog)
+
+        if (tolerance > 0) and ('signal_to_noise' in observations):
+            snr = observations['signal_to_noise']
+            idx = xarray.concat([
+                value.max(value.dims[1:])
+                for value in snr.values()
+            ], dim='X').max('X') > tolerance
+
+            catalog = valmap(lambda x: x[idx], catalog)
+            observations = {
+                key: valmap(lambda x: x[idx], value)
+                for key, value in observations.items()
+            }
+
+        return merge(catalog, observations)
+
+    def save_catalog(self, name, tolerance=1):
+
+        catalog = self.catalog(tolerance)
         filename = '{}.cat'.format(name)
         file = bz2.BZ2File(filename, 'wb')
         dill.dump(catalog, file, dill.HIGHEST_PROTOCOL)

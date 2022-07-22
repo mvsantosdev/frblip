@@ -53,6 +53,13 @@ class Observation():
         self.kind = response.dims[0]
         self.width = self.frequency_range.diff()
 
+    def __getitem__(self, idx):
+
+        if isinstance(idx, slice):
+            return self.select(idx)
+        idx = numpy.array(idx)
+        return self.select(idx)
+
     def __set_coordinates(self):
 
         params = self.__dict__
@@ -86,7 +93,7 @@ class Observation():
         return xarray.DataArray(values, dims=dims,
                                 attrs={'unit': units.ms})
 
-    def get_noise(self, channels=1, total=False):
+    def get_noise(self, total=False, channels=1):
 
         noise = numpy.full(channels, numpy.sqrt(channels))
         noise = xarray.DataArray(noise, dims='CHANNEL')
@@ -139,13 +146,6 @@ class Observation():
             return density_flux.squeeze('CHANNEL')
 
         return density_flux.T
-
-    def __getitem__(self, idx):
-
-        if isinstance(idx, slice):
-            return self.select(idx)
-        idx = numpy.array(idx)
-        return self.select(idx)
 
     def copy(self):
 

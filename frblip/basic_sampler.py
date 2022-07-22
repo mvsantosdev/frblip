@@ -10,6 +10,7 @@ import xarray
 from sparse import COO
 
 from functools import partial
+from toolz.dicttoolz import valfilter
 
 from astropy import units, constants, coordinates
 from astropy.coordinates.erfa_astrom import erfa_astrom
@@ -28,25 +29,35 @@ class BasicSampler(object):
         name = '_{}'.format(attr)
 
         if name in dir(self):
-            def func(*names, **kwargs):
+            function = getattr(self, name)
+
+            def output_func(*names, **kwargs):
                 todense = kwargs.pop('todense', True)
-                f = partial(getattr(self, name), **kwargs)
+                partial_func = partial(function, **kwargs)
+
+                if todense:
+                    def apply_func(key):
+                        output = partial_func(key)
+                        data = getattr(output, 'data', None)
+                        if isinstance(data, COO):
+                            return output.as_numpy()
+                        return output
+                else:
+                    apply_func = partial_func
+
                 keys = self.observations.keys() if names == () else names
                 if len(keys) == 1:
-                    output = f(*keys)
-                    if todense:
-                        return output.as_numpy()
-                    return output
-                output = {
-                    key: f(key) for key in keys
-                }
-                if todense:
-                    return {
-                        key: value.as_numpy()
-                        for key, value in output.items()
-                    }
+                    return apply_func(*keys)
+                output = valfilter(
+                    lambda x: x is not None,
+                    {
+                        key: apply_func(key)
+                        for key in keys
+                    })
+                if output == {}:
+                    return None
                 return output
-            return func
+            return output_func
         else:
             class_name = type(self).__name__
             error = "'{}' object has no attribute '{}'"
@@ -132,8 +143,8 @@ class BasicSampler(object):
 
         self.observations[obs_name] = observation
 
-    def observe(self, telescopes, name=None, location=None, sparse=False,
-                dtype=numpy.double, verbose=True):
+    def observe(self, telescopes, name=None, location=None,
+                sparse=True, dtype=numpy.double, verbose=True):
 
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
