@@ -127,8 +127,8 @@ class HealPixMap(BasicSampler, HEALPix):
         return Lthre
 
     @numpy.errstate(divide='ignore', over='ignore')
-    def specific_rate(self, smin, smax, zmin, zmax, unit,
-                      spectral_index, eps=1e-4):
+    def rate_pdf(self, smin, smax, zmin, zmax, unit,
+                 spectral_index, eps=1e-4):
 
         log_min = units.LogQuantity(smin)
         log_max = units.LogQuantity(smax)
@@ -150,11 +150,19 @@ class HealPixMap(BasicSampler, HEALPix):
         norm = self.phistar / self.__lumdist.pdf_norm
         lum_integral = norm * self.__lumdist.sf(xthre)
 
-        integrand = lum_integral * dz
-        zintegral = numpy.trapz(x=zgrid, y=integrand, axis=0)
-        zintegral = zintegral * self.pixel_area
+        pdf = lum_integral * dz
 
-        xp, fp = sgrid, zintegral.to(unit)
+        return zgrid, sgrid, pdf
+
+    def specific_rate(self, smin, smax, zmin, zmax, unit,
+                      spectral_index, eps=1e-4):
+
+        zgrid, sgrid, pdf = self.rate_pdf(smin, smax, zmin, zmax,
+                                          unit, spectral_index, eps)
+        spdf = numpy.trapz(x=zgrid, y=pdf, axis=0)
+        spdf = spdf * self.pixel_area
+
+        xp, fp = sgrid, spdf.to(unit)
 
         def specific_rate(x):
             y = numpy.interp(x=x, xp=xp, fp=fp.value)
@@ -168,17 +176,17 @@ class HealPixMap(BasicSampler, HEALPix):
         return observation.redshift_range(self.low_frequency,
                                           self.high_frequency)
 
-    def _noise(self, name, channels=1, total=False):
+    def _noise(self, name, total=False, channels=1):
 
         observation = self[name]
-        return observation.get_noise(channels, total)
+        return observation.get_noise(total, channels)
 
-    def _sensitivity(self, name, spectral_index=0.0, channels=1, total=False):
+    def _sensitivity(self, name, spectral_index=0.0, total=False, channels=1):
 
         observation = self[name]
         spec_idx = numpy.full(self.size, spectral_index)
         freq_resp = observation.get_frequency_response(spec_idx, channels)
-        noise = self._noise(name, channels, total)
+        noise = self._noise(name, total, channels)
 
         sensitivity = noise / freq_resp
         sensitivity.attrs['unit'] = noise.unit / freq_resp.unit
@@ -225,13 +233,13 @@ class HealPixMap(BasicSampler, HEALPix):
         return rate_map.sum('PIXEL', keep_attrs=True)
 
     def _si_rate_map(self, name=None, spectral_index=0.0, snr=None,
-                     channels=1, unit='year', total=False, eps=1e-4):
+                     total=False, channels=1, unit='year', eps=1e-4):
 
         s = numpy.arange(1, 11) if snr is None else snr
         s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
 
         sensitivity = self._sensitivity(name, spectral_index,
-                                        channels, total)
+                                        total, channels)
 
         sens = sensitivity * s
         sens.attrs = sensitivity.attrs
@@ -241,21 +249,21 @@ class HealPixMap(BasicSampler, HEALPix):
         return self.get_rate_map(sens, zmin, zmax, spectral_index, unit, eps)
 
     def _rate_map(self, name=None, spectral_index=0.0, snr=None,
-                  channels=1, unit='year', total=False, eps=1e-4):
+                  total=False, channels=1, unit='year', eps=1e-4):
 
         spec_idxs = numpy.atleast_1d(spectral_index)
 
         rates = xarray.concat([
             self._si_rate_map(name, spectral_index, snr,
-                              channels, unit, total, eps)
+                              total, channels, unit, eps)
             for spec_idx in spec_idxs
         ], dim='Spectral Index')
 
         return rates.squeeze()
 
     def _rate(self, name=None, spectral_index=0.0, snr=None,
-              channels=1, unit='year', total=False, eps=1e-4):
+              total=False, channels=1, unit='year', eps=1e-4):
 
         rate_map = self._rate_map(name, spectral_index, snr,
-                                  channels, unit, total, eps)
+                                  total, channels, unit, eps)
         return rate_map.sum('PIXEL', keep_attrs=True)
