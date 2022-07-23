@@ -126,9 +126,43 @@ class HealPixMap(BasicSampler, HEALPix):
             return Lthre / (1 + redshift)**sip
         return Lthre
 
+    def _redshift_rate(self, name, spectral_index=0.0, total=False,
+                       channels=1, unit='1/year', eps=1e-4):
+
+        sensitivity = self._sensitivity(name, spectral_index,
+                                        total, channels)
+
+        data = sensitivity.data
+        if not isinstance(data, COO):
+            data = COO(data, fill_value=numpy.inf)
+        sflux = data.data * sensitivity.unit
+
+        smin = sflux.min()
+        smax = sflux.max()
+
+        zmin, zmax = self._redshift_range(name)
+
+        zg, sg, table = self.get_rate_table(smin, smax, zmin, zmax,
+                                            unit, spectral_index, eps)
+
+        table = (table * self.pixel_area).to(unit)
+
+        rates = numpy.apply_along_axis(
+            lambda x: numpy.interp(x=sflux, xp=sg, fp=x).sum(),
+            axis=1, arr=table
+        )
+
+        xp = zg.ravel()
+
+        def redshift_rate(x):
+            y = numpy.interp(x=x, xp=xp, fp=rates.value)
+            return y * rates.unit
+
+        return redshift_rate
+
     @numpy.errstate(divide='ignore', over='ignore')
-    def rate_pdf(self, smin, smax, zmin, zmax, unit,
-                 spectral_index, eps=1e-4):
+    def get_rate_table(self, smin, smax, zmin, zmax,
+                       unit, spectral_index, eps=1e-4):
 
         log_min = units.LogQuantity(smin)
         log_max = units.LogQuantity(smax)
@@ -157,12 +191,12 @@ class HealPixMap(BasicSampler, HEALPix):
     def specific_rate(self, smin, smax, zmin, zmax, unit,
                       spectral_index, eps=1e-4):
 
-        zgrid, sgrid, pdf = self.rate_pdf(smin, smax, zmin, zmax,
+        zg, sg, pdf = self.get_rate_table(smin, smax, zmin, zmax,
                                           unit, spectral_index, eps)
-        spdf = numpy.trapz(x=zgrid, y=pdf, axis=0)
+        spdf = numpy.trapz(x=zg, y=pdf, axis=0)
         spdf = spdf * self.pixel_area
 
-        xp, fp = sgrid, spdf.to(unit)
+        xp, fp = sg, spdf.to(unit)
 
         def specific_rate(x):
             y = numpy.interp(x=x, xp=xp, fp=fp.value)
