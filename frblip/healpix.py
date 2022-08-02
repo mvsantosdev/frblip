@@ -126,11 +126,9 @@ class HealPixMap(BasicSampler, HEALPix):
             return Lthre / (1 + redshift)**sip
         return Lthre
 
-    def _redshift_rate(self, name, spectral_index=0.0, total=False,
-                       channels=1, unit='1/year', eps=1e-4):
-
-        sensitivity = self._sensitivity(name, spectral_index,
-                                        total, channels)
+    def get_redshift_table(self, sensitivity, zmin=0, zmax=30,
+                           spectral_index=0.0, total=False, channels=1,
+                           unit='1/year', eps=1e-4):
 
         data = sensitivity.data
         if not isinstance(data, COO):
@@ -139,8 +137,6 @@ class HealPixMap(BasicSampler, HEALPix):
 
         smin = sflux.min()
         smax = sflux.max()
-
-        zmin, zmax = self._redshift_range(name)
 
         zg, sg, table = self.get_rate_table(smin, smax, zmin, zmax,
                                             unit, spectral_index, eps)
@@ -152,13 +148,81 @@ class HealPixMap(BasicSampler, HEALPix):
             axis=1, arr=table
         )
 
-        xp = zg.ravel()
+        return zg.ravel(), rates
+
+    def get_redshift_rate(self, sensitivity, zmin=0, zmax=30,
+                          spectral_index=0.0, total=False, channels=1,
+                          unit='1/year', eps=1e-4):
+
+        zg, rates = self.get_redshift_table(sensitivity, zmin, zmax,
+                                            spectral_index, total,
+                                            channels, unit, eps)
 
         def redshift_rate(x):
-            y = numpy.interp(x=x, xp=xp, fp=rates.value)
+            y = numpy.interp(x=x, xp=zg, fp=rates.value)
             return y * rates.unit
 
         return redshift_rate
+
+    @numpy.errstate(divide='ignore', over='ignore')
+    def get_maximum_redshift(self, sensitivity, zmin=0, zmax=30,
+                             spectral_index=0.0, total=False, channels=1,
+                             time=1*units.year, tolerance=1, eps=1e-4):
+
+        redshift, rates = self.get_redshift_table(sensitivity, zmin, zmax,
+                                                  spectral_index, total,
+                                                  channels, eps=eps)
+
+        idx = rates.argmax()
+        x = redshift[idx:][::-1]
+        y = (rates[idx:][::-1] * time).to(1).clip(0)
+
+        log_y = numpy.log(y / tolerance)
+
+        return numpy.interp(x=0, xp=log_y, fp=x)
+
+    def _maximum_redshift(self, name, zmin=0, zmax=30, spectral_index=0.0,
+                          snr=1, total=False, channels=1, time=1*units.year,
+                          tolerance=1, eps=1e-4):
+
+        sensitivity = self._sensitivity(name, spectral_index,
+                                        total, channels)
+        sens = snr * sensitivity
+        sens.attrs['unit'] = sensitivity.unit
+
+        zmin, zmax = self._redshift_range(name)
+
+        return self.get_maximum_redshift(sens, zmin, zmax, spectral_index,
+                                         total, channels, time, tolerance,
+                                         eps)
+
+    def _redshift_table(self, name, spectral_index=0.0, snr=1,
+                        total=False, channels=1, unit='1/year',
+                        eps=1e-4):
+
+        sensitivity = self._sensitivity(name, spectral_index,
+                                        total, channels)
+        sens = snr * sensitivity
+        sens.attrs['unit'] = sensitivity.unit
+
+        zmin, zmax = self._redshift_range(name)
+
+        return self.get_redshift_table(sens, zmin, zmax, spectral_index,
+                                       total, channels, unit, eps)
+
+    def _redshift_rate(self, name, spectral_index=0.0, snr=1,
+                       total=False, channels=1, unit='1/year',
+                       eps=1e-4):
+
+        sensitivity = self._sensitivity(name, spectral_index,
+                                        total, channels)
+        sens = snr * sensitivity
+        sens.attrs['unit'] = sensitivity.unit
+
+        zmin, zmax = self._redshift_range(name)
+
+        return self.get_redshift_rate(sens, zmin, zmax, spectral_index,
+                                      total, channels, unit, eps)
 
     @numpy.errstate(divide='ignore', over='ignore')
     def get_rate_table(self, smin, smax, zmin, zmax,
