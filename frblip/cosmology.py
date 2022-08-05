@@ -15,6 +15,11 @@ builtin = {
 }
 
 
+def builtin_cosmology(name, **kwargs):
+    params = builtin[name]
+    return Cosmology(**params, **kwargs)
+
+
 class Cosmology(pyccl.Cosmology):
     """ """
 

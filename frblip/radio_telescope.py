@@ -265,6 +265,20 @@ class RadioTelescope(object):
         value = numpy.full(shape, self.gain.value)
         return value * self.gain.unit
 
+    def __getitem__(self, idx):
+
+        copy = dill.copy(self)
+
+        size = self._RadioTelescope__gain.size
+
+        copy.__dict__.update({
+            attr: value[idx]
+            for attr, value in copy.__dict__.items()
+            if numpy.size(value) == size
+        })
+
+        return copy
+
     def to_pkl(self, name):
 
         output_dict = {

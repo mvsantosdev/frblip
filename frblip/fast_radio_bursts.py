@@ -1,42 +1,29 @@
 import os
 import sys
-import warnings
 
 import bz2
 import dill
 
 import numpy
 import xarray
-from sparse import COO
 
 from numpy import random
 
 from operator import itemgetter
-from functools import partial, cached_property
+from functools import cached_property
+from toolz.dicttoolz import merge, valmap, valfilter
 
 from astropy.time import Time
-from astropy import units, constants, coordinates
-from astropy.coordinates.erfa_astrom import erfa_astrom
-from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
+from astropy import units, coordinates
 
 from .random import Redshift, Schechter, SpectralIndex
 
 from .random.dispersion_measure import GalacticDM
 from .random.dispersion_measure import InterGalacticDM, HostGalaxyDM
 
-from .observation import Observation, Interferometry
 from .cosmology import Cosmology, builtin
 
-
-def getufunc(method, **kwargs):
-
-    if callable(method):
-        return method
-    elif hasattr(numpy, method):
-        return getattr(numpy, method)
-    elif hasattr(numpy.linalg, method):
-        func = getattr(numpy.linalg, method)
-        return partial(func, **kwargs)
+from .basic_sampler import BasicSampler
 
 
 def blips(size=None, days=1, log_Lstar=44.46, log_L0=41.96,
@@ -70,14 +57,14 @@ def load_catalog(name):
     return catalog
 
 
-class FastRadioBursts(object):
+class FastRadioBursts(BasicSampler):
 
     def __init__(self, size=None, days=1, log_Lstar=44.46, log_L0=41.96,
                  phistar=339, gamma=-1.79, pulse_width=(-6.917, 0.824),
                  zmin=0, zmax=30, ra=(0, 24), dec=(-90, 90), start=None,
                  low_frequency=10.0, high_frequency=10000.0,
                  low_frequency_cal=400.0, high_frequency_cal=1400.0,
-                 emission_frame=True, spectral_index='CHIME2021',
+                 emission_frame=False, spectral_index='CHIME2021',
                  gal_method='yt2020_analytic', gal_nside=128,
                  host_dist='lognormal', host_source='luo18',
                  host_model=('ALG', 'YMW16'), cosmology='Planck_18',
@@ -95,6 +82,7 @@ class FastRadioBursts(object):
                            cosmology, free_electron_bias)
         self.__frb_rate(size, days)
         self.__S0
+        self.kind = 'FRB'
 
         sys.stdout = old_target
 
@@ -154,24 +142,6 @@ class FastRadioBursts(object):
         if numpy.issubdtype(idx.dtype, numpy.str_):
             return itemgetter(*idx)(self.observations)
         return None
-
-    def __getattr__(self, attr, *args, **kwargs):
-
-        name = '_{}'.format(attr)
-
-        if name in dir(self):
-            def func(*names, **kwargs):
-                f = partial(getattr(self, name), **kwargs)
-                keys = self.observations.keys() if names == () else names
-                if len(keys) == 1:
-                    return f(*keys)
-                return {
-                    key: f(key) for key in keys
-                }
-            return func
-        else:
-            error = "'{}' object has no attribute '{}'"
-            raise AttributeError(error.format(self.__class__, attr))
 
     def select(self, idx, inplace=False):
 
@@ -288,7 +258,7 @@ class FastRadioBursts(object):
         return Area.to(units.degree**2)
 
     @cached_property
-    def __luminosity_distance(self):
+    def luminosity_distance(self):
         z = self.redshift
         return self.__cosmology.luminosity_distance(z)
 
@@ -297,8 +267,8 @@ class FastRadioBursts(object):
         return self.log_luminosity.to(units.erg / units.s)
 
     @cached_property
-    def __flux(self):
-        surface = 4 * numpy.pi * self.__luminosity_distance**2
+    def flux(self):
+        surface = 4 * numpy.pi * self.luminosity_distance**2
         return (self.__luminosity / surface).to(units.Jy * units.MHz)
 
     @cached_property
@@ -306,7 +276,7 @@ class FastRadioBursts(object):
         _sip1 = self.spectral_index + 1
         nu_lp = (self.low_frequency_cal / units.MHz)**_sip1
         nu_hp = (self.high_frequency_cal / units.MHz)**_sip1
-        sflux = self.__flux / (nu_hp - nu_lp)
+        sflux = self.flux / (nu_hp - nu_lp)
         if self.emission_frame:
             z_factor = (1 + self.redshift)**_sip1
             return sflux * z_factor
@@ -367,25 +337,6 @@ class FastRadioBursts(object):
     def dispersion_measure(self):
         return self.galactic_dm + self.extra_galactic_dm
 
-    def obstime(self, location):
-
-        loc = location.get_itrs()
-        loc = loc.cartesian.xyz
-
-        path = loc @ self.xyz
-        time_delay = path / constants.c
-
-        return self.itrs_time - time_delay
-
-    def altaz_from_location(self, location, interp=300):
-
-        obstime = self.obstime(location)
-        frame = coordinates.AltAz(location=location, obstime=obstime)
-        interp_time = interp * units.s
-
-        with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
-            return self.icrs.transform_to(frame)
-
     def __frb_rate(self, size, days):
 
         print("Computing the FRB rate ...")
@@ -420,7 +371,21 @@ class FastRadioBursts(object):
               self.rate, '.\nTherefore it corrensponds to', self.duration,
               'of observation. \n')
 
-    def shuffle(self):
+    def update(self):
+
+        self.itrs_time = self.itrs_time + self.duration
+        if 'altaz' in dir(self):
+            kw = {
+                'alt': self.altaz.alt,
+                'az': self.altaz.az,
+                'obstime': self.altaz.obstime + self.duration
+            }
+            self.altaz = coordinates.AltAz(**kw)
+        else:
+            for name in self.observations:
+                self.observations[name].update(self.duration)
+
+    def shuffle(self, update=True):
 
         idx = numpy.arange(self.size)
         numpy.random.shuffle(idx)
@@ -432,122 +397,8 @@ class FastRadioBursts(object):
             and numpy.size(value) == self.size
         })
 
-    def __observe(self, telescope, name=None, sparse=True,
-                  dtype=numpy.float64):
-
-        print('Performing observation for telescope {}...'.format(name))
-
-        if 'observations' not in self.__dict__:
-            self.observations = {}
-
-        n_obs = len(self.observations)
-        obs_name = 'OBS_{}'.format(n_obs) if name is None else name
-        obs_name = obs_name.replace(' ', '_')
-
-        sampling_time = telescope.sampling_time
-        frequency_range = telescope.frequency_range
-
-        zmax = self.high_frequency / frequency_range[0] - 1
-        zmin = self.low_frequency / frequency_range[-1] - 1
-        zmin = zmin.clip(0)
-
-        if 'altaz' in dir(self):
-            altaz = self.altaz
-        else:
-            location = telescope.location
-            lon, lat, height = location.lon, location.lat, location.height
-            print(
-                'Computing positions for {} FRB'.format(self.size),
-                'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-                'height={:.3f}.'.format(height), end='\n\n'
-            )
-            altaz = self.altaz_from_location(location)
-
-        in_range = (zmin <= self.redshift) & (self.redshift <= zmax)
-        visible = altaz.alt > 0
-        mask = visible & in_range
-
-        vis_frac = round(100 * visible.mean(), 2)
-        range_frac = round(100 * in_range.mean(), 2)
-        obs_frac = round(100 * mask.mean(), 2)
-
-        print('>>> {}% are visible.'.format(vis_frac))
-        print('>>> {}% are in frequency range.'.format(range_frac))
-        print('>>> {}% are observable.'.format(obs_frac), end='\n\n')
-
-        dims = 'FRB', obs_name
-
-        resp = telescope.response(altaz[mask])
-        shape = self.size, *resp.shape[1:]
-        response = numpy.zeros(shape, dtype=dtype)
-        response[mask] = resp
-        if sparse:
-            response = COO(response)
-        response = xarray.DataArray(response, dims=dims, name='Response')
-
-        noi = telescope.noise
-        noise = xarray.DataArray(noi.value, dims=obs_name, name='Noise')
-        noise.attrs['unit'] = noi.unit
-
-        time_delay = telescope.time_array(altaz)
-        if time_delay is not None:
-            unit = time_delay.unit
-            time_delay = xarray.DataArray(time_delay.value, dims=dims,
-                                          name='Time Delay')
-            time_delay.attrs['unit'] = unit
-
-        if 'altaz' in dir(self):
-            altaz = None
-
-        observation = Observation(response, noise, time_delay, frequency_range,
-                                  sampling_time, altaz)
-
-        self.observations[obs_name] = observation
-
-    def observe(self, telescopes, name=None, location=None, sparse=False,
-                dtype=numpy.float64, verbose=True):
-
-        old_target = sys.stdout
-        sys.stdout = old_target if verbose else open(os.devnull, 'w')
-
-        if 'altaz' not in dir(self):
-            if isinstance(location, coordinates.EarthLocation):
-                loc = location
-            elif isinstance(location, str):
-                if location in telescopes:
-                    loc = telescopes[location].location
-                else:
-                    loc = coordinates.EarthLocation.of_site(location)
-
-                lon, lat, height = loc.lon, loc.lat, loc.height
-                print(
-                    'Computing positions for {} FRB'.format(self.size),
-                    'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-                    'height={:.3f}.'.format(height), end='\n\n'
-                )
-                self.altaz = self.altaz_from_location(loc)
-            elif location is not None:
-                error = '{} is not a valid location'.format(location)
-                raise TypeError(error)
-
-        if type(telescopes) is dict:
-            for name, telescope in telescopes.items():
-                self.__observe(telescope, name, sparse, dtype)
-        else:
-            self.__observe(telescopes, name, sparse, dtype)
-
-        sys.stdout = old_target
-
-    def clean(self, names=None):
-
-        if hasattr(self, 'observations'):
-            if names is None:
-                del self.observations
-            elif isinstance(names, str):
-                del self.observations[names]
-            else:
-                for name in names:
-                    del self.observations[name]
+        if update:
+            self.update()
 
     def reduce(self, tolerance=0):
 
@@ -581,136 +432,99 @@ class FastRadioBursts(object):
 
         observation = self[name]
         peak_density_flux = self._peak_density_flux(name, channels)
-        signal = observation.response * peak_density_flux
+        in_range = observation.in_range(self.redshift, self.low_frequency,
+                                        self.high_frequency)
+        signal = peak_density_flux * in_range
         signal.attrs = peak_density_flux.attrs
         return signal
 
-    def _noise(self, name, channels=1):
+    def _noise(self, name, total=False, channels=1):
 
         observation = self[name]
-        return observation.get_noise(channels)
+        return observation.get_noise(total, channels)
 
-    def _signal_to_noise(self, name, channels=1, total=False, method='max',
-                         **kwargs):
-
-        func = getufunc(method, **kwargs)
+    def _signal_to_noise(self, name, total=False, channels=1):
 
         signal = self._signal(name, channels)
-        noise = self._noise(name, channels)
+        noise = self._noise(name, total, channels)
 
-        snr = signal / noise
+        return signal / noise
 
-        if isinstance(total, str) and (total in snr.dims):
-            snr = snr.reduce(func, dim=total, **kwargs)
-        if isinstance(total, list):
-            levels = [*filter(lambda x: x in snr.dims, total)]
-            snr = snr.reduce(func, dim=levels, **kwargs)
-        elif total is True:
-            levels = [*filter(lambda x: x not in ('FRB', 'CHANNEL'),
-                              snr.dims)]
-            snr = snr.reduce(func, dim=levels, **kwargs)
+    def _triggers(self, name, snr=None, total=False, channels=1):
 
-        return snr.squeeze()
-
-    def _triggers(self, name, channels=1, snr=None, total=False,
-                  method='max', **kwargs):
-
-        _snr = self._signal_to_noise(name, channels, total=total,
-                                     method=method, **kwargs)
+        _snr = self._signal_to_noise(name, total, channels)
         s = numpy.arange(1, 11) if snr is None else snr
         s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
         return (_snr >= s).squeeze()
 
-    def _counts(self, name, channels=1, snr=None, total=False, method='max',
-                **kwargs):
+    def _counts(self, name, channels=1, snr=None, total=False):
 
-        detected = self._triggers(name, channels, snr, total,
-                                  method, **kwargs)
-        return detected.sum('FRB')
+        triggers = self._triggers(name, snr, total, channels)
+        return triggers.sum('FRB')
 
-    def interferometry(self, namei, namej=None, reference=False,
-                       degradation=None, overwrite=False):
-
-        if reference:
-            names = [
-                name for name in self.observations
-                if (name != namei) and ('INTF' not in name)
-            ]
-            for namej in names:
-                self.interferometry(namej)
-                self.interferometry(namej, namei)
-        else:
-            obsi, obsj = self[namei], self[namej]
-            if namej is None:
-                key = 'INTF_{}'.format(namei)
-            else:
-                key = 'INTF_{}_{}'.format(namei, namej)
-
-            if (key not in self.observations) or overwrite:
-                interferometry = Interferometry(obsi, obsj, degradation)
-                self.observations[key] = interferometry
-            else:
-                warning_message = '{} is already computed. '.format(key) + \
-                                  'You may set overwrite=True to recompute.'
-                warnings.warn(warning_message)
-
-    def copy(self, clear=False):
-
-        copy = dill.copy(self)
-        keys = self.__dict__.keys()
-
-        if clear:
-            for key in keys:
-                if '_FastRadioBursts__' in key:
-                    delattr(copy, key)
-
-        return copy
-
-    def catalog(self, dispersion=False):
+    def catalog(self, tolerance=1):
 
         catalog = {
-            'spectral_index': self.spectral_index,
-            'redshift': self.redshift,
-            'luminosity Distance': self.__luminosity_distance,
-            'luminosity': self.__luminosity,
-            'flux': self.__flux,
-            'time': self.itrs_time.to_datetime(),
-            'right_ascension': self.icrs.ra,
-            'declination': self.icrs.dec,
+            attr: value
+            for attr, value in self.__dict__.items()
+            if numpy.size(value) == self.size
+            and '_FastRadioBursts__' not in attr
         }
 
-        if dispersion:
+        icrs = catalog.pop('icrs')
+        catalog.update({
+            'right_ascension': icrs.ra,
+            'declination': icrs.dec
+        })
+
+        if 'altaz' in catalog:
+            altaz = catalog.pop('altaz')
             catalog.update({
-                'galactic_dispersion': self.galactic_dm,
-                'igm_dispersion': self.igm_dm,
-                'host_galaxy_dispersion': self.host_dm,
-                'extra_galactic_dispersion': self.extra_galactic_dm,
-                'dispersion_measure': self.dispersion_measure
+                'altitude': altaz.alt,
+                'azimuth': altaz.az,
+                'obstime': altaz.obstime
             })
 
-        return catalog
+        observations = {}
 
-    def save_catalog(self, name):
+        if 'observations' in dir(self):
+            observations.update({
+                'signal_to_noise': self.signal_to_noise(),
+                'time_delay': self.time_delay()
+            })
+            if 'altaz' not in dir(self):
+                altaz = self.altaz()
+                observations.update({
+                    coord: {
+                        name: getattr(value, coord)
+                        for name, value in altaz.items()
+                    }
+                    for coord in ('alt', 'az', 'obstime')
+                })
+            observations = valfilter(lambda x: x is not None,
+                                     observations)
 
-        catalog = self.catalog()
+        catalog = valfilter(lambda x: x is not None, catalog)
+
+        if (tolerance > 0) and ('signal_to_noise' in observations):
+            snr = observations['signal_to_noise']
+            idx = xarray.concat([
+                value.max(value.dims[1:])
+                for value in snr.values()
+            ], dim='X').max('X') > tolerance
+
+            catalog = valmap(lambda x: x[idx], catalog)
+            observations = {
+                key: valmap(lambda x: x[idx], value)
+                for key, value in observations.items()
+            }
+
+        return merge(catalog, observations)
+
+    def save_catalog(self, name, tolerance=1):
+
+        catalog = self.catalog(tolerance)
         filename = '{}.cat'.format(name)
         file = bz2.BZ2File(filename, 'wb')
         dill.dump(catalog, file, dill.HIGHEST_PROTOCOL)
         file.close()
-
-    def save(self, name):
-
-        file_name = '{}.blips'.format(name)
-        file = bz2.BZ2File(file_name, 'wb')
-        copy = self.copy()
-        dill.dump(copy, file, dill.HIGHEST_PROTOCOL)
-        file.close()
-
-    @staticmethod
-    def load(file):
-
-        file_name = '{}.blips'.format(file)
-        file = bz2.BZ2File(file_name, 'rb')
-        loaded = dill.load(file)
-        file.close()
-        return loaded

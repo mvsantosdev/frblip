@@ -53,6 +53,13 @@ class Observation():
         self.kind = response.dims[0]
         self.width = self.frequency_range.diff()
 
+    def __getitem__(self, idx):
+
+        if isinstance(idx, slice):
+            return self.select(idx)
+        idx = numpy.array(idx)
+        return self.select(idx)
+
     def __set_coordinates(self):
 
         params = self.__dict__
@@ -86,12 +93,44 @@ class Observation():
         return xarray.DataArray(values, dims=dims,
                                 attrs={'unit': units.ms})
 
-    def get_noise(self, channels=1):
+    def get_noise(self, total=False, channels=1):
 
         noise = numpy.full(channels, numpy.sqrt(channels))
-        noise = self.noise * xarray.DataArray(noise, dims='CHANNEL')
+        noise = xarray.DataArray(noise, dims='CHANNEL')
+        noise = self.noise * noise
+        noise = (1 / self.response) * noise
+
+        if total:
+            if isinstance(total, str) and (total in noise.dims):
+                levels = total
+            if isinstance(total, list):
+                levels = [*filter(lambda x: x in noise.dims, total)]
+            elif total is True:
+                levels = [*filter(lambda x: x not in (self.kind, 'CHANNEL'),
+                                  noise.dims)]
+            noise = (1 / noise**2).sum(dim=levels)
+            noise = 1 / numpy.sqrt(noise)
+
         noise.attrs = self.noise.attrs
+
+        if channels == 1:
+            return noise.squeeze('CHANNEL')
         return noise
+
+    def redshift_range(self, low_frequency, high_frequency):
+
+        zmax = high_frequency / self.frequency_range[0] - 1
+        zmin = low_frequency / self.frequency_range[-1] - 1
+
+        return zmin.clip(0), zmax
+
+    def in_range(self, redshift, low_frequency, high_frequency):
+
+        zmin, zmax = self.redshift_range(low_frequency, high_frequency)
+
+        in_range = (zmin <= redshift) & (redshift <= zmax)
+        return xarray.DataArray(in_range.astype(numpy.intp),
+                                dims=self.kind)
 
     def get_frequency_response(self, spectral_index, channels=1):
 
@@ -108,12 +147,14 @@ class Observation():
 
         return density_flux.T
 
-    def __getitem__(self, idx):
+    def update(self, duration=0):
 
-        if isinstance(idx, slice):
-            return self.select(idx)
-        idx = numpy.array(idx)
-        return self.select(idx)
+        kw = {
+            'alt': self.altaz.alt,
+            'az': self.altaz.az,
+            'obstime': self.altaz.obstime + duration
+        }
+        self.altaz = coordinates.AltAz(**kw)
 
     def copy(self):
 

@@ -1,26 +1,21 @@
-import os
-import sys
-import warnings
-
 import numpy
 import xarray
 from sparse import COO
 from astropy_healpix import HEALPix
 
 from astropy.time import Time
-from astropy import coordinates, units, constants
-from astropy.coordinates.erfa_astrom import erfa_astrom
-from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
-from operator import itemgetter
-from functools import partial, cached_property
+from functools import cached_property
 
 from .random import Redshift, Schechter
-from .observation import Observation, Interferometry
 from .cosmology import Cosmology, builtin
 
+from astropy import units, coordinates
 
-class HealPixMap(HEALPix):
+from .basic_sampler import BasicSampler
+
+
+class HealPixMap(BasicSampler, HEALPix):
 
     def __init__(self, nside=128, order='ring', phistar=339,
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
@@ -29,12 +24,14 @@ class HealPixMap(HEALPix):
                  emission_frame=False, cosmology='Planck_18',
                  zmin=0.0, zmax=30.0):
 
-        super().__init__(nside, order)
+        HEALPix.__init__(self, nside, order)
 
         self.__load_params(phistar, alpha, log_Lstar, log_L0,
                            low_frequency, high_frequency,
                            low_frequency_cal, high_frequency_cal,
                            emission_frame, cosmology, zmin, zmax)
+
+        self.kind = 'PIXEL'
 
     def __load_params(self, phistar, alpha, log_Lstar, log_L0,
                       low_frequency, high_frequency,
@@ -73,230 +70,153 @@ class HealPixMap(HEALPix):
     def __lumdist(self):
         return Schechter(self.__xmin, self.alpha)
 
-    def __getitem__(self, idx):
-
-        if isinstance(idx, str):
-            return self.observations[idx]
-        if isinstance(idx, slice):
-            return self.select(idx, inplace=False)
-
-        idx = numpy.array(idx)
-        numeric = numpy.issubdtype(idx.dtype, numpy.signedinteger)
-        boolean = numpy.issubdtype(idx.dtype, numpy.bool_)
-        if numeric or boolean:
-            return self.select(idx, inplace=False)
-        if numpy.issubdtype(idx.dtype, numpy.str_):
-            return itemgetter(*idx)(self.observations)
-        return None
-
-    def __getattr__(self, attr, *args, **kwargs):
-
-        name = '_{}'.format(attr)
-
-        if name in dir(self):
-            def func(*names, **kwargs):
-                f = partial(getattr(self, name), **kwargs)
-                keys = self.observations.keys() if names == () else names
-                if len(keys) == 1:
-                    return f(*keys)
-                return {
-                    key: f(key) for key in keys
-                }
-            return func
-        else:
-            error = "'{}' object has no attribute '{}'"
-            raise AttributeError(error.format(self.__class__, attr))
+    @property
+    def size(self):
+        return self.npix
 
     @cached_property
     def pixels(self):
-
         return numpy.arange(self.npix)
 
     @cached_property
     def gcrs(self):
-
         pixels = numpy.arange(self.npix)
         ra, dec = self.healpix_to_lonlat(pixels)
         return coordinates.GCRS(ra=ra, dec=dec)
 
     @cached_property
     def itrs(self):
-
         frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.gcrs.transform_to(frame)
 
     @cached_property
     def icrs(self):
-
         frame = coordinates.ICRS()
         return self.gcrs.transform_to(frame)
 
     @cached_property
     def xyz(self):
-
         return self.itrs.cartesian.xyz
 
     @cached_property
     def itrs_time(self):
-
         j2000 = Time('J2000').to_datetime()
         return Time(j2000)
 
-    def obstime(self, location):
+    def luminosity_threshold(self, redshift, density_flux, spectral_index):
 
-        loc = location.get_itrs()
-        loc = loc.cartesian.xyz
+        sip = 1 + spectral_index
+        nuhp = (self.high_frequency_cal / units.MHz)**sip
+        nulp = (self.low_frequency_cal / units.MHz)**sip
 
-        path = loc @ self.xyz
-        time_delay = path / constants.c
+        lum_dist = self.__cosmology.luminosity_distance(redshift.ravel())
+        lum_dist = lum_dist.reshape(*redshift.shape)
+        Lthre = 4 * numpy.pi * (nuhp - nulp) * lum_dist**2 * density_flux
+        if self.emission_frame:
+            return Lthre / (1 + redshift)**sip
+        return Lthre
 
-        return self.itrs_time - time_delay
+    def get_redshift_table(self, sensitivity, zmin=0, zmax=30,
+                           spectral_index=0.0, total=False, channels=1,
+                           unit='1/year', eps=1e-4):
 
-    def altaz_from_location(self, location, interp=300):
+        data = sensitivity.data
+        if not isinstance(data, COO):
+            data = COO(data, fill_value=numpy.inf)
+        sflux = data.data * sensitivity.unit
 
-        obstime = self.obstime(location)
-        frame = coordinates.AltAz(location=location, obstime=obstime)
-        interp_time = interp * units.s
+        smin = sflux.min()
+        smax = sflux.max()
 
-        with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
-            return self.icrs.transform_to(frame)
+        zg, sg, table = self.get_rate_table(smin, smax, zmin, zmax,
+                                            unit, spectral_index, eps)
 
-    def __observe(self, telescope, name=None,  sparse=True,
-                  max_radius=90 * units.deg, dtype=numpy.float64):
+        table = (table * self.pixel_area).to(unit)
 
-        if 'observations' not in self.__dict__:
-            self.observations = {}
+        rates = numpy.apply_along_axis(
+            lambda x: numpy.interp(x=sflux, xp=sg, fp=x).sum(),
+            axis=1, arr=table
+        )
 
-        n_obs = len(self.observations)
-        obs_name = 'OBS_{}'.format(n_obs) if name is None else name
-        obs_name = obs_name.replace(' ', '_')
+        return zg.ravel(), rates
 
-        if 'altaz' in dir(self):
-            altaz = self.altaz
-        else:
-            location = telescope.location
-            lon, lat, height = location.lon, location.lat, location.height
-            print(
-                'Computing positions for {} PIXEL'.format(self.npix),
-                'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-                'height={:.3f}.'.format(height), end='\n\n'
-            )
-            altaz = self.altaz_from_location(location)
+    def get_redshift_rate(self, sensitivity, zmin=0, zmax=30,
+                          spectral_index=0.0, total=False, channels=1,
+                          unit='1/year', eps=1e-4):
 
-        az = telescope.az
-        alt = telescope.alt
-        if isinstance(max_radius, (float, int)):
-            max_radius = max_radius * telescope.radius
+        zg, rates = self.get_redshift_table(sensitivity, zmin, zmax,
+                                            spectral_index, total,
+                                            channels, unit, eps)
 
-        sight = coordinates.AltAz(alt=alt, az=az, obstime=self.itrs_time)
-        sight = sight.cartesian.xyz[:, numpy.newaxis]
+        def redshift_rate(x):
+            y = numpy.interp(x=x, xp=zg, fp=rates.value)
+            return y * rates.unit
 
-        sampling_time = telescope.sampling_time
-        frequency_range = telescope.frequency_range
-
-        xyz = altaz.cartesian.xyz[..., numpy.newaxis]
-        cosines = (xyz * sight).sum(0)
-        arcs = numpy.arccos(cosines).to(units.deg)
-        mask = (arcs < max_radius).sum(-1) > 0
-
-        dims = 'PIXEL', obs_name
-
-        resp = telescope.response(altaz[mask])
-        response = numpy.zeros((self.npix, *resp.shape[1:]), dtype=dtype)
-        response[mask] = resp
-        if sparse:
-            response = COO(response)
-        response = xarray.DataArray(response, dims=dims, name='Response')
-
-        noi = telescope.noise
-        noise = xarray.DataArray(noi, dims=obs_name, name='Noise')
-        noise.attrs['unit'] = noi.unit
-
-        time_delay = telescope.time_array(altaz)
-        if time_delay is not None:
-            unit = time_delay.unit
-            time_delay = xarray.DataArray(time_delay.value, dims=dims,
-                                          name='Time Delay')
-            time_delay.attrs['unit'] = unit
-
-        if 'altaz' in dir(self):
-            altaz = None
-
-        observation = Observation(response, noise, time_delay, frequency_range,
-                                  sampling_time, altaz)
-
-        self.observations[obs_name] = observation
-
-    def observe(self, telescopes, name=None, location=None,
-                sparse=False, max_radius=90 * units.deg,
-                dtype=numpy.float64, verbose=False):
-
-        old_target = sys.stdout
-        sys.stdout = old_target if verbose else open(os.devnull, 'w')
-
-        if 'altaz' not in dir(self):
-            if isinstance(location, coordinates.EarthLocation):
-                loc = location
-            elif isinstance(location, str):
-                if location in telescopes:
-                    loc = telescopes[location].location
-                else:
-                    loc = coordinates.EarthLocation.of_site(location)
-
-                lon, lat, height = loc.lon, loc.lat, loc.height
-                print(
-                    'Computing positions for {} FRB'.format(self.size),
-                    'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-                    'height={:.3f}.'.format(height), end='\n\n'
-                )
-                self.altaz = self.altaz_from_location(loc)
-            elif location is not None:
-                error = '{} is not a valid location'.format(location)
-                raise TypeError(error)
-
-        if type(telescopes) is dict:
-            for name, telescope in telescopes.items():
-                self.__observe(telescope, name, sparse, max_radius, dtype)
-        else:
-            self.__observe(telescopes, name, sparse, max_radius, dtype)
-
-        sys.stdout = old_target
-
-    def _response(self, name, channels=1, spectral_index=0.0):
-
-        observation = self[name]
-        si = numpy.full(self.npix, spectral_index)
-        peak_density_flux = observation.get_frequency_response(si, channels)
-        return observation.response * peak_density_flux
-
-    def _noise(self, name, channels=1):
-
-        observation = self[name]
-        return observation.get_noise(channels)
+        return redshift_rate
 
     @numpy.errstate(divide='ignore', over='ignore')
-    def _sensitivity(self, name, channels=1, spectral_index=0.0,
-                     total=False, level=None):
+    def get_maximum_redshift(self, sensitivity, zmin=0, zmax=30,
+                             spectral_index=0.0, total=False, channels=1,
+                             time=1*units.year, tolerance=1, eps=1e-4):
 
-        noise = self._noise(name, channels)
-        response = self._response(name, channels, spectral_index)
-        sensitivity = (1 / response) * noise
+        redshift, rates = self.get_redshift_table(sensitivity, zmin, zmax,
+                                                  spectral_index, total,
+                                                  channels, eps=eps)
 
-        if total:
-            lvl = [
-                dim for dim in sensitivity.dims
-                if dim not in ('PIXEL', 'CHANNEL')
-            ]
-            sensitivity = sensitivity.min(lvl)
-        if level is not None:
-            sensitivity = sensitivity.min(level)
-        sensitivity = sensitivity.squeeze()
-        sensitivity.attrs = noise.attrs
-        return sensitivity
+        idx = rates.argmax()
+        x = redshift[idx:][::-1]
+        y = (rates[idx:][::-1] * time).to(1).clip(0)
+
+        log_y = numpy.log(y / tolerance)
+
+        return numpy.interp(x=0, xp=log_y, fp=x)
+
+    def _maximum_redshift(self, name, zmin=0, zmax=30, spectral_index=0.0,
+                          snr=1, total=False, channels=1, time=1*units.year,
+                          tolerance=1, eps=1e-4):
+
+        sensitivity = self._sensitivity(name, spectral_index,
+                                        total, channels)
+        sens = snr * sensitivity
+        sens.attrs['unit'] = sensitivity.unit
+
+        zmin, zmax = self._redshift_range(name)
+
+        return self.get_maximum_redshift(sens, zmin, zmax, spectral_index,
+                                         total, channels, time, tolerance,
+                                         eps)
+
+    def _redshift_table(self, name, spectral_index=0.0, snr=1,
+                        total=False, channels=1, unit='1/year',
+                        eps=1e-4):
+
+        sensitivity = self._sensitivity(name, spectral_index,
+                                        total, channels)
+        sens = snr * sensitivity
+        sens.attrs['unit'] = sensitivity.unit
+
+        zmin, zmax = self._redshift_range(name)
+
+        return self.get_redshift_table(sens, zmin, zmax, spectral_index,
+                                       total, channels, unit, eps)
+
+    def _redshift_rate(self, name, spectral_index=0.0, snr=1,
+                       total=False, channels=1, unit='1/year',
+                       eps=1e-4):
+
+        sensitivity = self._sensitivity(name, spectral_index,
+                                        total, channels)
+        sens = snr * sensitivity
+        sens.attrs['unit'] = sensitivity.unit
+
+        zmin, zmax = self._redshift_range(name)
+
+        return self.get_redshift_rate(sens, zmin, zmax, spectral_index,
+                                      total, channels, unit, eps)
 
     @numpy.errstate(divide='ignore', over='ignore')
-    def __specific_rate(self, smin, smax, zmin, zmax, frequency_range,
-                        unit, spectral_index, eps=1e-4):
+    def get_rate_table(self, smin, smax, zmin, zmax,
+                       unit, spectral_index, eps=1e-4):
 
         log_min = units.LogQuantity(smin)
         log_max = units.LogQuantity(smax)
@@ -305,24 +225,12 @@ class HealPixMap(HEALPix):
         sgrid = numpy.logspace(log_min, log_max, ngrid)
         zgrid = numpy.linspace(zmin, zmax, ngrid)
 
-        lum_dist = self.__cosmology.luminosity_distance(zgrid)
         dz = self.__zdist.angular_density(zgrid)
 
-        dz = dz[:, numpy.newaxis]
-        zgrid = zgrid[:, numpy.newaxis]
-        lum_dist = lum_dist[:, numpy.newaxis]
+        zgrid = zgrid.reshape(-1, 1)
+        dz = dz.reshape(-1, 1)
 
-        _sip = 1 + spectral_index
-        nuhp = (self.high_frequency_cal / units.MHz)**_sip
-        nulp = (self.low_frequency_cal / units.MHz)**_sip
-        dnup = (frequency_range / units.MHz)**_sip
-        width = frequency_range.diff()
-        nu_factor = width * (nuhp - nulp) / dnup.diff(axis=-1)
-
-        Lthre = 4 * numpy.pi * nu_factor * lum_dist**2 * sgrid
-        if self.emission_frame:
-            Lthre = Lthre / (1 + zgrid)**_sip
-
+        Lthre = self.luminosity_threshold(zgrid, sgrid, spectral_index)
         xthre = Lthre.to(self.log_Lstar.unit) - self.log_Lstar
         xmin, xmax = self.__lumdist.xmin, self.__lumdist.xmax
         xthre = xthre.to(1).value.clip(xmin, xmax)
@@ -330,11 +238,19 @@ class HealPixMap(HEALPix):
         norm = self.phistar / self.__lumdist.pdf_norm
         lum_integral = norm * self.__lumdist.sf(xthre)
 
-        integrand = lum_integral * dz
-        zintegral = numpy.trapz(x=zgrid, y=integrand, axis=0)
-        zintegral = zintegral * self.pixel_area
+        pdf = lum_integral * dz
 
-        xp, fp = sgrid, zintegral.to(unit)
+        return zgrid, sgrid, pdf
+
+    def specific_rate(self, smin, smax, zmin, zmax, unit,
+                      spectral_index, eps=1e-4):
+
+        zg, sg, pdf = self.get_rate_table(smin, smax, zmin, zmax,
+                                          unit, spectral_index, eps)
+        spdf = numpy.trapz(x=zg, y=pdf, axis=0)
+        spdf = spdf * self.pixel_area
+
+        xp, fp = sg, spdf.to(unit)
 
         def specific_rate(x):
             y = numpy.interp(x=x, xp=xp, fp=fp.value)
@@ -342,10 +258,31 @@ class HealPixMap(HEALPix):
 
         return specific_rate
 
+    def _redshift_range(self, name, channels=1):
+
+        observation = self[name]
+        return observation.redshift_range(self.low_frequency,
+                                          self.high_frequency)
+
+    def _noise(self, name, total=False, channels=1):
+
+        observation = self[name]
+        return observation.get_noise(total, channels)
+
+    def _sensitivity(self, name, spectral_index=0.0, total=False, channels=1):
+
+        observation = self[name]
+        spec_idx = numpy.full(self.size, spectral_index)
+        freq_resp = observation.get_frequency_response(spec_idx, channels)
+        noise = self._noise(name, total, channels)
+
+        sensitivity = noise / freq_resp
+        sensitivity.attrs['unit'] = noise.unit / freq_resp.unit
+        return sensitivity
+
     @numpy.errstate(over='ignore')
-    def _si_rate_map(self, name=None, channels=1, sensitivity=None,
-                     snr=None, unit='year', spectral_index=0.0,
-                     total=False, eps=1e-4):
+    def get_rate_map(self, sensitivity, zmin=0, zmax=30,
+                     spectral_index=0.0, unit='year', eps=1e-4):
 
         if isinstance(unit, str):
             unit = units.Unit(unit)
@@ -357,33 +294,18 @@ class HealPixMap(HEALPix):
 
         rate_unit = 1 / unit
 
-        s = numpy.arange(1, 11) if snr is None else snr
-        s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
-
-        if not isinstance(sensitivity, numpy.ndarray):
-            sensitivity = self._sensitivity(name, channels,
-                                            spectral_index,
-                                            total)
-
-        unit = sensitivity.attrs['unit']
-        sensitivity = sensitivity * s
-
+        unit = sensitivity.unit
         data = sensitivity.data
+        if not isinstance(data, COO):
+            data = COO(data, fill_value=numpy.inf)
         sflux = data.data * unit
 
         smin = sflux.min()
         smax = sflux.max()
 
-        frequency_range = self[name].frequency_range
-        zmax = self.high_frequency / frequency_range[0] - 1
-        zmin = self.low_frequency / frequency_range[-1] - 1
-        zmin = zmin.clip(0)
-
-        specific_rate = self.__specific_rate(smin, smax, zmin, zmax,
-                                             frequency_range, rate_unit,
-                                             spectral_index, eps)
-
-        rates = specific_rate(sflux)
+        spec_rate = self.specific_rate(smin, smax, zmin, zmax, rate_unit,
+                                       spectral_index, eps)
+        rates = spec_rate(sflux)
 
         rate_map = COO(data.coords, rates, data.shape)
         rate_map = xarray.DataArray(rate_map, dims=sensitivity.dims)
@@ -391,50 +313,45 @@ class HealPixMap(HEALPix):
 
         return rate_map
 
-    def _rate_map(self, name=None, channels=1, sensitivity=None, snr=None,
-                  spectral_index=0.0, total=False, unit='year', eps=1e-4):
+    def get_rate(self, sensitivity, zmin=0, zmax=30,
+                 spectral_index=0.0, unit='year', eps=1e-4):
 
-        sis = numpy.atleast_1d(spectral_index)
+        rate_map = self.get_rate_map(sensitivity, zmin, zmax,
+                                     spectral_index, unit, eps)
+        return rate_map.sum('PIXEL', keep_attrs=True)
+
+    def _si_rate_map(self, name=None, spectral_index=0.0, snr=None,
+                     total=False, channels=1, unit='year', eps=1e-4):
+
+        s = numpy.arange(1, 11) if snr is None else snr
+        s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
+
+        sensitivity = self._sensitivity(name, spectral_index,
+                                        total, channels)
+
+        sens = sensitivity * s
+        sens.attrs = sensitivity.attrs
+
+        zmin, zmax = self._redshift_range(name)
+
+        return self.get_rate_map(sens, zmin, zmax, spectral_index, unit, eps)
+
+    def _rate_map(self, name=None, spectral_index=0.0, snr=None,
+                  total=False, channels=1, unit='year', eps=1e-4):
+
+        spec_idxs = numpy.atleast_1d(spectral_index)
 
         rates = xarray.concat([
-            self._si_rate_map(name, channels=channels, snr=snr,
-                              sensitivity=sensitivity, total=total,
-                              spectral_index=si, unit=unit, eps=eps)
-            for si in sis
+            self._si_rate_map(name, spectral_index, snr,
+                              total, channels, unit, eps)
+            for spec_idx in spec_idxs
         ], dim='Spectral Index')
 
         return rates.squeeze()
 
-    def _rate(self, name=None, channels=1, sensitivity=None, snr=None,
-              spectral_index=0.0, total=False, unit='year', eps=1e-4):
+    def _rate(self, name=None, spectral_index=0.0, snr=None,
+              total=False, channels=1, unit='year', eps=1e-4):
 
-        return self._rate_map(name, channels=channels, snr=snr,
-                              sensitivity=sensitivity, total=total,
-                              spectral_index=spectral_index, unit=unit,
-                              eps=eps).sum('PIXEL', keep_attrs=True)
-
-    def interferometry(self, namei, namej=None, reference=False,
-                       degradation=None, overwrite=False):
-
-        if reference:
-            names = [
-                name for name in self.observations
-                if (name != namei) and ('INTF' not in name)
-            ]
-            for namej in names:
-                self.interferometry(namej)
-                self.interferometry(namej, namei)
-        else:
-            obsi, obsj = self[namei], self[namej]
-            if namej is None:
-                key = 'INTF_{}'.format(namei)
-            else:
-                key = 'INTF_{}_{}'.format(namei, namej)
-
-            if (key not in self.observations) or overwrite:
-                interferometry = Interferometry(obsi, obsj, degradation)
-                self.observations[key] = interferometry
-            else:
-                warning_message = '{} is already computed. '.format(key) + \
-                                  'You may set overwrite=True to recompute.'
-                warnings.warn(warning_message)
+        rate_map = self._rate_map(name, spectral_index, snr,
+                                  total, channels, unit, eps)
+        return rate_map.sum('PIXEL', keep_attrs=True)

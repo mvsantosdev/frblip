@@ -1,4 +1,5 @@
-dill
+toolz
+dill==0.3.4
 numba>=0.55
 numpy>=1.21
 pandas
