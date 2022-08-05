@@ -10,6 +10,7 @@ import xarray
 from sparse import COO
 
 from functools import partial
+from operator import itemgetter
 from toolz.dicttoolz import valfilter
 
 from astropy import units, constants, coordinates
@@ -62,6 +63,15 @@ class BasicSampler(object):
             class_name = type(self).__name__
             error = "'{}' object has no attribute '{}'"
             raise AttributeError(error.format(class_name, attr))
+
+    def __getitem__(self, keys):
+
+        if isinstance(keys, str):
+            return self.observations[keys]
+        keys = numpy.array(keys)
+        if numpy.issubdtype(keys.dtype, numpy.str_):
+            return itemgetter(*keys)(self.observations)
+        return None
 
     def obstime(self, location):
 

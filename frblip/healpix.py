@@ -5,7 +5,6 @@ from astropy_healpix import HEALPix
 
 from astropy.time import Time
 
-from operator import itemgetter
 from functools import cached_property
 
 from .random import Redshift, Schechter
@@ -51,15 +50,6 @@ class HealPixMap(BasicSampler, HEALPix):
         self.cosmology = cosmology
         self.zmin = zmin
         self.zmax = zmax
-
-    def __getitem__(self, keys):
-
-        if isinstance(keys, str):
-            return self.observations[keys]
-        keys = numpy.array(keys)
-        if numpy.issubdtype(keys.dtype, numpy.str_):
-            return itemgetter(*keys)(self.observations)
-        return None
 
     @cached_property
     def __cosmology(self):
