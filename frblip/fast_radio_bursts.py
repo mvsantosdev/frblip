@@ -26,49 +26,99 @@ from .cosmology import Cosmology, builtin
 from .basic_sampler import BasicSampler
 
 
-def blips(size=None, days=1, log_Lstar=44.46, log_L0=41.96,
-          phistar=339, gamma=-1.79, pulse_width=(-6.917, 0.824),
-          zmin=0, zmax=30, ra=(0, 24), dec=(-90, 90), start=None,
-          low_frequency=10.0, high_frequency=10000.0,
-          low_frequency_cal=400.0, high_frequency_cal=1400.0,
-          emission_frame=False, spectral_index='CHIME2021',
-          gal_method='yt2020_analytic', gal_nside=128,
-          host_dist='lognormal', host_source='luo18',
-          host_model=('ALG', 'YMW16'), cosmology='Planck_18',
-          free_electron_bias='Takahashi2021', verbose=True):
-
-    return FastRadioBursts(size, days, log_Lstar, log_L0, phistar, gamma,
-                           pulse_width, zmin, zmax, ra, dec, start,
-                           low_frequency, high_frequency, low_frequency_cal,
-                           high_frequency_cal, emission_frame, spectral_index,
-                           gal_method, gal_nside, host_dist, host_source,
-                           host_model, cosmology, free_electron_bias, verbose)
-
-
-def load(file):
-    return FastRadioBursts.load(file)
-
-
-def load_catalog(name):
-
-    file = bz2.BZ2File(name, 'rb')
-    catalog = dill.load(file)
-    file.close()
-    return catalog
-
-
 class FastRadioBursts(BasicSampler):
+    """ """
 
-    def __init__(self, size=None, days=1, log_Lstar=44.46, log_L0=41.96,
-                 phistar=339, gamma=-1.79, pulse_width=(-6.917, 0.824),
-                 zmin=0, zmax=30, ra=(0, 24), dec=(-90, 90), start=None,
-                 low_frequency=10.0, high_frequency=10000.0,
-                 low_frequency_cal=400.0, high_frequency_cal=1400.0,
-                 emission_frame=False, spectral_index='CHIME2021',
-                 gal_method='yt2020_analytic', gal_nside=128,
-                 host_dist='lognormal', host_source='luo18',
-                 host_model=('ALG', 'YMW16'), cosmology='Planck_18',
-                 free_electron_bias='Takahashi2021', verbose=True):
+    def __init__(self,
+                 size: int = None,
+                 days: int = 1,
+                 log_Lstar: float = 44.46,
+                 log_L0: float = 41.96,
+                 phistar: float = 339,
+                 gamma: float = -1.79,
+                 pulse_width: (float, float) = (-6.917, 0.824),
+                 zmin: float = 0.0,
+                 zmax: float = 30.0,
+                 ra: (float, float) = (0, 24),
+                 dec: (float, float) = (-90, 90),
+                 start: 'Time or None' = None,
+                 low_frequency: float = 10.0,
+                 high_frequency: float = 10000.0,
+                 low_frequency_cal: float = 400.0,
+                 high_frequency_cal: float = 1400.0,
+                 emission_frame: bool = False,
+                 spectral_index: str = 'CHIME2021',
+                 gal_method: str = 'yt2020_analytic',
+                 gal_nside: int = 128,
+                 host_dist: str = 'lognormal',
+                 host_source: str = 'luo18',
+                 host_model: (str, str) = ('ALG', 'YMW16'),
+                 cosmology: str = 'Planck_18',
+                 free_electron_bias: str = 'Takahashi2021',
+                 verbose: bool = True):
+
+        """
+
+        Parameters
+        ----------
+        size : int or None
+             Number of generated FRB.
+             (Default value = None)
+        days : int or None
+             (Default value = 1)
+        log_Lstar :
+             (Default value = 44.46)
+        log_L0 :
+             (Default value = 41.96)
+        phistar :
+             (Default value = 339.0)
+        gamma :
+             (Default value = -1.79)
+        pulse_width :
+             (Default value = (-6.917, 0.824))
+        zmin :
+             (Default value = 0)
+        zmax :
+             (Default value = 30)
+        ra :
+             (Default value = (0, 24))
+        dec :
+             (Default value = (-90, 90))
+        start :
+             (Default value = None)
+        low_frequency :
+             (Default value = 10.0)
+        high_frequency :
+             (Default value = 10000.0)
+        low_frequency_cal :
+             (Default value = 400.0)
+        high_frequency_cal :
+             (Default value = 1400.0)
+        emission_frame :
+             (Default value = False)
+        spectral_index :
+             (Default value = 'CHIME2021')
+        gal_method :
+             (Default value = 'yt2020_analytic')
+        gal_nside :
+             (Default value = 128)
+        host_dist :
+             (Default value = 'lognormal')
+        host_source :
+             (Default value = 'luo18')
+        host_model :
+             (Default value = ('ALG', 'YMW16'))
+        cosmology :
+             (Default value = 'Planck_18')
+        free_electron_bias :
+             (Default value = 'Takahashi2021')
+        verbose :
+             (Default value = True)
+
+        Returns
+        -------
+
+        """
 
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
@@ -127,7 +177,11 @@ class FastRadioBursts(BasicSampler):
     def __len__(self):
         return self.size
 
-    def __getitem__(self, idx):
+    def __getitem__(self,
+                    idx: [
+                        str, slice, numpy.signedinteger,
+                        numpy.bool_, numpy.str_
+                    ]):
 
         if isinstance(idx, str):
             return self.observations[idx]
@@ -143,7 +197,22 @@ class FastRadioBursts(BasicSampler):
             return itemgetter(*idx)(self.observations)
         return None
 
-    def select(self, idx, inplace=False):
+    def select(self,
+               idx: [str, slice, numpy.signedinteger, numpy.bool_, numpy.str_],
+               inplace: bool = False):
+        """
+
+        Parameters
+        ----------
+        idx :
+
+        inplace :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         if not inplace:
             mock = self.copy(clear=False)
@@ -166,12 +235,44 @@ class FastRadioBursts(BasicSampler):
         self.size = self.redshift.size
 
     def iterfrbs(self, start=0, stop=None, step=1):
+        """
+
+        Parameters
+        ----------
+        start :
+             (Default value = 0)
+        stop :
+             (Default value = None)
+        step :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         stop = self.size if stop is None else stop
         for i in range(start, stop, step):
             yield self[i]
 
     def iterchunks(self, size=1, start=0, stop=None, retindex=False):
+        """
+
+        Parameters
+        ----------
+        size :
+             (Default value = 1)
+        start :
+             (Default value = 0)
+        stop :
+             (Default value = None)
+        retindex :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         stop = self.size if stop is None else stop
 
@@ -211,24 +312,29 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def redshift(self):
+        """ """
         return self.__zdist.rvs(size=self.size)
 
     @cached_property
     def log_luminosity(self):
+        """ """
         loglum = self.__lumdist.log_rvs(size=self.size)
         return loglum * units.LogUnit() + self.log_Lstar
 
     @cached_property
     def pulse_width(self):
+        """ """
         width = random.lognormal(self.w_mean, self.w_std, size=self.size)
         return (width * units.s).to(units.ms)
 
     @cached_property
     def emitted_pulse_width(self):
+        """ """
         return self.pulse_width / (1 + self.redshift)
 
     @cached_property
     def itrs_time(self):
+        """ """
         time_ms = int(self.duration.to(units.us).value)
         dt = random.randint(time_ms, size=self.size)
         dt = numpy.sort(dt) * units.us
@@ -236,10 +342,12 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def spectral_index(self):
+        """ """
         return self.__spec_idx_dist.rvs(self.size)
 
     @cached_property
     def icrs(self):
+        """ """
 
         sin = numpy.sin(self.dec_range)
         args = random.uniform(*sin, self.size)
@@ -251,6 +359,7 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def area(self):
+        """ """
 
         x = numpy.sin(self.dec_range).diff().item()
         y = self.ra_range.to(units.rad).diff().item()
@@ -259,6 +368,7 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def luminosity_distance(self):
+        """ """
         z = self.redshift
         return self.__cosmology.luminosity_distance(z)
 
@@ -268,6 +378,7 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def flux(self):
+        """ """
         surface = 4 * numpy.pi * self.luminosity_distance**2
         return (self.__luminosity / surface).to(units.Jy * units.MHz)
 
@@ -284,15 +395,18 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def itrs(self):
+        """ """
         itrs_frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.icrs.transform_to(itrs_frame)
 
     @property
     def xyz(self):
+        """ """
         return self.itrs.cartesian.xyz
 
     @property
     def galactic(self):
+        """ """
         return self.icrs.galactic
 
     @cached_property
@@ -310,23 +424,27 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def galactic_dm(self):
+        """ """
         gl = self.galactic.l
         gb = self.galactic.b
         return self.__gal_dm(gl, gb)
 
     @cached_property
     def igm_dm(self):
+        """ """
         z = self.redshift
         return self.__igm_dm(z)
 
     @cached_property
     def host_dm(self):
+        """ """
 
         z = self.redshift
         return self.__host_dm(z)
 
     @cached_property
     def extra_galactic_dm(self):
+        """ """
 
         z = self.redshift
         igm = self.igm_dm
@@ -335,6 +453,7 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def dispersion_measure(self):
+        """ """
         return self.galactic_dm + self.extra_galactic_dm
 
     def __frb_rate(self, size, days):
@@ -372,6 +491,7 @@ class FastRadioBursts(BasicSampler):
               'of observation. \n')
 
     def update(self):
+        """ """
 
         self.itrs_time = self.itrs_time + self.duration
         if 'altaz' in dir(self):
@@ -386,6 +506,17 @@ class FastRadioBursts(BasicSampler):
                 self.observations[name].update(self.duration)
 
     def shuffle(self, update=True):
+        """
+
+        Parameters
+        ----------
+        update :
+             (Default value = True)
+
+        Returns
+        -------
+
+        """
 
         idx = numpy.arange(self.size)
         numpy.random.shuffle(idx)
@@ -401,6 +532,17 @@ class FastRadioBursts(BasicSampler):
             self.update()
 
     def reduce(self, tolerance=0):
+        """
+
+        Parameters
+        ----------
+        tolerance :
+             (Default value = 0)
+
+        Returns
+        -------
+
+        """
 
         snrs = self.signal_to_noise(total=True)
         snr = xarray.concat(snrs.values(), dim='ALL')
@@ -408,16 +550,51 @@ class FastRadioBursts(BasicSampler):
         return self[idx.as_numpy()]
 
     def _altaz(self, name):
+        """
+
+        Parameters
+        ----------
+        name :
+
+
+        Returns
+        -------
+
+        """
 
         observation = self[name]
         return getattr(observation, 'altaz', None)
 
     def _time_delay(self, name):
+        """
+
+        Parameters
+        ----------
+        name :
+
+
+        Returns
+        -------
+
+        """
 
         observation = self[name]
         return getattr(observation, 'time_delay', None)
 
     def _peak_density_flux(self, name, channels=1):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         observation = self[name]
         spectral_index = self.spectral_index
@@ -429,6 +606,19 @@ class FastRadioBursts(BasicSampler):
         return signal
 
     def _signal(self, name, channels=1):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         observation = self[name]
         peak_density_flux = self._peak_density_flux(name, channels)
@@ -439,11 +629,41 @@ class FastRadioBursts(BasicSampler):
         return signal
 
     def _noise(self, name, total=False, channels=1):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         observation = self[name]
         return observation.get_noise(total, channels)
 
     def _signal_to_noise(self, name, total=False, channels=1):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         signal = self._signal(name, channels)
         noise = self._noise(name, total, channels)
@@ -451,6 +671,23 @@ class FastRadioBursts(BasicSampler):
         return signal / noise
 
     def _triggers(self, name, snr=None, total=False, channels=1):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        snr :
+             (Default value = None)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         _snr = self._signal_to_noise(name, total, channels)
         s = numpy.arange(1, 11) if snr is None else snr
@@ -458,11 +695,39 @@ class FastRadioBursts(BasicSampler):
         return (_snr >= s).squeeze()
 
     def _counts(self, name, channels=1, snr=None, total=False):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        channels :
+             (Default value = 1)
+        snr :
+             (Default value = None)
+        total :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         triggers = self._triggers(name, snr, total, channels)
         return triggers.sum('FRB')
 
     def catalog(self, tolerance=1):
+        """
+
+        Parameters
+        ----------
+        tolerance :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         catalog = {
             attr: value
@@ -522,6 +787,19 @@ class FastRadioBursts(BasicSampler):
         return merge(catalog, observations)
 
     def save_catalog(self, name, tolerance=1):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        tolerance :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         catalog = self.catalog(tolerance)
         filename = '{}.cat'.format(name)

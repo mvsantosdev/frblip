@@ -16,6 +16,7 @@ from .basic_sampler import BasicSampler
 
 
 class HealPixMap(BasicSampler, HEALPix):
+    """ """
 
     def __init__(self, nside=128, order='ring', phistar=339,
                  alpha=-1.79, log_Lstar=44.46, log_L0=41.96,
@@ -72,46 +73,71 @@ class HealPixMap(BasicSampler, HEALPix):
 
     @property
     def size(self):
+        """ """
         return self.npix
 
     @cached_property
     def pixels(self):
+        """ """
         return numpy.arange(self.npix)
 
     @cached_property
     def gcrs(self):
+        """ """
         pixels = numpy.arange(self.npix)
         ra, dec = self.healpix_to_lonlat(pixels)
         return coordinates.GCRS(ra=ra, dec=dec)
 
     @cached_property
     def itrs(self):
+        """ """
         frame = coordinates.ITRS(obstime=self.itrs_time)
         return self.gcrs.transform_to(frame)
 
     @cached_property
     def icrs(self):
+        """ """
         frame = coordinates.ICRS()
         return self.gcrs.transform_to(frame)
 
     @cached_property
     def xyz(self):
+        """ """
         return self.itrs.cartesian.xyz
 
     @cached_property
     def itrs_time(self):
+        """ """
         j2000 = Time('J2000').to_datetime()
         return Time(j2000)
 
     def luminosity_threshold(self, redshift, density_flux, spectral_index):
+        """
+
+        Parameters
+        ----------
+        redshift :
+
+        density_flux :
+
+        spectral_index :
+
+
+        Returns
+        -------
+
+        """
 
         sip = 1 + spectral_index
+        sign = numpy.sign(sip)
         nuhp = (self.high_frequency_cal / units.MHz)**sip
         nulp = (self.low_frequency_cal / units.MHz)**sip
+        dnu = sign * (nuhp - nulp)
 
         lum_dist = self.__cosmology.luminosity_distance(redshift.ravel())
         lum_dist = lum_dist.reshape(*redshift.shape)
-        Lthre = 4 * numpy.pi * (nuhp - nulp) * lum_dist**2 * density_flux
+
+        Lthre = 4 * numpy.pi * dnu * lum_dist**2 * density_flux
         if self.emission_frame:
             return Lthre / (1 + redshift)**sip
         return Lthre
@@ -119,6 +145,31 @@ class HealPixMap(BasicSampler, HEALPix):
     def get_redshift_table(self, sensitivity, zmin=0, zmax=30,
                            spectral_index=0.0, total=False, channels=1,
                            unit='1/year', eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        sensitivity :
+
+        zmin :
+             (Default value = 0)
+        zmax :
+             (Default value = 30)
+        spectral_index :
+             (Default value = 0.0)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+        unit :
+             (Default value = '1/year')
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         data = sensitivity.data
         if not isinstance(data, COO):
@@ -129,7 +180,7 @@ class HealPixMap(BasicSampler, HEALPix):
         smax = sflux.max()
 
         zg, sg, table = self.get_rate_table(smin, smax, zmin, zmax,
-                                            unit, spectral_index, eps)
+                                            spectral_index, eps)
 
         table = (table * self.pixel_area).to(unit)
 
@@ -143,13 +194,49 @@ class HealPixMap(BasicSampler, HEALPix):
     def get_redshift_rate(self, sensitivity, zmin=0, zmax=30,
                           spectral_index=0.0, total=False, channels=1,
                           unit='1/year', eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        sensitivity :
+
+        zmin :
+             (Default value = 0)
+        zmax :
+             (Default value = 30)
+        spectral_index :
+             (Default value = 0.0)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+        unit :
+             (Default value = '1/year')
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         zg, rates = self.get_redshift_table(sensitivity, zmin, zmax,
                                             spectral_index, total,
                                             channels, unit, eps)
 
-        def redshift_rate(x):
-            y = numpy.interp(x=x, xp=zg, fp=rates.value)
+        def redshift_rate(z):
+            """
+
+            Parameters
+            ----------
+            z :
+
+
+            Returns
+            -------
+
+            """
+            y = numpy.interp(x=z, xp=zg, fp=rates.value)
             return y * rates.unit
 
         return redshift_rate
@@ -158,6 +245,33 @@ class HealPixMap(BasicSampler, HEALPix):
     def get_maximum_redshift(self, sensitivity, zmin=0, zmax=30,
                              spectral_index=0.0, total=False, channels=1,
                              time=1*units.year, tolerance=1, eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        sensitivity :
+
+        zmin :
+             (Default value = 0)
+        zmax :
+             (Default value = 30)
+        spectral_index :
+             (Default value = 0.0)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+        time :
+             (Default value = 1*units.year)
+        tolerance :
+             (Default value = 1)
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         redshift, rates = self.get_redshift_table(sensitivity, zmin, zmax,
                                                   spectral_index, total,
@@ -168,12 +282,53 @@ class HealPixMap(BasicSampler, HEALPix):
         y = (rates[idx:][::-1] * time).to(1).clip(0)
 
         log_y = numpy.log(y / tolerance)
+        idx = numpy.isfinite(log_y)
+        center = numpy.interp(x=0, xp=log_y[idx], fp=x[idx])
 
-        return numpy.interp(x=0, xp=log_y, fp=x)
+        ly = y - 1.96 * numpy.sqrt(y)
+        log_ly = numpy.log(ly / tolerance)
+        idx = numpy.isfinite(log_ly)
+        lower = numpy.interp(x=0, xp=log_ly[idx], fp=x[idx])
+
+        uy = y + 1.96 * numpy.sqrt(y)
+        log_uy = numpy.log(uy / tolerance)
+        idx = numpy.isfinite(log_uy)
+        upper = numpy.interp(x=0, xp=log_uy[idx], fp=x[idx])
+
+        return center, lower, upper
 
     def _maximum_redshift(self, name, zmin=0, zmax=30, spectral_index=0.0,
                           snr=1, total=False, channels=1, time=1*units.year,
                           tolerance=1, eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        zmin :
+             (Default value = 0)
+        zmax :
+             (Default value = 30)
+        spectral_index :
+             (Default value = 0.0)
+        snr :
+             (Default value = 1)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+        time :
+             (Default value = 1*units.year)
+        tolerance :
+             (Default value = 1)
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         sensitivity = self._sensitivity(name, spectral_index,
                                         total, channels)
@@ -189,6 +344,29 @@ class HealPixMap(BasicSampler, HEALPix):
     def _redshift_table(self, name, spectral_index=0.0, snr=1,
                         total=False, channels=1, unit='1/year',
                         eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        name : str
+
+        spectral_index : float
+             (Default value = 0.0)
+        snr : float
+             (Default value = 1)
+        total : bool
+             (Default value = False)
+        channels : int
+             (Default value = 1)
+        unit : astropy.units.unit or str
+             (Default value = '1/year')
+        eps : float
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         sensitivity = self._sensitivity(name, spectral_index,
                                         total, channels)
@@ -203,6 +381,29 @@ class HealPixMap(BasicSampler, HEALPix):
     def _redshift_rate(self, name, spectral_index=0.0, snr=1,
                        total=False, channels=1, unit='1/year',
                        eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        name : str
+
+        spectral_index : float
+             (Default value = 0.0)
+        snr : float
+             (Default value = 1)
+        total : bool
+             (Default value = False)
+        channels : int
+             (Default value = 1)
+        unit : astropy.units.unit or str
+             (Default value = '1/year')
+        eps : float
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         sensitivity = self._sensitivity(name, spectral_index,
                                         total, channels)
@@ -216,7 +417,30 @@ class HealPixMap(BasicSampler, HEALPix):
 
     @numpy.errstate(divide='ignore', over='ignore')
     def get_rate_table(self, smin, smax, zmin, zmax,
-                       unit, spectral_index, eps=1e-4):
+                       spectral_index=0.0, eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        smin :
+             minimum sensitivity (Jy MHz)
+        smax :
+             minimum sensitivity (Jy MHz)
+        zmin : float
+             minimum redshift
+        zmax : float
+             maximum redshift
+        unit : astropy.units.unit or str
+             (Default value = '1/year')
+        spectral_index : float
+             spectral index value
+        eps : float
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         log_min = units.LogQuantity(smin)
         log_max = units.LogQuantity(smax)
@@ -244,45 +468,146 @@ class HealPixMap(BasicSampler, HEALPix):
 
     def specific_rate(self, smin, smax, zmin, zmax, unit,
                       spectral_index, eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        smin :
+
+        smax :
+
+        zmin :
+
+        zmax :
+
+        unit :
+
+        spectral_index :
+
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         zg, sg, pdf = self.get_rate_table(smin, smax, zmin, zmax,
-                                          unit, spectral_index, eps)
+                                          spectral_index, eps)
         spdf = numpy.trapz(x=zg, y=pdf, axis=0)
         spdf = spdf * self.pixel_area
 
         xp, fp = sg, spdf.to(unit)
 
         def specific_rate(x):
+            """
+
+            Parameters
+            ----------
+            x :
+
+
+            Returns
+            -------
+
+            """
             y = numpy.interp(x=x, xp=xp, fp=fp.value)
             return y * fp.unit
 
         return specific_rate
 
     def _redshift_range(self, name, channels=1):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         observation = self[name]
         return observation.redshift_range(self.low_frequency,
                                           self.high_frequency)
 
     def _noise(self, name, total=False, channels=1):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         observation = self[name]
         return observation.get_noise(total, channels)
 
     def _sensitivity(self, name, spectral_index=0.0, total=False, channels=1):
+        """
+
+        Parameters
+        ----------
+        name :
+
+        spectral_index :
+             (Default value = 0.0)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         observation = self[name]
+        sign = numpy.sign(spectral_index + 1)
         spec_idx = numpy.full(self.size, spectral_index)
         freq_resp = observation.get_frequency_response(spec_idx, channels)
         noise = self._noise(name, total, channels)
 
-        sensitivity = noise / freq_resp
+        sensitivity = sign * noise / freq_resp
         sensitivity.attrs['unit'] = noise.unit / freq_resp.unit
         return sensitivity
 
     @numpy.errstate(over='ignore')
     def get_rate_map(self, sensitivity, zmin=0, zmax=30,
                      spectral_index=0.0, unit='year', eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        sensitivity :
+
+        zmin :
+             (Default value = 0)
+        zmax :
+             (Default value = 30)
+        spectral_index :
+             (Default value = 0.0)
+        unit :
+             (Default value = 'year')
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         if isinstance(unit, str):
             unit = units.Unit(unit)
@@ -315,6 +640,27 @@ class HealPixMap(BasicSampler, HEALPix):
 
     def get_rate(self, sensitivity, zmin=0, zmax=30,
                  spectral_index=0.0, unit='year', eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        sensitivity :
+
+        zmin :
+             (Default value = 0)
+        zmax :
+             (Default value = 30)
+        spectral_index :
+             (Default value = 0.0)
+        unit :
+             (Default value = 'year')
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         rate_map = self.get_rate_map(sensitivity, zmin, zmax,
                                      spectral_index, unit, eps)
@@ -322,6 +668,29 @@ class HealPixMap(BasicSampler, HEALPix):
 
     def _si_rate_map(self, name=None, spectral_index=0.0, snr=None,
                      total=False, channels=1, unit='year', eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        name :
+             (Default value = None)
+        spectral_index :
+             (Default value = 0.0)
+        snr :
+             (Default value = None)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+        unit :
+             (Default value = 'year')
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         s = numpy.arange(1, 11) if snr is None else snr
         s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
@@ -338,6 +707,29 @@ class HealPixMap(BasicSampler, HEALPix):
 
     def _rate_map(self, name=None, spectral_index=0.0, snr=None,
                   total=False, channels=1, unit='year', eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        name :
+             (Default value = None)
+        spectral_index :
+             (Default value = 0.0)
+        snr :
+             (Default value = None)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+        unit :
+             (Default value = 'year')
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         spec_idxs = numpy.atleast_1d(spectral_index)
 
@@ -351,6 +743,29 @@ class HealPixMap(BasicSampler, HEALPix):
 
     def _rate(self, name=None, spectral_index=0.0, snr=None,
               total=False, channels=1, unit='year', eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        name :
+             (Default value = None)
+        spectral_index :
+             (Default value = 0.0)
+        snr :
+             (Default value = None)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+        unit :
+             (Default value = 'year')
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
 
         rate_map = self._rate_map(name, spectral_index, snr,
                                   total, channels, unit, eps)

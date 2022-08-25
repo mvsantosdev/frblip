@@ -1,6 +1,6 @@
 import warnings
 
-from .fast_radio_bursts import blips, load
+from .utils import blips, telescope
 from .fast_radio_bursts import FastRadioBursts
 from .healpix import HealPixMap
 from .uvgrid import UVGrid

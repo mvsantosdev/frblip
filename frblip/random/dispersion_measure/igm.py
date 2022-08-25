@@ -73,6 +73,7 @@ class InterGalacticDM():
         Returns
         -------
 
+
         """
         return numpy.interp(x=z, xp=self.redshift, fp=self.mean_dm)
 
@@ -86,6 +87,7 @@ class InterGalacticDM():
 
         Returns
         -------
+
 
         """
         return numpy.interp(x=z, xp=self.redshift, fp=self.std_dm)

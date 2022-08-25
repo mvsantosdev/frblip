@@ -14,6 +14,7 @@ galactic_edge = 30 * units.kpc
 
 
 class HostGalaxyDM():
+    """ """
 
     def __init__(self, source, model, cosmology, dist='lognormal'):
 

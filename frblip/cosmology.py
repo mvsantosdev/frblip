@@ -16,6 +16,19 @@ builtin = {
 
 
 def builtin_cosmology(name, **kwargs):
+    """
+
+    Parameters
+    ----------
+    name :
+
+    **kwargs :
+
+
+    Returns
+    -------
+
+    """
     params = builtin[name]
     return Cosmology(**params, **kwargs)
 
@@ -76,8 +89,10 @@ class Cosmology(pyccl.Cosmology):
         ----------
         z :
 
+
         Returns
         -------
+
 
         """
         return 1 / (1 + z)
@@ -92,6 +107,7 @@ class Cosmology(pyccl.Cosmology):
 
         Returns
         -------
+
 
         """
         a = self.scale_factor(z)
@@ -109,6 +125,7 @@ class Cosmology(pyccl.Cosmology):
         Returns
         -------
 
+
         """
         a = self.scale_factor(z)
         d = super().comoving_radial_distance(a)
@@ -124,6 +141,7 @@ class Cosmology(pyccl.Cosmology):
 
         Returns
         -------
+
 
         """
         a = self.scale_factor(z)
@@ -141,6 +159,7 @@ class Cosmology(pyccl.Cosmology):
         Returns
         -------
 
+
         """
         a = self.scale_factor(z)
         return super().h_over_h0(a)
@@ -156,6 +175,7 @@ class Cosmology(pyccl.Cosmology):
         Returns
         -------
 
+
         """
         a = self.scale_factor(z)
         return super().growth_factor(a)
@@ -170,6 +190,7 @@ class Cosmology(pyccl.Cosmology):
 
         Returns
         -------
+
 
         """
         a = self.scale_factor(z)
@@ -193,10 +214,11 @@ class Cosmology(pyccl.Cosmology):
         k :
 
         z :
-             (Default value = 0)
+            (Default value = 0)
 
         Returns
         -------
+
 
         """
         ki = k / units.Mpc
@@ -232,6 +254,7 @@ class Cosmology(pyccl.Cosmology):
         -------
 
         """
+
         k = k * units.Mpc
         P = self.__linear_matter_power(k, z)
         return P * units.Mpc**3
@@ -250,6 +273,7 @@ class Cosmology(pyccl.Cosmology):
         -------
 
         """
+
         k = k * units.Mpc
         P = self.__nonlin_matter_power(k, z)
         return P * units.Mpc**3
@@ -268,6 +292,7 @@ class Cosmology(pyccl.Cosmology):
         -------
 
         """
+
         k = k * units.Mpc
         P = self.__linear_power(k, z)
         return P * units.Mpc**3
@@ -286,6 +311,7 @@ class Cosmology(pyccl.Cosmology):
         -------
 
         """
+
         k = k * units.Mpc
         P = self.__nonlin_power(k, z)
         return P * units.Mpc**3
@@ -309,6 +335,7 @@ class Cosmology(pyccl.Cosmology):
         -------
 
         """
+
         ki = k * units.Mpc
         P = self.__nonlin_electron_power(ki, z)
         return P * units.Mpc**3
@@ -339,6 +366,7 @@ class Cosmology(pyccl.Cosmology):
         -------
 
         """
+
         func = numpy.vectorize(self.__dm_igm_integral,
                                excluded=['kmin', 'kmax'])
         return func(z, kmin, kmax) * unit / (2 * numpy.pi)
@@ -355,6 +383,7 @@ class Cosmology(pyccl.Cosmology):
         -------
 
         """
+
         E = self.h_over_h0(z)
         return self.H0 * E
 
@@ -370,6 +399,7 @@ class Cosmology(pyccl.Cosmology):
         -------
 
         """
+
         r = self.comoving_radial_distance(z)
         Dh = constants.c / self.Hubble(z)
         dcoVol = (Dh * r**2).to(units.Mpc**3)
@@ -380,15 +410,14 @@ class Cosmology(pyccl.Cosmology):
 
         Parameters
         ----------
-        z : array_like
-            Redshift values.
+        z :
+
 
         Returns
         -------
-        sfr : array_like
-              Star formation rate values.
 
         """
+
         num = 0.017 + 0.13 * z
         dem = 1 + (z / 3.3)**5.3
         unit = units.Msun / units.yr / units.Mpc**3
@@ -398,28 +427,24 @@ class Cosmology(pyccl.Cosmology):
 
     @cached_property
     def sfr0(self):
-        """
-        Present star formation rate
-        """
+        """Present star formation rate"""
         return self.star_formation_rate(0)
 
     @cached_property
     def critical_density0(self):
-        """
-        present critical density
-        """
+        """Present critical density"""
         rho_c0 = 3 * self.H0**2 / (8 * numpy.pi * constants.G)
         return rho_c0.to(units.g / units.cm**3)
 
     @cached_property
     def hubble_distance(self):
-        """ """
+        """Present Hubble distance"""
         Dh = constants.c / self.H0
         return Dh.to(units.Mpc)
 
     @cached_property
     def baryon_number_density(self):
-        """ """
+        """Present baryon number density"""
         Omega_b = self.Omega_b
         rho_c0 = self.critical_density0
         n = Omega_b * rho_c0 / constants.m_p

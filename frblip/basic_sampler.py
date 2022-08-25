@@ -21,6 +21,7 @@ from .observation import Observation, Interferometry
 
 
 class BasicSampler(object):
+    """ """
 
     def __len__(self):
         return self.size
@@ -33,6 +34,7 @@ class BasicSampler(object):
             function = getattr(self, name)
 
             def output_func(*names, **kwargs):
+
                 todense = kwargs.pop('todense', True)
                 partial_func = partial(function, **kwargs)
 
@@ -58,6 +60,7 @@ class BasicSampler(object):
                 if output == {}:
                     return None
                 return output
+            output_func.__doc__ = function.__doc__
             return output_func
         else:
             class_name = type(self).__name__
@@ -74,6 +77,17 @@ class BasicSampler(object):
         return None
 
     def obstime(self, location):
+        """
+
+        Parameters
+        ----------
+        location :
+
+
+        Returns
+        -------
+
+        """
 
         loc = location.get_itrs()
         loc = loc.cartesian.xyz
@@ -84,6 +98,19 @@ class BasicSampler(object):
         return self.itrs_time - time_delay
 
     def altaz_from_location(self, location, interp=300):
+        """
+
+        Parameters
+        ----------
+        location :
+
+        interp :
+             (Default value = 300)
+
+        Returns
+        -------
+
+        """
 
         lon = location.lon
         lat = location.lat
@@ -155,6 +182,27 @@ class BasicSampler(object):
 
     def observe(self, telescopes, name=None, location=None,
                 sparse=True, dtype=numpy.double, verbose=True):
+        """
+
+        Parameters
+        ----------
+        telescopes :
+
+        name :
+             (Default value = None)
+        location :
+             (Default value = None)
+        sparse :
+             (Default value = True)
+        dtype :
+             (Default value = numpy.double)
+        verbose :
+             (Default value = True)
+
+        Returns
+        -------
+
+        """
 
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
@@ -183,6 +231,25 @@ class BasicSampler(object):
 
     def interferometry(self, namei, namej=None, reference=False,
                        degradation=None, overwrite=False):
+        """
+
+        Parameters
+        ----------
+        namei :
+
+        namej :
+             (Default value = None)
+        reference :
+             (Default value = False)
+        degradation :
+             (Default value = None)
+        overwrite :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         if reference:
             names = [
@@ -208,12 +275,44 @@ class BasicSampler(object):
                 warnings.warn(warning_message)
 
     def iterfrbs(self, start=0, stop=None, step=1):
+        """
+
+        Parameters
+        ----------
+        start :
+             (Default value = 0)
+        stop :
+             (Default value = None)
+        step :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         stop = self.size if stop is None else stop
         for i in range(start, stop, step):
             yield self[i]
 
     def iterchunks(self, size=1, start=0, stop=None, retindex=False):
+        """
+
+        Parameters
+        ----------
+        size :
+             (Default value = 1)
+        start :
+             (Default value = 0)
+        stop :
+             (Default value = None)
+        retindex :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         stop = self.size if stop is None else stop
 
@@ -227,6 +326,17 @@ class BasicSampler(object):
                 yield self[i:j]
 
     def clean(self, names=None):
+        """
+
+        Parameters
+        ----------
+        names :
+             (Default value = None)
+
+        Returns
+        -------
+
+        """
 
         if hasattr(self, 'observations'):
             if names is None:
@@ -238,6 +348,17 @@ class BasicSampler(object):
                     del self.observations[name]
 
     def copy(self, clear=False):
+        """
+
+        Parameters
+        ----------
+        clear :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         copy = dill.copy(self)
         keys = self.__dict__.keys()
@@ -250,6 +371,17 @@ class BasicSampler(object):
         return copy
 
     def save(self, name):
+        """
+
+        Parameters
+        ----------
+        name :
+
+
+        Returns
+        -------
+
+        """
 
         file_name = '{}.blips'.format(name)
         file = bz2.BZ2File(file_name, 'wb')
@@ -259,6 +391,17 @@ class BasicSampler(object):
 
     @staticmethod
     def load(file):
+        """
+
+        Parameters
+        ----------
+        file :
+
+
+        Returns
+        -------
+
+        """
 
         file_name = '{}.blips'.format(file)
         file = bz2.BZ2File(file_name, 'rb')

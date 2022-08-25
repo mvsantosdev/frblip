@@ -10,16 +10,61 @@ from astropy import coordinates, units
 
 
 def disperse(nu, DM):
+    """
+
+    Parameters
+    ----------
+    nu :
+
+    DM :
+
+
+    Returns
+    -------
+
+    """
     D = DM * units.cm**3 / units.pc
     return 4.15 * units.ms * D * (units.MHz / nu)**2
 
 
 def gaussian(t, w, t0=0.0):
+    """
+
+    Parameters
+    ----------
+    t :
+
+    w :
+
+    t0 :
+         (Default value = 0.0)
+
+    Returns
+    -------
+
+    """
     z = (t - t0) / w
     return numpy.exp(- z**2 / 2)
 
 
 def scattered_gaussian(t, w, ts, t0=0.0):
+    """
+
+    Parameters
+    ----------
+    t :
+
+    w :
+
+    ts :
+
+    t0 :
+         (Default value = 0.0)
+
+    Returns
+    -------
+
+    """
 
     x = .5 * (w / ts)**2
     f = numpy.exp(x)
@@ -37,6 +82,7 @@ def scattered_gaussian(t, w, ts, t0=0.0):
 
 
 class Observation():
+    """ """
 
     def __init__(self, response=None, noise=None, time_delay=None,
                  frequency_range=None, sampling_time=None, altaz=None):
@@ -78,6 +124,7 @@ class Observation():
         self.altaz = coordinates.AltAz(**kwargs)
 
     def get_obstime(self):
+        """ """
 
         if hasattr(self, 'altaz'):
             return self.altaz.obstime
@@ -85,6 +132,7 @@ class Observation():
         return numpy.zeros(size) * units.ms
 
     def get_time_delay(self):
+        """ """
 
         if hasattr(self, 'time_delay'):
             return self.time_delay
@@ -94,6 +142,19 @@ class Observation():
                                 attrs={'unit': units.ms})
 
     def get_noise(self, total=False, channels=1):
+        """
+
+        Parameters
+        ----------
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         noise = numpy.full(channels, numpy.sqrt(channels))
         noise = xarray.DataArray(noise, dims='CHANNEL')
@@ -118,6 +179,19 @@ class Observation():
         return noise
 
     def redshift_range(self, low_frequency, high_frequency):
+        """
+
+        Parameters
+        ----------
+        low_frequency :
+
+        high_frequency :
+
+
+        Returns
+        -------
+
+        """
 
         zmax = high_frequency / self.frequency_range[0] - 1
         zmin = low_frequency / self.frequency_range[-1] - 1
@@ -125,6 +199,21 @@ class Observation():
         return zmin.clip(0), zmax
 
     def in_range(self, redshift, low_frequency, high_frequency):
+        """
+
+        Parameters
+        ----------
+        redshift :
+
+        low_frequency :
+
+        high_frequency :
+
+
+        Returns
+        -------
+
+        """
 
         zmin, zmax = self.redshift_range(low_frequency, high_frequency)
 
@@ -133,6 +222,19 @@ class Observation():
                                 dims=self.kind)
 
     def get_frequency_response(self, spectral_index, channels=1):
+        """
+
+        Parameters
+        ----------
+        spectral_index : float
+
+        channels : int
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
 
         nu = numpy.linspace(*self.frequency_range.value, channels + 1)
         nu = xarray.DataArray(nu, dims='CHANNEL')
@@ -148,6 +250,17 @@ class Observation():
         return density_flux.T
 
     def update(self, duration=0):
+        """
+
+        Parameters
+        ----------
+        duration :
+             (Default value = 0)
+
+        Returns
+        -------
+
+        """
 
         kw = {
             'alt': self.altaz.alt,
@@ -157,10 +270,24 @@ class Observation():
         self.altaz = coordinates.AltAz(**kw)
 
     def copy(self):
+        """ """
 
         return dill.copy(self)
 
     def select(self, idx, inplace=False):
+        """
+
+        Parameters
+        ----------
+        idx :
+
+        inplace :
+             (Default value = False)
+
+        Returns
+        -------
+
+        """
 
         if not inplace:
             obs = self.copy()
@@ -175,6 +302,7 @@ class Observation():
 
 
 class Interferometry(Observation):
+    """ """
 
     def __init__(self, obsi, obsj=None, degradation=None):
 

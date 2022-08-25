@@ -14,6 +14,7 @@ galactic_edge = 30 * units.kpc
 
 
 class SpectralIndex():
+    """ """
 
     def __init__(self, params, source='spec_idx'):
 

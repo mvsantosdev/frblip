@@ -37,11 +37,12 @@ class Schechter(rv_continuous):
 
         Parameters
         ----------
-        x :
-
+        x : float
+            x = Luminosity / Lstar
 
         Returns
         -------
+
 
         """
         return x**self.gamma * numpy.exp(-x)
@@ -51,11 +52,12 @@ class Schechter(rv_continuous):
 
         Parameters
         ----------
-        x :
-
+        x : float
+            x = Luminosity / Lstar
 
         Returns
         -------
+
 
         """
         return self.pdf_norm * self.schechter(x)
@@ -65,11 +67,12 @@ class Schechter(rv_continuous):
 
         Parameters
         ----------
-        x :
-
+        x : float
+            x = Luminosity / Lstar
 
         Returns
         -------
+
 
         """
         return numpy.log(self._pdf(x))
@@ -79,11 +82,12 @@ class Schechter(rv_continuous):
 
         Parameters
         ----------
-        x :
-
+        x : float
+            x = Luminosity / Lstar
 
         Returns
         -------
+
 
         """
         return numpy.interp(x=x, xp=self.xgrid, fp=self.cdf_grid)
@@ -93,11 +97,12 @@ class Schechter(rv_continuous):
 
         Parameters
         ----------
-        x :
-
+        x : float
+            x = Luminosity / Lstar
 
         Returns
         -------
+
 
         """
         return numpy.log(self._cdf(x))
@@ -107,11 +112,12 @@ class Schechter(rv_continuous):
 
         Parameters
         ----------
-        x :
-
+        x : float
+            x = Luminosity / Lstar
 
         Returns
         -------
+
 
         """
         return 1 - self._cdf(x)
@@ -121,11 +127,12 @@ class Schechter(rv_continuous):
 
         Parameters
         ----------
-        x :
-
+        x : float
+            x = Luminosity / Lstar
 
         Returns
         -------
+
 
         """
         return numpy.log(self._sf(x))
@@ -141,6 +148,7 @@ class Schechter(rv_continuous):
         Returns
         -------
 
+
         """
         return numpy.interp(x=u, xp=self.cdf_grid, fp=self.xgrid)
 
@@ -155,6 +163,7 @@ class Schechter(rv_continuous):
         Returns
         -------
 
+
         """
         return numpy.interp(x=u, xp=self.isf_grid, fp=self.xgrid)
 
@@ -168,6 +177,7 @@ class Schechter(rv_continuous):
 
         Returns
         -------
+
 
         """
         sample = self.rvs(size=size)

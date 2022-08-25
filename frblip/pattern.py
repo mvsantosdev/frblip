@@ -27,6 +27,7 @@ class FunctionalPattern(object):
 
     @cached_property
     def offsets(self):
+        """ """
         altaz = coordinates.AltAz(alt=self.alt, az=self.az)
         return coordinates.SkyOffsetFrame(origin=altaz)
 

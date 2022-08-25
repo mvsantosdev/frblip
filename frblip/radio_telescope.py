@@ -139,12 +139,14 @@ class RadioTelescope(object):
 
     @cached_property
     def response(self):
+        """ """
         if hasattr(self, 'alt_shift') and hasattr(self, 'az_shift'):
             return self.__offset_response
         return self.pattern
 
     @cached_property
     def pattern(self):
+        """ """
         patterns = 'tophat', 'bessel', 'gaussian'
         error_msg = 'Please choose a valid pattern kind'
         assert self.kind in (*patterns, 'grid'), error_msg
@@ -162,6 +164,7 @@ class RadioTelescope(object):
 
     @cached_property
     def offset(self):
+        """ """
 
         Roty = rotation_matrix(self.alt_shift, 'y')
         Rotz = rotation_matrix(-self.az_shift, 'z')
@@ -205,21 +208,25 @@ class RadioTelescope(object):
 
     @cached_property
     def band_width(self):
+        """ """
         return numpy.diff(self.frequency_range)
 
     @cached_property
     def minimum_temperature(self):
+        """ """
         scaled_time = self.band_width * self.sampling_time
         noise_scale = numpy.sqrt(self.polarizations * scaled_time)
         return self.system_temperature / noise_scale
 
     @cached_property
     def noise(self):
+        """ """
         noise = self.minimum_temperature / self.__gain
         return self.noise_performance * noise.to(units.Jy)
 
     @cached_property
     def location(self):
+        """ """
 
         lon = self.__dict__.pop('lon')
         lat = self.__dict__.pop('lat')
@@ -230,31 +237,37 @@ class RadioTelescope(object):
 
     @cached_property
     def noise_performance(self):
+        """ """
         return RadioTelescope.NOISE_PERFORMANCE[self.receiver_type]
 
     @cached_property
     def solid_angle(self):
+        """ """
         directivity = self.directivity.to(1 / units.sr)
         solid_angle = 4 * numpy.pi / directivity
         return solid_angle.to(units.deg**2)
 
     @cached_property
     def reference_wavelength(self):
+        """ """
         return (constants.c / self.reference_frequency).to(units.cm)
 
     @cached_property
     def effective_area(self):
+        """ """
         wl = self.reference_wavelength
         sa = self.solid_angle.to(units.sr).value
         return (wl**2 / sa).to(units.meter**2)
 
     @cached_property
     def gain(self):
+        """ """
         gain = self.effective_area / constants.k_B
         return gain.to(units.K / units.Jy) / 2
 
     @cached_property
     def radius(self):
+        """ """
         arg = 1 - self.solid_angle / (2 * numpy.pi * units.sr)
         radius = numpy.arccos(arg).to(units.deg)
         return numpy.atleast_1d(radius)
@@ -280,6 +293,17 @@ class RadioTelescope(object):
         return copy
 
     def to_pkl(self, name):
+        """
+
+        Parameters
+        ----------
+        name :
+
+
+        Returns
+        -------
+
+        """
 
         output_dict = {
             attr: getattr(self, attr)
@@ -292,6 +316,17 @@ class RadioTelescope(object):
         file.close()
 
     def to_json(self, name):
+        """
+
+        Parameters
+        ----------
+        name :
+
+
+        Returns
+        -------
+
+        """
 
         output_dict = {
             attr: getattr(self, attr)

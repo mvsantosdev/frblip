@@ -91,6 +91,7 @@ class CartesianGrid(object):
         Returns
         -------
 
+
         """
 
         altaz = coordinates.AltAz(alt=alt, az=az)
