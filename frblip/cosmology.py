@@ -7,80 +7,47 @@ from functools import cached_property
 from scipy.integrate import quad
 
 
-builtin = {
-    'Planck_18': {
-        'Omega_c': 0.261, 'Omega_b': 0.049, 'h': 0.6766, 'n_s': 0.9665,
-        'sigma8': 0.8102, 'Omega_k': 0.0, 'Neff': 3.046, 'T_CMB': 2.7255
-    }
-}
-
-
-def builtin_cosmology(name, **kwargs):
-    """
-
-    Parameters
-    ----------
-    name :
-
-    **kwargs :
-
-
-    Returns
-    -------
-
-    """
-    params = builtin[name]
-    return Cosmology(**params, **kwargs)
-
-
 class Cosmology(pyccl.Cosmology):
+
     """ """
 
-    def __init__(self, Omega_c=None, Omega_b=None, h=None,
-                 n_s=None, sigma8=None, A_s=None, Omega_k=0.0,
-                 Omega_g=None, Neff=3.046, m_nu=0.0, m_nu_type=None,
-                 w0=-1.0, wa=0.0, T_CMB=2.725, bcm_log10Mc=14.079181246047625,
-                 bcm_etab=0.5, bcm_ks=55.0, mu_0=0.0, sigma_0=0.0, c1_mg=1.0,
-                 c2_mg=1.0, lambda_mg=0.0, z_mg=None, df_mg=None,
-                 transfer_function='boltzmann_camb',
-                 matter_power_spectrum='halofit',
-                 baryons_power_spectrum='nobaryons',
-                 mass_function='tinker10',
-                 halo_concentration='duffy2008',
-                 emulator_neutrinos='strict',
-                 free_electron_bias='Takahashi2021',
-                 extra_parameters=None):
+    DEFAULT_PARAMS = {
+        'Planck_18': dict(
+            Omega_c=0.261, Omega_b=0.049, h=0.6766, n_s=0.9665,
+            sigma8=0.8102, Omega_k=0.0, Neff=3.046, T_CMB=2.7255,
+            A_s=None, Omega_g=None, m_nu=0.0, m_nu_type=None,
+            w0=-1.0, wa=0.0, bcm_log10Mc=14.079181246047625,
+            bcm_etab=0.5, bcm_ks=55.0, mu_0=0.0, sigma_0=0.0, c1_mg=1.0,
+            c2_mg=1.0, lambda_mg=0.0, z_mg=None, df_mg=None,
+            transfer_function='boltzmann_camb',
+            matter_power_spectrum='halofit',
+            baryons_power_spectrum='nobaryons',
+            mass_function='tinker10',
+            halo_concentration='duffy2008',
+            emulator_neutrinos='strict',
+            extra_parameters=None
+        )
+    }
 
-        self.Omega_c = Omega_c
-        self.Omega_b = Omega_b
-        self.h = h
-        self.H0 = 100 * h * units.km / units.s / units.Mpc
-        self.n_s = n_s
-        self.sigma8 = sigma8
-        self.A_s = A_s
-        self.Omega_k = Omega_k
-        self.Omega_g = Omega_g
-        self.Neff = Neff
-        self.m_nu = m_nu * units.eV
-        self.m_nu_type = m_nu_type
-        self.w0 = w0
-        self.wa = wa
-        self.T_CMB = T_CMB * units.K
+    def __init__(self, name='Planck_18', free_electron_bias='Takahashi2021',
+                 **kwargs):
 
-        super().__init__(Omega_c, Omega_b, h, n_s, sigma8, A_s, Omega_k,
-                         Omega_g, Neff, m_nu, m_nu_type, w0, wa, T_CMB,
-                         bcm_log10Mc, bcm_etab, bcm_ks, mu_0, sigma_0,
-                         c1_mg, c2_mg, lambda_mg, z_mg, df_mg,
-                         transfer_function, matter_power_spectrum,
-                         baryons_power_spectrum, mass_function,
-                         halo_concentration, emulator_neutrinos,
-                         extra_parameters)
+        kw = self.DEFAULT_PARAMS[name]
+        kw.update(kwargs)
 
-        if free_electron_bias == 'Takahashi2021':
-            self.__free_electrons_bias = self.__takahashi2021
+        super().__init__(**kw)
+        self.__dict__.update(kw)
+
+        self.H0 = 100 * self.h * units.km / units.s / units.Mpc
+        self.m_nu = self.m_nu * units.eV
+        self.T_CMB = self.T_CMB * units.K
+
+        if isinstance(free_electron_bias, str):
+            func_name = f'_{free_electron_bias.lower()}'
+            self._free_electrons_bias = getattr(self, func_name)
         elif type(free_electron_bias) in (float, int):
-            self.__free_electrons_bias = self.__constant_ebias
-            self.__eb = free_electron_bias
+            self._free_electrons_bias = self._constant_ebias
+            self._eb = free_electron_bias
 
     def scale_factor(self, z):
         """
@@ -196,15 +163,15 @@ class Cosmology(pyccl.Cosmology):
         a = self.scale_factor(z)
         return super().growth_rate(a)
 
-    def __takahashi2021(self, k, z=0):
+    def _takahashi2021(self, k, z=0):
 
         bs2 = 0.971 - 0.013 * z
         g = 1.91 - 0.59 * z + 0.10 * z**2
         ks = 4.36 - 3.24 * z + 3.10 * z**2 - 0.42 * z**3
         return bs2 / (1 + (k / ks)**g)
 
-    def __constant_ebias(self, k, z=0):
-        return self.__eb
+    def _constant_ebias(self, k, z=0):
+        return self._eb
 
     def free_electrons_bias(self, k, z=0):
         """
@@ -222,21 +189,21 @@ class Cosmology(pyccl.Cosmology):
 
         """
         ki = k / units.Mpc
-        return self.__ebias(ki, z)
+        return self._ebias(ki, z)
 
-    def __linear_matter_power(self, k, z=0):
+    def _linear_matter_power(self, k, z=0):
         a = self.scale_factor(z)
         return super().linear_matter_power(k, a)
 
-    def __nonlin_matter_power(self, k, z=0):
+    def _nonlin_matter_power(self, k, z=0):
         a = self.scale_factor(z)
         return super().nonlin_matter_power(k, a)
 
-    def __linear_power(self, k, z=0):
+    def _linear_power(self, k, z=0):
         a = self.scale_factor(z)
         return super().linear_power(k, a)
 
-    def __nonlin_power(self, k, z=0):
+    def _nonlin_power(self, k, z=0):
         a = self.scale_factor(z)
         return super().nonlin_power(k, a)
 
@@ -256,7 +223,7 @@ class Cosmology(pyccl.Cosmology):
         """
 
         k = k * units.Mpc
-        P = self.__linear_matter_power(k, z)
+        P = self._linear_matter_power(k, z)
         return P * units.Mpc**3
 
     def nonlin_matter_power(self, k, z=0):
@@ -275,7 +242,7 @@ class Cosmology(pyccl.Cosmology):
         """
 
         k = k * units.Mpc
-        P = self.__nonlin_matter_power(k, z)
+        P = self._nonlin_matter_power(k, z)
         return P * units.Mpc**3
 
     def linear_power(self, k, z=0):
@@ -294,7 +261,7 @@ class Cosmology(pyccl.Cosmology):
         """
 
         k = k * units.Mpc
-        P = self.__linear_power(k, z)
+        P = self._linear_power(k, z)
         return P * units.Mpc**3
 
     def nonlin_power(self, k, z=0):
@@ -313,12 +280,12 @@ class Cosmology(pyccl.Cosmology):
         """
 
         k = k * units.Mpc
-        P = self.__nonlin_power(k, z)
+        P = self._nonlin_power(k, z)
         return P * units.Mpc**3
 
-    def __nonlin_electron_power(self, k, z=0):
-        be = self.__free_electrons_bias(k, z)
-        P = self.__nonlin_power(k, z)
+    def _nonlin_electron_power(self, k, z=0):
+        be = self._free_electrons_bias(k, z)
+        P = self._nonlin_power(k, z)
         return be * P
 
     def nonlin_electron_power(self, k, z=0):
@@ -337,15 +304,15 @@ class Cosmology(pyccl.Cosmology):
         """
 
         ki = k * units.Mpc
-        P = self.__nonlin_electron_power(ki, z)
+        P = self._nonlin_electron_power(ki, z)
         return P * units.Mpc**3
 
-    def __dm_igm_integral(self, z, kmin=0.0, kmax=numpy.inf):
+    def _dm_igm_integral(self, z, kmin=0.0, kmax=numpy.inf):
 
-        def __integrand(k):
-            return k * self.__nonlin_electron_power(k, z)
+        def _integrand(k):
+            return k * self._nonlin_electron_power(k, z)
 
-        integral, _ = quad(__integrand, kmin, kmax, limit=100, epsrel=1.49e-7)
+        integral, _ = quad(_integrand, kmin, kmax, limit=100, epsrel=1.49e-7)
         return integral
 
     def dm_igm_integral(self, z, kmin=0.0, kmax=numpy.inf, unit=units.Mpc):
@@ -367,7 +334,7 @@ class Cosmology(pyccl.Cosmology):
 
         """
 
-        func = numpy.vectorize(self.__dm_igm_integral,
+        func = numpy.vectorize(self._dm_igm_integral,
                                excluded=['kmin', 'kmax'])
         return func(z, kmin, kmax) * unit / (2 * numpy.pi)
 

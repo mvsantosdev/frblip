@@ -21,7 +21,7 @@ from .random import Redshift, Schechter, SpectralIndex
 from .random.dispersion_measure import GalacticDM
 from .random.dispersion_measure import InterGalacticDM, HostGalaxyDM
 
-from .cosmology import Cosmology, builtin
+from .cosmology import Cosmology
 
 from .basic_sampler import BasicSampler
 
@@ -54,6 +54,7 @@ class FastRadioBursts(BasicSampler):
                  host_source: str = 'luo18',
                  host_model: (str, str) = ('ALG', 'YMW16'),
                  cosmology: str = 'Planck_18',
+                 igm_model: str = 'Takahashi2021',
                  free_electron_bias: str = 'Takahashi2021',
                  verbose: bool = True):
 
@@ -129,7 +130,7 @@ class FastRadioBursts(BasicSampler):
                            low_frequency_cal, high_frequency_cal,
                            emission_frame, spectral_index, gal_method,
                            gal_nside, host_dist, host_source, host_model,
-                           cosmology, free_electron_bias)
+                           cosmology, igm_model, free_electron_bias)
         self.__frb_rate(size, days)
         self.__S0
         self.kind = 'FRB'
@@ -141,7 +142,7 @@ class FastRadioBursts(BasicSampler):
                       high_frequency, low_frequency_cal, high_frequency_cal,
                       emission_frame, spectral_index, gal_method, gal_nside,
                       host_dist, host_source, host_model,
-                      cosmology, free_electron_bias):
+                      cosmology, igm_model, free_electron_bias):
 
         self.zmin = zmin
         self.zmax = zmax
@@ -157,6 +158,7 @@ class FastRadioBursts(BasicSampler):
         self.high_frequency = high_frequency * units.MHz
         self.low_frequency_cal = low_frequency_cal * units.MHz
         self.high_frequency_cal = high_frequency_cal * units.MHz
+        self.igm_model = igm_model
         self.free_electron_bias = free_electron_bias
         self.cosmology = cosmology
         self.host_dist = host_dist
@@ -287,8 +289,11 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def __cosmology(self):
-        params = builtin[self.cosmology]
-        return Cosmology(**params, free_electron_bias=self.free_electron_bias)
+        kw = {
+            'name': self.cosmology,
+            'free_electron_bias': self.free_electron_bias
+        }
+        return Cosmology(**kw)
 
     @cached_property
     def __xmin(self):
@@ -415,7 +420,8 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def __igm_dm(self):
-        return InterGalacticDM(self.__cosmology)
+        return InterGalacticDM(free_electron_model=self.igm_model,
+                               cosmology=self.__cosmology)
 
     @cached_property
     def __host_dm(self):

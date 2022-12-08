@@ -8,7 +8,7 @@ from astropy.time import Time
 from functools import cached_property
 
 from .random import Redshift, Schechter
-from .cosmology import Cosmology, builtin
+from .cosmology import Cosmology
 
 from astropy import units, coordinates
 
@@ -54,8 +54,11 @@ class HealPixMap(BasicSampler, HEALPix):
 
     @cached_property
     def __cosmology(self):
-        params = builtin[self.cosmology]
-        return Cosmology(**params)
+        kw = {
+            'name': self.cosmology,
+            'free_electron_bias': self.free_electron_bias
+        }
+        return Cosmology(**kw)
 
     @cached_property
     def __xmin(self):

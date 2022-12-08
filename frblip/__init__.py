@@ -5,6 +5,7 @@ from .fast_radio_bursts import FastRadioBursts
 from .healpix import HealPixMap
 from .uvgrid import UVGrid
 from .radio_telescope import RadioTelescope
+from .cosmology import Cosmology
 
 
 __version__ = '0.0.1'
