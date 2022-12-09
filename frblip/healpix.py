@@ -54,11 +54,7 @@ class HealPixMap(BasicSampler, HEALPix):
 
     @cached_property
     def __cosmology(self):
-        kw = {
-            'name': self.cosmology,
-            'free_electron_bias': self.free_electron_bias
-        }
-        return Cosmology(**kw)
+        return Cosmology(self.cosmology)
 
     @cached_property
     def __xmin(self):
@@ -94,7 +90,7 @@ class HealPixMap(BasicSampler, HEALPix):
     @cached_property
     def itrs(self):
         """ """
-        frame = coordinates.ITRS(obstime=self.itrs_time)
+        frame = coordinates.ITRS(obstime=self.time)
         return self.gcrs.transform_to(frame)
 
     @cached_property
@@ -109,7 +105,7 @@ class HealPixMap(BasicSampler, HEALPix):
         return self.itrs.cartesian.xyz
 
     @cached_property
-    def itrs_time(self):
+    def time(self):
         """ """
         j2000 = Time('J2000').to_datetime()
         return Time(j2000)

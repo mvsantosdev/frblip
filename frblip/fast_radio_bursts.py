@@ -338,7 +338,7 @@ class FastRadioBursts(BasicSampler):
         return self.pulse_width / (1 + self.redshift)
 
     @cached_property
-    def itrs_time(self):
+    def time(self):
         """ """
         time_ms = int(self.duration.to(units.us).value)
         dt = random.randint(time_ms, size=self.size)
@@ -401,7 +401,7 @@ class FastRadioBursts(BasicSampler):
     @cached_property
     def itrs(self):
         """ """
-        itrs_frame = coordinates.ITRS(obstime=self.itrs_time)
+        itrs_frame = coordinates.ITRS(obstime=self.time)
         return self.icrs.transform_to(itrs_frame)
 
     @property
@@ -499,15 +499,23 @@ class FastRadioBursts(BasicSampler):
     def update(self):
         """ """
 
-        self.itrs_time = self.itrs_time + self.duration
-        if 'altaz' in dir(self):
+        self.time = self.time + self.duration
+        kw = {
+            'x': self.itrs.x,
+            'y': self.itrs.y,
+            'z': self.itrs.z,
+            'obstime': self.time
+        }
+        self.itrs = coordinates.ITRS(**kw)
+
+        if isinstance(self.altaz, coordinates.SkyCoord):
             kw = {
                 'alt': self.altaz.alt,
                 'az': self.altaz.az,
                 'obstime': self.altaz.obstime + self.duration
             }
             self.altaz = coordinates.AltAz(**kw)
-        else:
+        elif 'observations' in dir(self):
             for name in self.observations:
                 self.observations[name].update(self.duration)
 

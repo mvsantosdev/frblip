@@ -95,7 +95,7 @@ class BasicSampler(object):
         path = loc @ self.xyz
         time_delay = path / constants.c
 
-        return self.itrs_time - time_delay
+        return self.time - time_delay
 
     def altaz_from_location(self, location, interp=300):
         """
