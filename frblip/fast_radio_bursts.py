@@ -31,7 +31,7 @@ class FastRadioBursts(BasicSampler):
 
     def __init__(self,
                  size: int = None,
-                 days: int = 1,
+                 duration: float = 1,
                  log_Lstar: float = 44.46,
                  log_L0: float = 41.96,
                  phistar: float = 339,
@@ -124,20 +124,21 @@ class FastRadioBursts(BasicSampler):
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
 
-        self.__load_params(size, days, log_Lstar, log_L0, phistar, gamma,
+        self.__load_params(size, log_Lstar, log_L0, phistar, gamma,
                            pulse_width, zmin, zmax, ra, dec, start,
                            low_frequency, high_frequency,
                            low_frequency_cal, high_frequency_cal,
                            emission_frame, spectral_index, gal_method,
                            gal_nside, host_dist, host_source, host_model,
                            cosmology, igm_model, free_electron_bias)
-        self.__frb_rate(size, days)
+
+        self._frb_rate(size, duration)
         self.__S0
         self.kind = 'FRB'
 
         sys.stdout = old_target
 
-    def __load_params(self, size, days, log_Lstar, log_L0, phistar, gamma,
+    def __load_params(self, size, log_Lstar, log_L0, phistar, gamma,
                       pulse_width, zmin, zmax, ra, dec, start, low_frequency,
                       high_frequency, low_frequency_cal, high_frequency_cal,
                       emission_frame, spectral_index, gal_method, gal_nside,
@@ -310,7 +311,7 @@ class FastRadioBursts(BasicSampler):
         return Schechter(self.__xmin, self.gamma)
 
     @cached_property
-    def __sky_rate(self):
+    def sky_rate(self):
         Lum = self.phistar / self.__lumdist.pdf_norm
         Vol = 1 / self.__zdist.pdf_norm
         return (Lum * Vol).to(1 / units.day)
@@ -340,10 +341,8 @@ class FastRadioBursts(BasicSampler):
     @cached_property
     def time(self):
         """ """
-        time_ms = int(self.duration.to(units.us).value)
-        dt = random.randint(time_ms, size=self.size)
-        dt = numpy.sort(dt) * units.us
-        return self.start + dt
+        dt = random.random(size=self.size) * self.duration
+        return self.start + numpy.sort(dt)
 
     @cached_property
     def spectral_index(self):
@@ -462,14 +461,26 @@ class FastRadioBursts(BasicSampler):
         """ """
         return self.galactic_dm + self.extra_galactic_dm
 
-    def __frb_rate(self, size, days):
+    def _frb_rate(self, size, duration):
 
         print("Computing the FRB rate ...")
 
-        all_ra = self.ra_range != numpy.array([0, 360]) * units.degree
-        all_dec = self.dec_range != numpy.array([-90, 90]) * units.degree
+        if hasattr(duration, 'unit'):
+            self.duration = duration
+        elif isinstance(duration, (int, float)):
+            self.duration = duration * units.day
+        self.duration = self.duration.to(units.hour)
 
-        if all_ra.all() or all_dec.all():
+        rate = self.sky_rate
+
+        dec_diff = numpy.sin(self.dec_range).diff() * units.rad
+        ra_diff = self.ra_range.to(units.rad).diff()
+        area = (dec_diff * ra_diff).item()
+        self.area = area.to(units.deg**2)
+
+        sky_fraction = (self.area / units.spat).to(1)
+
+        if not numpy.isclose(sky_fraction, 1):
             print(
                 'The FoV is restricted between',
                 '{} < ra < {} and {} < dec < {}.'.format(*self.ra_range,
@@ -477,24 +488,23 @@ class FastRadioBursts(BasicSampler):
                 '\nMake sure that the survey is also',
                 'restricted to this region.'
             )
-            sky_fraction = self.area / units.spat
-            self.rate = self.__sky_rate * sky_fraction.to(1)
-        else:
-            self.rate = self.__sky_rate
-        self.rate = int(self.rate.value) * self.rate.unit
+            rate = rate * sky_fraction
 
-        print('FRB rate =', self.rate)
+        rate = numpy.round(rate, 0)
+
+        print('FRB rate =', rate)
 
         if size is None:
-            self.size = int(self.rate.value * days)
-            self.duration = days * (24 * units.hour)
-        else:
+            size = (rate * self.duration).to(1).value
+            self.size = int(size)
+            self.rate = rate
+        elif isinstance(size, int):
             self.size = size
-            self.duration = (size / self.rate).to(units.hour)
-
-        print(self.size, 'FRBs will be simulated, the actual rate is',
-              self.rate, '.\nTherefore it corrensponds to', self.duration,
-              'of observation. \n')
+            self.rate = size / self.duration
+            print(self.size, 'FRBs will be simulated in', self.duration,
+                  'but the actual rate is', rate)
+        else:
+            raise TypeError("size must be an integer or None.")
 
     def update(self):
         """ """
@@ -594,6 +604,23 @@ class FastRadioBursts(BasicSampler):
 
         observation = self[name]
         return getattr(observation, 'time_delay', None)
+
+    def _scatter(self, name):
+
+        observation = self[name]
+
+        nu_c = observation.frequency_range.mean()
+        nu_c = (nu_c / units.GHz).to(1)
+        log_nuc = numpy.log10(nu_c)
+
+        dm = self.dispersion_measure
+        dm = (dm * units.cm**3 / units.pc).to(1)
+
+        log_dm = numpy.log10(dm)
+
+        log_scat = - 9.5 + 0.154 * log_dm + 1.07 * log_dm**2 - 3.86 * log_nuc
+
+        return (10**log_scat) * units.ms
 
     def _peak_density_flux(self, name, channels=1):
         """
