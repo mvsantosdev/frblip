@@ -9,44 +9,6 @@ from scipy.special import erf
 from astropy import coordinates, units
 
 
-def disperse(nu, DM):
-    """
-
-    Parameters
-    ----------
-    nu :
-
-    DM :
-
-
-    Returns
-    -------
-
-    """
-    D = DM * units.cm**3 / units.pc
-    return 4.15 * units.ms * D * (units.MHz / nu)**2
-
-
-def gaussian(t, w, t0=0.0):
-    """
-
-    Parameters
-    ----------
-    t :
-
-    w :
-
-    t0 :
-         (Default value = 0.0)
-
-    Returns
-    -------
-
-    """
-    z = (t - t0) / w
-    return numpy.exp(- z**2 / 2)
-
-
 def scattered_gaussian(t, w, ts, t0=0.0):
     """
 
@@ -141,7 +103,24 @@ class Observation():
         return xarray.DataArray(values, dims=dims,
                                 attrs={'unit': units.ms})
 
-    def get_noise(self, total=False, channels=1):
+    def get_response(self, total=False):
+
+        response = self.response
+
+        if total:
+            if isinstance(total, str) and (total in response.dims):
+                levels = total
+            if isinstance(total, list):
+                levels = [*filter(lambda x: x in response.dims, total)]
+            elif total is True:
+                levels = [*filter(lambda x: x not in (self.kind, 'CHANNEL'),
+                                  response.dims)]
+            response = (response**2).sum(dim=levels)
+            response = numpy.sqrt(response)
+
+        return response
+
+    def get_noise(self, total=False, channels=1, minimum=False):
         """
 
         Parameters
@@ -150,6 +129,8 @@ class Observation():
              (Default value = False)
         channels :
              (Default value = 1)
+        minimum : Bool
+             (Default value = False)
 
         Returns
         -------
@@ -159,7 +140,8 @@ class Observation():
         noise = numpy.full(channels, numpy.sqrt(channels))
         noise = xarray.DataArray(noise, dims='CHANNEL')
         noise = self.noise * noise
-        noise = (1 / self.response) * noise
+        if not minimum:
+            noise = (1 / self.response) * noise
 
         if total:
             if isinstance(total, str) and (total in noise.dims):

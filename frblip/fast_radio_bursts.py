@@ -6,6 +6,7 @@ import dill
 
 import numpy
 import xarray
+import sparse
 
 from numpy import random
 
@@ -14,7 +15,7 @@ from functools import cached_property
 from toolz.dicttoolz import merge, valmap, valfilter
 
 from astropy.time import Time
-from astropy import units, coordinates
+from astropy import units, coordinates, constants
 
 from .random import Redshift, Schechter, SpectralIndex
 
@@ -28,6 +29,9 @@ from .basic_sampler import BasicSampler
 
 class FastRadioBursts(BasicSampler):
     """ """
+
+    DISP_CONST = constants.e.emu**2 * constants.c
+    DISP_CONST = DISP_CONST / (2 * numpy.pi * constants.m_e)
 
     def __init__(self,
                  size: int = None,
@@ -467,6 +471,8 @@ class FastRadioBursts(BasicSampler):
 
         if hasattr(duration, 'unit'):
             self.duration = duration
+        elif isinstance(duration, (str)):
+            self.duration = units.Quantity(duration)
         elif isinstance(duration, (int, float)):
             self.duration = duration * units.day
         self.duration = self.duration.to(units.hour)
@@ -505,6 +511,7 @@ class FastRadioBursts(BasicSampler):
                   'but the actual rate is', rate)
         else:
             raise TypeError("size must be an integer or None.")
+        self.rate = self.rate.to(1 / units.day)
 
     def update(self):
         """ """
@@ -756,6 +763,103 @@ class FastRadioBursts(BasicSampler):
 
         triggers = self._triggers(name, snr, total, channels)
         return triggers.sum('FRB')
+
+    def disperse(self, nu, DM):
+        return (self.DISP_CONST * DM / nu**2).to(units.ms)
+
+    def gaussian(self, t, w, t0=0.0):
+        z = (t - t0) / w
+        return numpy.exp(- z**2 / 2)
+
+    def _waterfall(self, name, total=True, channels=1, noise=None):
+
+        observation = self[name]
+        total_resp = observation.get_response(total=True)
+
+        if isinstance(total_resp.data, sparse.COO):
+            not_null = total_resp.data.coords[0]
+        else:
+            total_resp = sparse.COO(total_resp.data)
+            not_null = total_resp.coords[0]
+
+        sub = self[not_null]
+        observation = sub[name]
+
+        sampling_time = observation.sampling_time
+        if hasattr(observation, 'altaz'):
+            altaz = observation.altaz
+        else:
+            altaz = sub.altaz
+
+        peak_time = (altaz.obstime - self.start).to(sampling_time)
+        duration = sub.duration.to(sampling_time)
+
+        n = duration // sampling_time
+        n = n.value.astype(int).item()
+
+        t = numpy.linspace(0, duration, n+1)
+        nu = numpy.linspace(*observation.frequency_range, channels+1)
+        nu = (nu[1:] + nu[:-1]) / 2
+
+        dm = sub.dispersion_measure.reshape(-1, 1)
+        disp_peak_time = sub.disperse(nu, dm)
+        disp_peak_time = peak_time.reshape(-1, 1) + disp_peak_time
+
+        idx = (disp_peak_time[:, [-1, 0]] // sampling_time).astype(int)
+        lidx = idx.diff(axis=1).ravel()
+
+        idx[:, 0] = idx[:, 0] - lidx
+        idx[:, 1] = idx[:, 1] + lidx
+        idx = idx.clip(0, t.size-1)
+
+        waterfalls = []
+
+        for k in range(sub.size):
+
+            i, j = idx[k]
+            t0 = disp_peak_time[k]
+            w = sub.pulse_width[k]
+
+            wt = sub.gaussian(t[i:j], w, t0.reshape(-1, 1))
+            wt = sparse.COO(wt)
+            wt = sparse.pad(wt, ((0, 0), (i, n + 1 - j)))
+
+            waterfalls.append(wt)
+
+        waterfalls = xarray.DataArray(
+            sparse.stack(waterfalls),
+            dims=('FRB', 'CHANNEL', 'TIME')
+        )
+
+        signals = sub._signal(name, channels)
+        response = observation.get_response(total=total)
+
+        signals * response * waterfalls
+
+        waterfalls = signals * response * waterfalls
+        waterfall = waterfalls.sum('FRB')
+
+        waterfall = waterfall[..., 1:] + waterfall[..., :-1]
+        waterfall = waterfall * sampling_time.value / 2
+        time = t[:-1] + self.start
+
+        if noise in ('white', 'w'):
+            noise = observation.get_noise(total, channels, True)
+            scales = numpy.sqrt(noise)
+
+            waterfall_noise = numpy.stack([
+                numpy.random.normal(scale=scales)
+                for i in range(n)
+            ], -1)
+
+            waterfall_noise = xarray.DataArray(
+                waterfall_noise**2,
+                dims=(*scales.dims, 'TIME')
+            )
+
+            return time, waterfall + waterfall_noise
+
+        return time, waterfall
 
     def catalog(self, tolerance=1):
         """

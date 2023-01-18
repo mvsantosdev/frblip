@@ -129,7 +129,7 @@ class BasicSampler(object):
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
             return self.icrs.transform_to(frame)
 
-    def __observe(self, telescope, name=None, sparse=True, dtype=numpy.double):
+    def _observe(self, telescope, name=None, sparse=True, dtype=numpy.double):
 
         print('Performing observation for telescope {}...'.format(name))
 
@@ -223,9 +223,9 @@ class BasicSampler(object):
 
         if type(telescopes) is dict:
             for name, telescope in telescopes.items():
-                self.__observe(telescope, name, sparse, dtype)
+                self._observe(telescope, name, sparse, dtype)
         else:
-            self.__observe(telescopes, name, sparse, dtype)
+            self._observe(telescopes, name, sparse, dtype)
 
         sys.stdout = old_target
 
