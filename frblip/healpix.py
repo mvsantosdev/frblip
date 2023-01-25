@@ -12,7 +12,7 @@ from .cosmology import Cosmology
 
 from astropy import units, coordinates
 
-from .basic_sampler import BasicSampler
+from .basic_sampler import BasicSampler, method_decorator, todense_decorator
 
 
 class HealPixMap(BasicSampler, HEALPix):
@@ -140,6 +140,22 @@ class HealPixMap(BasicSampler, HEALPix):
         if self.emission_frame:
             return Lthre / (1 + redshift)**sip
         return Lthre
+
+    @method_decorator
+    def altaz(self, observation):
+        """
+
+        Parameters
+        ----------
+        names :
+
+
+        Returns
+        -------
+
+        """
+
+        return getattr(observation, 'altaz', None)
 
     def get_redshift_table(self, sensitivity, zmin=0, zmax=30,
                            spectral_index=0.0, total=False, channels=1,
@@ -296,9 +312,11 @@ class HealPixMap(BasicSampler, HEALPix):
 
         return center, lower, upper
 
-    def _maximum_redshift(self, name, zmin=0, zmax=30, spectral_index=0.0,
-                          snr=1, total=False, channels=1, time=1*units.year,
-                          tolerance=1, eps=1e-4):
+    @method_decorator
+    def maximum_redshift(self, observation, zmin=0, zmax=30,
+                         spectral_index=0.0, snr=1, total=False,
+                         channels=1, time=1*units.year, tolerance=1,
+                         eps=1e-4):
         """
 
         Parameters
@@ -329,55 +347,19 @@ class HealPixMap(BasicSampler, HEALPix):
 
         """
 
-        sensitivity = self._sensitivity(name, spectral_index,
+        sensitivity = self._sensitivity(observation, spectral_index,
                                         total, channels)
         sens = snr * sensitivity
         sens.attrs['unit'] = sensitivity.unit
 
-        zmin, zmax = self._redshift_range(name)
+        zmin, zmax = self._redshift_range(observation)
 
         return self.get_maximum_redshift(sens, zmin, zmax, spectral_index,
                                          total, channels, time, tolerance,
                                          eps)
 
-    def _redshift_table(self, name, spectral_index=0.0, snr=1,
-                        total=False, channels=1, unit='1/year',
-                        eps=1e-4):
-        """
-
-        Parameters
-        ----------
-        name : str
-
-        spectral_index : float
-             (Default value = 0.0)
-        snr : float
-             (Default value = 1)
-        total : bool
-             (Default value = False)
-        channels : int
-             (Default value = 1)
-        unit : astropy.units.unit or str
-             (Default value = '1/year')
-        eps : float
-             (Default value = 1e-4)
-
-        Returns
-        -------
-
-        """
-
-        sensitivity = self._sensitivity(name, spectral_index,
-                                        total, channels)
-        sens = snr * sensitivity
-        sens.attrs['unit'] = sensitivity.unit
-
-        zmin, zmax = self._redshift_range(name)
-
-        return self.get_redshift_table(sens, zmin, zmax, spectral_index,
-                                       total, channels, unit, eps)
-
-    def _redshift_rate(self, name, spectral_index=0.0, snr=1,
+    @method_decorator
+    def redshift_table(self, observation, spectral_index=0.0, snr=1,
                        total=False, channels=1, unit='1/year',
                        eps=1e-4):
         """
@@ -404,12 +386,50 @@ class HealPixMap(BasicSampler, HEALPix):
 
         """
 
-        sensitivity = self._sensitivity(name, spectral_index,
+        sensitivity = self._sensitivity(observation, spectral_index,
                                         total, channels)
         sens = snr * sensitivity
         sens.attrs['unit'] = sensitivity.unit
 
-        zmin, zmax = self._redshift_range(name)
+        zmin, zmax = self._redshift_range(observation)
+
+        return self.get_redshift_table(sens, zmin, zmax, spectral_index,
+                                       total, channels, unit, eps)
+
+    @method_decorator
+    def redshift_rate(self, observation, spectral_index=0.0, snr=1,
+                      total=False, channels=1, unit='1/year',
+                      eps=1e-4):
+        """
+
+        Parameters
+        ----------
+        name : str
+
+        spectral_index : float
+             (Default value = 0.0)
+        snr : float
+             (Default value = 1)
+        total : bool
+             (Default value = False)
+        channels : int
+             (Default value = 1)
+        unit : astropy.units.unit or str
+             (Default value = '1/year')
+        eps : float
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
+
+        sensitivity = self._sensitivity(observation, spectral_index,
+                                        total, channels)
+        sens = snr * sensitivity
+        sens.attrs['unit'] = sensitivity.unit
+
+        zmin, zmax = self._redshift_range(observation)
 
         return self.get_redshift_rate(sens, zmin, zmax, spectral_index,
                                       total, channels, unit, eps)
@@ -515,7 +535,8 @@ class HealPixMap(BasicSampler, HEALPix):
 
         return specific_rate
 
-    def _redshift_range(self, name, channels=1):
+    def _redshift_range(self, observation, channels=1):
+
         """
 
         Parameters
@@ -530,11 +551,36 @@ class HealPixMap(BasicSampler, HEALPix):
 
         """
 
-        observation = self[name]
         return observation.redshift_range(self.low_frequency,
                                           self.high_frequency)
 
-    def _noise(self, name, total=False, channels=1):
+    @method_decorator
+    def redshift_range(self, observation, channels=1):
+
+        """
+
+        Parameters
+        ----------
+        name :
+
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
+
+        return self._redshift_range(observation, channels)
+
+    def _noise(self, observation, total=False, channels=1):
+
+        return observation.get_noise(total, channels)
+
+    @method_decorator
+    @todense_decorator
+    def noise(self, observation, total=False, channels=1):
+
         """
 
         Parameters
@@ -551,10 +597,25 @@ class HealPixMap(BasicSampler, HEALPix):
 
         """
 
-        observation = self[name]
-        return observation.get_noise(total, channels)
+        return self._noise(observation, total, channels)
 
-    def _sensitivity(self, name, spectral_index=0.0, total=False, channels=1):
+    def _sensitivity(self, observation, spectral_index=0.0,
+                     total=False, channels=1):
+
+        sign = numpy.sign(spectral_index + 1)
+        spec_idx = numpy.full(self.size, spectral_index)
+        freq_resp = observation.get_frequency_response(spec_idx, channels)
+        noise = self._noise(observation, total, channels)
+
+        sensitivity = sign * noise / freq_resp
+        sensitivity.attrs['unit'] = noise.unit / freq_resp.unit
+        return sensitivity
+
+    @method_decorator
+    @todense_decorator
+    def sensitivity(self, observation, spectral_index=0.0,
+                    total=False, channels=1):
+
         """
 
         Parameters
@@ -573,15 +634,8 @@ class HealPixMap(BasicSampler, HEALPix):
 
         """
 
-        observation = self[name]
-        sign = numpy.sign(spectral_index + 1)
-        spec_idx = numpy.full(self.size, spectral_index)
-        freq_resp = observation.get_frequency_response(spec_idx, channels)
-        noise = self._noise(name, total, channels)
-
-        sensitivity = sign * noise / freq_resp
-        sensitivity.attrs['unit'] = noise.unit / freq_resp.unit
-        return sensitivity
+        return self._sensitivity(observation, spectral_index,
+                                 total, channels)
 
     @numpy.errstate(over='ignore')
     def get_rate_map(self, sensitivity, zmin=0, zmax=30,
@@ -665,83 +719,40 @@ class HealPixMap(BasicSampler, HEALPix):
                                      spectral_index, unit, eps)
         return rate_map.sum('PIXEL', keep_attrs=True)
 
-    def _si_rate_map(self, name=None, spectral_index=0.0, snr=None,
+    def _si_rate_map(self, observation, spectral_index=0.0, snr=None,
                      total=False, channels=1, unit='year', eps=1e-4):
-        """
-
-        Parameters
-        ----------
-        name :
-             (Default value = None)
-        spectral_index :
-             (Default value = 0.0)
-        snr :
-             (Default value = None)
-        total :
-             (Default value = False)
-        channels :
-             (Default value = 1)
-        unit :
-             (Default value = 'year')
-        eps :
-             (Default value = 1e-4)
-
-        Returns
-        -------
-
-        """
 
         s = numpy.arange(1, 11) if snr is None else snr
         s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
 
-        sensitivity = self._sensitivity(name, spectral_index,
+        sensitivity = self._sensitivity(observation, spectral_index,
                                         total, channels)
 
         sens = sensitivity * s
         sens.attrs = sensitivity.attrs
 
-        zmin, zmax = self._redshift_range(name)
+        zmin, zmax = self._redshift_range(observation)
 
         return self.get_rate_map(sens, zmin, zmax, spectral_index, unit, eps)
 
-    def _rate_map(self, name=None, spectral_index=0.0, snr=None,
+    def _rate_map(self, observation, spectral_index=0.0, snr=None,
                   total=False, channels=1, unit='year', eps=1e-4):
-        """
-
-        Parameters
-        ----------
-        name :
-             (Default value = None)
-        spectral_index :
-             (Default value = 0.0)
-        snr :
-             (Default value = None)
-        total :
-             (Default value = False)
-        channels :
-             (Default value = 1)
-        unit :
-             (Default value = 'year')
-        eps :
-             (Default value = 1e-4)
-
-        Returns
-        -------
-
-        """
 
         spec_idxs = numpy.atleast_1d(spectral_index)
 
         rates = xarray.concat([
-            self._si_rate_map(name, spectral_index, snr,
+            self._si_rate_map(observation, spectral_index, snr,
                               total, channels, unit, eps)
             for spec_idx in spec_idxs
         ], dim='Spectral Index')
 
         return rates.squeeze()
 
-    def _rate(self, name=None, spectral_index=0.0, snr=None,
-              total=False, channels=1, unit='year', eps=1e-4):
+    @method_decorator
+    @todense_decorator
+    def rate_map(self, observation, spectral_index=0.0, snr=None,
+                 total=False, channels=1, unit='year', eps=1e-4):
+
         """
 
         Parameters
@@ -766,6 +777,44 @@ class HealPixMap(BasicSampler, HEALPix):
 
         """
 
-        rate_map = self._rate_map(name, spectral_index, snr,
+        return self._rate_map(observation, spectral_index, snr,
+                              total, channels, unit, eps)
+
+    def _rate(self, observation, spectral_index=0.0, snr=None,
+              total=False, channels=1, unit='year', eps=1e-4):
+
+        rate_map = self._rate_map(observation, spectral_index, snr,
                                   total, channels, unit, eps)
         return rate_map.sum('PIXEL', keep_attrs=True)
+
+    @method_decorator
+    @todense_decorator
+    def rate(self, observation, spectral_index=0.0, snr=None,
+             total=False, channels=1, unit='year', eps=1e-4):
+
+        """
+
+        Parameters
+        ----------
+        name :
+             (Default value = None)
+        spectral_index :
+             (Default value = 0.0)
+        snr :
+             (Default value = None)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+        unit :
+             (Default value = 'year')
+        eps :
+             (Default value = 1e-4)
+
+        Returns
+        -------
+
+        """
+
+        return self._rate(observation, spectral_index, snr,
+                          total, channels, unit, eps)

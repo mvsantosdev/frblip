@@ -24,7 +24,7 @@ from .random.dispersion_measure import InterGalacticDM, HostGalaxyDM
 
 from .cosmology import Cosmology
 
-from .basic_sampler import BasicSampler
+from .basic_sampler import BasicSampler, method_decorator, todense_decorator
 
 
 class FastRadioBursts(BasicSampler):
@@ -580,7 +580,8 @@ class FastRadioBursts(BasicSampler):
         idx = snr.max('ALL') >= tolerance
         return self[idx.as_numpy()]
 
-    def _altaz(self, name):
+    @method_decorator
+    def teste(self, observation):
         """
 
         Parameters
@@ -593,15 +594,31 @@ class FastRadioBursts(BasicSampler):
 
         """
 
-        observation = self[name]
+        return observation.response
+
+    @method_decorator
+    def altaz(self, observation):
+        """
+
+        Parameters
+        ----------
+        names :
+
+
+        Returns
+        -------
+
+        """
+
         return getattr(observation, 'altaz', None)
 
-    def _time_delay(self, name):
+    @method_decorator
+    def time_delay(self, observation):
         """
 
         Parameters
         ----------
-        name :
+        names :
 
 
         Returns
@@ -609,32 +626,14 @@ class FastRadioBursts(BasicSampler):
 
         """
 
-        observation = self[name]
         return getattr(observation, 'time_delay', None)
 
-    def _scatter(self, name):
-
-        observation = self[name]
-
-        nu_c = observation.frequency_range.mean()
-        nu_c = (nu_c / units.GHz).to(1)
-        log_nuc = numpy.log10(nu_c)
-
-        dm = self.dispersion_measure
-        dm = (dm * units.cm**3 / units.pc).to(1)
-
-        log_dm = numpy.log10(dm)
-
-        log_scat = - 9.5 + 0.154 * log_dm + 1.07 * log_dm**2 - 3.86 * log_nuc
-
-        return (10**log_scat) * units.ms
-
-    def _peak_density_flux(self, name, channels=1):
+    def _peak_density_flux(self, observation, channels=1):
         """
 
         Parameters
         ----------
-        name :
+        names :
 
         channels :
              (Default value = 1)
@@ -644,7 +643,6 @@ class FastRadioBursts(BasicSampler):
 
         """
 
-        observation = self[name]
         spectral_index = self.spectral_index
         response = observation.get_frequency_response(spectral_index, channels)
         S0 = xarray.DataArray(self.__S0.value, dims='FRB')
@@ -653,38 +651,29 @@ class FastRadioBursts(BasicSampler):
         signal.attrs['unit'] = unit.to(units.Jy)
         return signal
 
-    def _signal(self, name, channels=1):
-        """
+    @method_decorator
+    def peak_density_flux(self, observation, channels=1):
 
-        Parameters
-        ----------
-        name :
+        return self._peak_density_flux(observation, channels)
 
-        channels :
-             (Default value = 1)
+    def _signal(self, observation, channels=1):
 
-        Returns
-        -------
-
-        """
-
-        observation = self[name]
-        peak_density_flux = self._peak_density_flux(name, channels)
+        peak_density_flux = self._peak_density_flux(observation, channels)
         in_range = observation.in_range(self.redshift, self.low_frequency,
                                         self.high_frequency)
         signal = peak_density_flux * in_range
         signal.attrs = peak_density_flux.attrs
         return signal
 
-    def _noise(self, name, total=False, channels=1):
+    @method_decorator
+    def signal(self, observation, channels=1):
+
         """
 
         Parameters
         ----------
-        name :
+        names :
 
-        total :
-             (Default value = False)
         channels :
              (Default value = 1)
 
@@ -693,15 +682,21 @@ class FastRadioBursts(BasicSampler):
 
         """
 
-        observation = self[name]
+        return self._signal(observation, channels)
+
+    def _noise(self, observation, total=False, channels=1):
+
         return observation.get_noise(total, channels)
 
-    def _signal_to_noise(self, name, total=False, channels=1):
+    @method_decorator
+    @todense_decorator
+    def noise(self, observation, total=False, channels=1):
+
         """
 
         Parameters
         ----------
-        name :
+        names :
 
         total :
              (Default value = False)
@@ -713,20 +708,25 @@ class FastRadioBursts(BasicSampler):
 
         """
 
-        signal = self._signal(name, channels)
-        noise = self._noise(name, total, channels)
+        return self._noise(observation, total, channels)
+
+    def _signal_to_noise(self, observation, total=False, channels=1):
+
+        signal = self._signal(observation, channels)
+        noise = self._noise(observation, total, channels)
 
         return signal / noise
 
-    def _triggers(self, name, snr=None, total=False, channels=1):
+    @method_decorator
+    @todense_decorator
+    def signal_to_noise(self, observation, total=False, channels=1):
+
         """
 
         Parameters
         ----------
-        name :
+        names :
 
-        snr :
-             (Default value = None)
         total :
              (Default value = False)
         channels :
@@ -737,17 +737,45 @@ class FastRadioBursts(BasicSampler):
 
         """
 
-        _snr = self._signal_to_noise(name, total, channels)
+        return self._signal_to_noise(observation, total, channels)
+
+    def _triggers(self, observation, snr=None, total=False, channels=1):
+
+        _snr = self._signal_to_noise(observation, total, channels)
         s = numpy.arange(1, 11) if snr is None else snr
         s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
         return (_snr >= s).squeeze()
 
-    def _counts(self, name, channels=1, snr=None, total=False):
+    @method_decorator
+    def triggers(self, observation, snr=None, total=False, channels=1):
+
         """
 
         Parameters
         ----------
-        name :
+        names :
+
+        snr :
+             (Default value = None)
+        total :
+             (Default value = False)
+        channels :
+             (Default value = 1)
+
+        Returns
+        -------
+
+        """
+
+        return self._triggers(observation, snr, total, channels)
+
+    @method_decorator
+    def counts(self, observation, channels=1, snr=None, total=False):
+        """
+
+        Parameters
+        ----------
+        names :
 
         channels :
              (Default value = 1)
@@ -761,7 +789,7 @@ class FastRadioBursts(BasicSampler):
 
         """
 
-        triggers = self._triggers(name, snr, total, channels)
+        triggers = self._triggers(observation, snr, total, channels)
         return triggers.sum('FRB')
 
     def disperse(self, nu, DM):
@@ -771,9 +799,37 @@ class FastRadioBursts(BasicSampler):
         z = (t - t0) / w
         return numpy.exp(- z**2 / 2)
 
-    def _waterfall(self, name, total=True, channels=1, noise=None):
+    def _waterfall_noise(self, observation, steps=1, total=True, channels=1,
+                         kind='w'):
 
-        observation = self[name]
+        noise = observation.get_noise(total, channels, True)
+
+        if kind in ('white', 'w'):
+            scales = numpy.sqrt(noise)
+
+            waterfall_noise = numpy.stack([
+                numpy.random.normal(scale=scales)
+                for i in range(steps)
+            ], -1)
+
+            return xarray.DataArray(
+                waterfall_noise**2,
+                dims=(*noise.dims, 'TIME')
+            )
+
+        elif kind is None:
+
+            return xarray.DataArray(
+                sparse.COO(numpy.zeros((channels, steps))),
+                dims=(*noise.dims, 'TIME')
+            )
+        else:
+            raise ValueError('Invalid noise kind.')
+
+    @method_decorator
+    @todense_decorator
+    def waterfall(self, observation, total=True, channels=1, noise='w'):
+
         total_resp = observation.get_response(total=True)
 
         if isinstance(total_resp.data, sparse.COO):
@@ -783,22 +839,22 @@ class FastRadioBursts(BasicSampler):
             not_null = total_resp.coords[0]
 
         sub = self[not_null]
-        observation = sub[name]
+        obs = observation[not_null]
 
-        sampling_time = observation.sampling_time
-        if hasattr(observation, 'altaz'):
-            altaz = observation.altaz
+        sampling_time = obs.sampling_time
+        if hasattr(obs, 'altaz'):
+            altaz = obs.altaz
         else:
             altaz = sub.altaz
 
         peak_time = (altaz.obstime - self.start).to(sampling_time)
         duration = sub.duration.to(sampling_time)
 
-        n = duration // sampling_time
-        n = n.value.astype(int).item()
+        steps = duration // sampling_time
+        steps = steps.value.astype(int).item()
 
-        t = numpy.linspace(0, duration, n+1)
-        nu = numpy.linspace(*observation.frequency_range, channels+1)
+        t = numpy.linspace(0, duration, steps + 1)
+        nu = numpy.linspace(*obs.frequency_range, channels + 1)
         nu = (nu[1:] + nu[:-1]) / 2
 
         dm = sub.dispersion_measure.reshape(-1, 1)
@@ -822,7 +878,7 @@ class FastRadioBursts(BasicSampler):
 
             wt = sub.gaussian(t[i:j], w, t0.reshape(-1, 1))
             wt = sparse.COO(wt)
-            wt = sparse.pad(wt, ((0, 0), (i, n + 1 - j)))
+            wt = sparse.pad(wt, ((0, 0), (i, steps + 1 - j)))
 
             waterfalls.append(wt)
 
@@ -831,10 +887,8 @@ class FastRadioBursts(BasicSampler):
             dims=('FRB', 'CHANNEL', 'TIME')
         )
 
-        signals = sub._signal(name, channels)
-        response = observation.get_response(total=total)
-
-        signals * response * waterfalls
+        signals = sub._signal(obs, channels)
+        response = obs.get_response(total=total)
 
         waterfalls = signals * response * waterfalls
         waterfall = waterfalls.sum('FRB')
@@ -843,23 +897,11 @@ class FastRadioBursts(BasicSampler):
         waterfall = waterfall * sampling_time.value / 2
         time = t[:-1] + self.start
 
-        if noise in ('white', 'w'):
-            noise = observation.get_noise(total, channels, True)
-            scales = numpy.sqrt(noise)
+        waterfall_noise = self._waterfall_noise(obs, steps, total,
+                                                channels, noise)
+        waterfall = waterfall + waterfall_noise
 
-            waterfall_noise = numpy.stack([
-                numpy.random.normal(scale=scales)
-                for i in range(n)
-            ], -1)
-
-            waterfall_noise = xarray.DataArray(
-                waterfall_noise**2,
-                dims=(*scales.dims, 'TIME')
-            )
-
-            return time, waterfall + waterfall_noise
-
-        return time, waterfall
+        return waterfall.assign_coords(TIME=time.to_datetime())
 
     def catalog(self, tolerance=1):
         """

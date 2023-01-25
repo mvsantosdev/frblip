@@ -1,5 +1,6 @@
 import os
 import sys
+import types
 import warnings
 
 import bz2
@@ -9,9 +10,8 @@ import numpy
 import xarray
 from sparse import COO
 
-from functools import partial
+from functools import wraps
 from operator import itemgetter
-from toolz.dicttoolz import valfilter
 
 from astropy import units, constants, coordinates
 from astropy.coordinates.erfa_astrom import erfa_astrom
@@ -20,52 +20,55 @@ from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 from .observation import Observation, Interferometry
 
 
+def todense_decorator(method):
+
+    @wraps(method)
+    def wrapper(*args, todense: bool = False, **kwargs):
+
+        sampler = args[0]
+        output = method(sampler, *args[1:], **kwargs)
+        if todense:
+            data = getattr(output, 'data', None)
+            if isinstance(data, COO):
+                return output.as_numpy()
+        return output
+
+    return wrapper
+
+
+def method_decorator(method):
+
+    @wraps(method)
+    def wrapper(*args, **kwargs):
+
+        sampler = args[0]
+        names = args[1:]
+
+        if names == ():
+            observations = sampler.observations
+        else:
+            observations = {
+                name: sampler.observations[name]
+                for name in names
+            }
+
+        if len(observations) == 1:
+            [(_, observation)] = observations.items()
+            return method(sampler, observation, **kwargs)
+
+        return {
+            name: method(sampler, observation, **kwargs)
+            for name, observation in observations.items()
+        }
+
+    return wrapper
+
+
 class BasicSampler(object):
     """ """
 
     def __len__(self):
         return self.size
-
-    def __getattr__(self, attr, todense=None):
-
-        name = '_{}'.format(attr)
-
-        if name in dir(self):
-            function = getattr(self, name)
-
-            def output_func(*names, **kwargs):
-
-                todense = kwargs.pop('todense', True)
-                partial_func = partial(function, **kwargs)
-
-                if todense:
-                    def apply_func(key):
-                        output = partial_func(key)
-                        data = getattr(output, 'data', None)
-                        if isinstance(data, COO):
-                            return output.as_numpy()
-                        return output
-                else:
-                    apply_func = partial_func
-
-                keys = self.observations.keys() if names == () else names
-                if len(keys) == 1:
-                    return apply_func(*keys)
-                output = valfilter(
-                    lambda x: x is not None,
-                    {
-                        key: apply_func(key)
-                        for key in keys
-                    })
-                if output == {}:
-                    return None
-                return output
-            output_func.__doc__ = function.__doc__
-            return output_func
-        else:
-            class_name = type(self).__name__
-            error = "'{}' object has no attribute '{}'"
-            raise AttributeError(error.format(class_name, attr))
 
     def __getitem__(self, keys):
 
@@ -143,7 +146,7 @@ class BasicSampler(object):
         sampling_time = telescope.sampling_time
         frequency_range = telescope.frequency_range
 
-        if 'altaz' in dir(self):
+        if isinstance(self.altaz, coordinates.SkyCoord):
             altaz = self.altaz
         else:
             location = telescope.location
@@ -172,7 +175,7 @@ class BasicSampler(object):
                                           name='Time Delay')
             time_delay.attrs['unit'] = unit
 
-        if 'altaz' in dir(self):
+        if isinstance(self.altaz, coordinates.SkyCoord):
             altaz = None
 
         observation = Observation(response, noise, time_delay, frequency_range,
@@ -207,7 +210,7 @@ class BasicSampler(object):
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
 
-        if 'altaz' not in dir(self):
+        if isinstance(self.altaz, types.MethodType):
             if isinstance(location, coordinates.EarthLocation):
                 loc = location
             elif isinstance(location, str):
@@ -215,7 +218,6 @@ class BasicSampler(object):
                     loc = telescopes[location].location
                 else:
                     loc = coordinates.EarthLocation.of_site(location)
-
                 self.altaz = self.altaz_from_location(loc)
             elif location is not None:
                 error = '{} is not a valid location'.format(location)
