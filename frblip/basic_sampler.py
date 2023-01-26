@@ -10,7 +10,6 @@ import numpy
 import xarray
 from sparse import COO
 
-from functools import wraps
 from operator import itemgetter
 
 from astropy import units, constants, coordinates
@@ -18,50 +17,6 @@ from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
 from .observation import Observation, Interferometry
-
-
-def todense_decorator(method):
-
-    @wraps(method)
-    def wrapper(*args, todense: bool = False, **kwargs):
-
-        sampler = args[0]
-        output = method(sampler, *args[1:], **kwargs)
-        if todense:
-            data = getattr(output, 'data', None)
-            if isinstance(data, COO):
-                return output.as_numpy()
-        return output
-
-    return wrapper
-
-
-def method_decorator(method):
-
-    @wraps(method)
-    def wrapper(*args, **kwargs):
-
-        sampler = args[0]
-        names = args[1:]
-
-        if names == ():
-            observations = sampler.observations
-        else:
-            observations = {
-                name: sampler.observations[name]
-                for name in names
-            }
-
-        if len(observations) == 1:
-            [(_, observation)] = observations.items()
-            return method(sampler, observation, **kwargs)
-
-        return {
-            name: method(sampler, observation, **kwargs)
-            for name, observation in observations.items()
-        }
-
-    return wrapper
 
 
 class BasicSampler(object):

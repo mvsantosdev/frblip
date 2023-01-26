@@ -24,7 +24,8 @@ from .random.dispersion_measure import InterGalacticDM, HostGalaxyDM
 
 from .cosmology import Cosmology
 
-from .basic_sampler import BasicSampler, method_decorator, todense_decorator
+from .basic_sampler import BasicSampler
+from .decorators import observation_method, todense_option, default_units
 
 
 class FastRadioBursts(BasicSampler):
@@ -43,8 +44,8 @@ class FastRadioBursts(BasicSampler):
                  pulse_width: (float, float) = (-6.917, 0.824),
                  zmin: float = 0.0,
                  zmax: float = 30.0,
-                 ra: (float, float) = (0, 24),
-                 dec: (float, float) = (-90, 90),
+                 ra_range: (float, float) = (0, 24),
+                 dec_range: (float, float) = (-90, 90),
                  start: 'Time or None' = None,
                  low_frequency: float = 10.0,
                  high_frequency: float = 10000.0,
@@ -128,41 +129,47 @@ class FastRadioBursts(BasicSampler):
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
 
-        self.__load_params(size, log_Lstar, log_L0, phistar, gamma,
-                           pulse_width, zmin, zmax, ra, dec, start,
-                           low_frequency, high_frequency,
-                           low_frequency_cal, high_frequency_cal,
-                           emission_frame, spectral_index, gal_method,
-                           gal_nside, host_dist, host_source, host_model,
-                           cosmology, igm_model, free_electron_bias)
+        self._load_params(duration, log_Lstar, log_L0, phistar, gamma,
+                          pulse_width, zmin, zmax, ra_range, dec_range, start,
+                          low_frequency, high_frequency,
+                          low_frequency_cal, high_frequency_cal,
+                          emission_frame, spectral_index, gal_method,
+                          gal_nside, host_dist, host_source, host_model,
+                          cosmology, igm_model, free_electron_bias)
 
-        self._frb_rate(size, duration)
+        self._frb_rate(size)
         self.__S0
         self.kind = 'FRB'
 
         sys.stdout = old_target
 
-    def __load_params(self, size, log_Lstar, log_L0, phistar, gamma,
-                      pulse_width, zmin, zmax, ra, dec, start, low_frequency,
-                      high_frequency, low_frequency_cal, high_frequency_cal,
-                      emission_frame, spectral_index, gal_method, gal_nside,
-                      host_dist, host_source, host_model,
-                      cosmology, igm_model, free_electron_bias):
+    @default_units(duration='day', log_L0='dex(erg / s)',
+                   log_Lstar='dex(erg / s)', phistar='1 / (Gpc^3 yr)',
+                   ra_range='hourangle', dec_range='deg',
+                   low_frequency='MHz', high_frequency='MHz',
+                   low_frequency_cal='MHz', high_frequency_cal='MHz')
+    def _load_params(self, duration, log_Lstar, log_L0, phistar, gamma,
+                     pulse_width, zmin, zmax, ra_range, dec_range, start,
+                     low_frequency, high_frequency, low_frequency_cal,
+                     high_frequency_cal, emission_frame, spectral_index,
+                     gal_method, gal_nside, host_dist, host_source, host_model,
+                     cosmology, igm_model, free_electron_bias):
 
+        self.duration = duration
         self.zmin = zmin
         self.zmax = zmax
-        self.log_L0 = log_L0 * units.LogUnit(units.erg / units.s)
-        self.log_Lstar = log_Lstar * units.LogUnit(units.erg / units.s)
-        self.phistar = phistar / (units.Gpc**3 * units.year)
+        self.log_L0 = log_L0
+        self.log_Lstar = log_Lstar
+        self.phistar = phistar
         self.gamma = gamma
         self.w_mean, self.w_std = pulse_width
         self.__spec_idx_dist = SpectralIndex(spectral_index)
-        self.ra_range = numpy.array(ra) * units.hourangle
-        self.dec_range = numpy.array(dec) * units.degree
-        self.low_frequency = low_frequency * units.MHz
-        self.high_frequency = high_frequency * units.MHz
-        self.low_frequency_cal = low_frequency_cal * units.MHz
-        self.high_frequency_cal = high_frequency_cal * units.MHz
+        self.ra_range = ra_range
+        self.dec_range = dec_range
+        self.low_frequency = low_frequency
+        self.high_frequency = high_frequency
+        self.low_frequency_cal = low_frequency_cal
+        self.high_frequency_cal = high_frequency_cal
         self.igm_model = igm_model
         self.free_electron_bias = free_electron_bias
         self.cosmology = cosmology
@@ -318,7 +325,7 @@ class FastRadioBursts(BasicSampler):
     def sky_rate(self):
         Lum = self.phistar / self.__lumdist.pdf_norm
         Vol = 1 / self.__zdist.pdf_norm
-        return (Lum * Vol).to(1 / units.day)
+        return (Lum * Vol).to('1 / day')
 
     @cached_property
     def redshift(self):
@@ -335,7 +342,7 @@ class FastRadioBursts(BasicSampler):
     def pulse_width(self):
         """ """
         width = random.lognormal(self.w_mean, self.w_std, size=self.size)
-        return (width * units.s).to(units.ms)
+        return (width * units.s).to('ms')
 
     @cached_property
     def emitted_pulse_width(self):
@@ -360,7 +367,7 @@ class FastRadioBursts(BasicSampler):
         sin = numpy.sin(self.dec_range)
         args = random.uniform(*sin, self.size)
         decs = numpy.arcsin(args) * units.rad
-        decs = decs.to(units.degree)
+        decs = decs.to('deg')
         ras = random.uniform(*self.ra_range.value, self.size)
         ras = ras * self.ra_range.unit
         return coordinates.SkyCoord(ras, decs, frame='icrs')
@@ -370,9 +377,9 @@ class FastRadioBursts(BasicSampler):
         """ """
 
         x = numpy.sin(self.dec_range).diff().item()
-        y = self.ra_range.to(units.rad).diff().item()
+        y = self.ra_range.to('rad').diff().item()
         Area = (x * y) * units.rad
-        return Area.to(units.degree**2)
+        return Area.to('deg^2')
 
     @cached_property
     def luminosity_distance(self):
@@ -382,13 +389,13 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def __luminosity(self):
-        return self.log_luminosity.to(units.erg / units.s)
+        return self.log_luminosity.to('erg / s')
 
     @cached_property
     def flux(self):
         """ """
         surface = 4 * numpy.pi * self.luminosity_distance**2
-        return (self.__luminosity / surface).to(units.Jy * units.MHz)
+        return (self.__luminosity / surface).to('Jy MHz')
 
     @cached_property
     def __S0(self):
@@ -465,53 +472,31 @@ class FastRadioBursts(BasicSampler):
         """ """
         return self.galactic_dm + self.extra_galactic_dm
 
-    def _frb_rate(self, size, duration):
+    def _frb_rate(self, size):
 
-        print("Computing the FRB rate ...")
+        if isinstance(size, int):
+            self.size = size
+            self.rate = size / self.duration
 
-        if hasattr(duration, 'unit'):
-            self.duration = duration
-        elif isinstance(duration, (str)):
-            self.duration = units.Quantity(duration)
-        elif isinstance(duration, (int, float)):
-            self.duration = duration * units.day
-        self.duration = self.duration.to(units.hour)
+        elif size is None:
 
-        rate = self.sky_rate
+            dec_diff = numpy.sin(self.dec_range).diff() * units.rad
+            ra_diff = self.ra_range.to('rad').diff()
+            area = (dec_diff * ra_diff).item()
+            self.area = area.to('deg^2')
 
-        dec_diff = numpy.sin(self.dec_range).diff() * units.rad
-        ra_diff = self.ra_range.to(units.rad).diff()
-        area = (dec_diff * ra_diff).item()
-        self.area = area.to(units.deg**2)
+            sky_fraction = (self.area / units.spat).to(1)
 
-        sky_fraction = (self.area / units.spat).to(1)
+            rate = self.sky_rate * sky_fraction
 
-        if not numpy.isclose(sky_fraction, 1):
-            print(
-                'The FoV is restricted between',
-                '{} < ra < {} and {} < dec < {}.'.format(*self.ra_range,
-                                                         *self.dec_range),
-                '\nMake sure that the survey is also',
-                'restricted to this region.'
-            )
-            rate = rate * sky_fraction
+            rate = numpy.round(rate, 0)
 
-        rate = numpy.round(rate, 0)
-
-        print('FRB rate =', rate)
-
-        if size is None:
             size = (rate * self.duration).to(1).value
             self.size = int(size)
             self.rate = rate
-        elif isinstance(size, int):
-            self.size = size
-            self.rate = size / self.duration
-            print(self.size, 'FRBs will be simulated in', self.duration,
-                  'but the actual rate is', rate)
         else:
             raise TypeError("size must be an integer or None.")
-        self.rate = self.rate.to(1 / units.day)
+        self.rate = self.rate.to('1 / day')
 
     def update(self):
         """ """
@@ -580,7 +565,7 @@ class FastRadioBursts(BasicSampler):
         idx = snr.max('ALL') >= tolerance
         return self[idx.as_numpy()]
 
-    @method_decorator
+    @observation_method
     def teste(self, observation):
         """
 
@@ -596,7 +581,7 @@ class FastRadioBursts(BasicSampler):
 
         return observation.response
 
-    @method_decorator
+    @observation_method
     def altaz(self, observation):
         """
 
@@ -612,7 +597,7 @@ class FastRadioBursts(BasicSampler):
 
         return getattr(observation, 'altaz', None)
 
-    @method_decorator
+    @observation_method
     def time_delay(self, observation):
         """
 
@@ -648,10 +633,10 @@ class FastRadioBursts(BasicSampler):
         S0 = xarray.DataArray(self.__S0.value, dims='FRB')
         unit = response.attrs['unit'] * self.__S0.unit
         signal = response * S0
-        signal.attrs['unit'] = unit.to(units.Jy)
+        signal.attrs['unit'] = unit.to('Jy')
         return signal
 
-    @method_decorator
+    @observation_method
     def peak_density_flux(self, observation, channels=1):
 
         return self._peak_density_flux(observation, channels)
@@ -665,7 +650,7 @@ class FastRadioBursts(BasicSampler):
         signal.attrs = peak_density_flux.attrs
         return signal
 
-    @method_decorator
+    @observation_method
     def signal(self, observation, channels=1):
 
         """
@@ -688,8 +673,8 @@ class FastRadioBursts(BasicSampler):
 
         return observation.get_noise(total, channels)
 
-    @method_decorator
-    @todense_decorator
+    @observation_method
+    @todense_option()
     def noise(self, observation, total=False, channels=1):
 
         """
@@ -717,8 +702,8 @@ class FastRadioBursts(BasicSampler):
 
         return signal / noise
 
-    @method_decorator
-    @todense_decorator
+    @observation_method
+    @todense_option(False)
     def signal_to_noise(self, observation, total=False, channels=1):
 
         """
@@ -746,7 +731,8 @@ class FastRadioBursts(BasicSampler):
         s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
         return (_snr >= s).squeeze()
 
-    @method_decorator
+    @observation_method
+    @todense_option(False)
     def triggers(self, observation, snr=None, total=False, channels=1):
 
         """
@@ -769,7 +755,8 @@ class FastRadioBursts(BasicSampler):
 
         return self._triggers(observation, snr, total, channels)
 
-    @method_decorator
+    @observation_method
+    @todense_option()
     def counts(self, observation, channels=1, snr=None, total=False):
         """
 
@@ -793,7 +780,7 @@ class FastRadioBursts(BasicSampler):
         return triggers.sum('FRB')
 
     def disperse(self, nu, DM):
-        return (self.DISP_CONST * DM / nu**2).to(units.ms)
+        return (self.DISP_CONST * DM / nu**2).to('ms')
 
     def gaussian(self, t, w, t0=0.0):
         z = (t - t0) / w
@@ -826,8 +813,8 @@ class FastRadioBursts(BasicSampler):
         else:
             raise ValueError('Invalid noise kind.')
 
-    @method_decorator
-    @todense_decorator
+    @observation_method
+    @todense_option
     def waterfall(self, observation, total=True, channels=1, noise='w'):
 
         total_resp = observation.get_response(total=True)

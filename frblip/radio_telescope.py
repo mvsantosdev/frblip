@@ -2,7 +2,6 @@ import os
 import bz2
 import dill
 import json
-from glob import glob
 
 import numpy
 
@@ -15,6 +14,8 @@ from astropy.coordinates.matrix_utilities import rotation_matrix
 from .grid import CartesianGrid
 from .pattern import FunctionalPattern
 
+from .decorators import from_file, default_units
+
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')
@@ -24,22 +25,6 @@ class RadioTelescope(object):
 
     """Class which defines a Radio Surveynp"""
 
-    DEFAULT_VALUES = {
-        'az': 0.0 * units.deg,
-        'alt': 90 * units.deg,
-        'lat': 90 * units.deg,
-        'lon': 0.0 * units.deg,
-        'height': 0.0 * units.m,
-        'reference_frequency': 1.5e5 * units.MHz,
-        'system_temperature': 70. * units.K,
-        'receiver_type': 'total-power',
-        'sampling_time': 1. * units.ms,
-        'degradation_factor': 1,
-        'polarizations': 2,
-        'directivity': 23.9 * units.dB(1 / units.sr),
-        'frequency_range': numpy.array([3e-3, 3e5]) * units.MHz
-    }
-
     NOISE_PERFORMANCE = {
         'total-power': 1,
         'switched': 2,
@@ -48,79 +33,18 @@ class RadioTelescope(object):
         '2bit-digital': 1.58
     }
 
-    def __init__(self, name='bingo', kind='gaussian', array=None,
-                 offset=None, location=None, **kwargs):
+    @from_file(_DATA)
+    def __init__(self, name='bingo', az=0.0, alt=90.0, lat=90.0,
+                 lon=0.0, height=0.0, reference_frequency=150000.0,
+                 system_temperature=70.0, receiver_type='total-power',
+                 sampling_time=1.0, degradation_factor=1, polarizations=2,
+                 directivity=23.9, frequency_range=(3e-3, 3e5),
+                 kind='gaussian', array=None, offset=None):
 
-        """
-        Creates a RadioTelescope object.
-
-        Parameters
-        ----------
-        name : str
-            File where the telescope parameters are stored.
-            default : 'bingo'
-        kind : {'tophat', 'gaussian', 'bessel', 'grid'}
-            The kind of the beam pattern.
-            default : 'gaussian'
-        array : numpy.ndarray
-            default : None
-        offset : (float, float)
-            default : None
-        location :
-            default : None
-        kwargs :
-            possible keys: az, alt, lat, lon, height,
-            reference_frequency, system_temperature,
-            receiver_type, sampling_time, degradation_factor,
-            polarizations, directivity, frequency_range
-
-        Returns
-        -------
-        out: RadioTelescope object.
-
-        """
-
-        folder, file_name = os.path.split(name)
-        _, ext = os.path.splitext(file_name)
-
-        if (folder, ext) == ('', ''):
-            pattern = '{}/{}*'.format(_DATA, file_name)
-            paths = glob(pattern)
-            if len(paths) != 1:
-                raise FileNotFoundError(pattern)
-            [name] = paths
-
-            _, ext = os.path.splitext(name)
-
-        if ext == '.pkl':
-            file = bz2.BZ2File(name, 'rb')
-            input_dict = dill.load(file)
-            file.close()
-        elif ext == '.json':
-            file = open(name, 'r')
-            input_dict = json.load(file)
-            file.close()
-
-        input_dict.update(kwargs)
-        input_dict.update({
-            key: RadioTelescope.DEFAULT_VALUES[key]
-            for key in RadioTelescope.DEFAULT_VALUES
-            if key not in input_dict
-        })
-
-        input_dict.update({
-            key: input_dict[key] * value.unit
-            for key, value in RadioTelescope.DEFAULT_VALUES.items()
-            if hasattr(value, 'unit') and not hasattr(input_dict[key], 'unit')
-        })
-
-        input_dict.update({
-            key: numpy.atleast_1d(value)
-            for key, value in input_dict.items()
-            if key not in ('lat', 'lon', 'height', 'receiver_type')
-        })
-
-        self.__dict__.update(input_dict)
+        self._load_params(az, alt, lat, lon, height, reference_frequency,
+                          system_temperature, receiver_type, sampling_time,
+                          degradation_factor, polarizations, directivity,
+                          frequency_range)
 
         self.kind = kind
         self.radius
@@ -131,6 +55,29 @@ class RadioTelescope(object):
             self.alt_shift, self.az_shift = offset
             self.alt_shift = (self.alt_shift - 90) * units.deg
             self.az_shift = self.az_shift * units.degree
+
+    @default_units(az='deg', alt='deg', lat='deg', lon='deg', height='m',
+                   reference_frequency='MHz', system_temperature='K',
+                   sampling_time='ms', directivity='dB(1 / sr)',
+                   frequency_range='MHz')
+    def _load_params(self, az, alt, lat, lon, height, reference_frequency,
+                     system_temperature, receiver_type, sampling_time,
+                     degradation_factor, polarizations, directivity,
+                     frequency_range):
+
+        self.az = az
+        self.alt = alt
+        self.lat = lat
+        self.lon = lon
+        self.height = height
+        self.reference_frequency = reference_frequency
+        self.system_temperature = system_temperature
+        self.receiver_type = receiver_type
+        self.sampling_time = sampling_time
+        self.degradation_factor = degradation_factor
+        self.polarizations = polarizations
+        self.directivity = directivity
+        self.frequency_range = frequency_range
 
     def __offset_response(self, altaz):
         altazoff = altaz.transform_to(self.offset)

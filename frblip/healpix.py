@@ -12,7 +12,9 @@ from .cosmology import Cosmology
 
 from astropy import units, coordinates
 
-from .basic_sampler import BasicSampler, method_decorator, todense_decorator
+from .basic_sampler import BasicSampler
+from .decorators import xarrayfy, default_units
+from .decorators import observation_method, todense_option
 
 
 class HealPixMap(BasicSampler, HEALPix):
@@ -27,26 +29,30 @@ class HealPixMap(BasicSampler, HEALPix):
 
         HEALPix.__init__(self, nside, order)
 
-        self.__load_params(phistar, alpha, log_Lstar, log_L0,
-                           low_frequency, high_frequency,
-                           low_frequency_cal, high_frequency_cal,
-                           emission_frame, cosmology, zmin, zmax)
+        self._load_params(phistar, alpha, log_Lstar, log_L0,
+                          low_frequency, high_frequency,
+                          low_frequency_cal, high_frequency_cal,
+                          emission_frame, cosmology, zmin, zmax)
 
         self.kind = 'PIXEL'
 
-    def __load_params(self, phistar, alpha, log_Lstar, log_L0,
-                      low_frequency, high_frequency,
-                      low_frequency_cal, high_frequency_cal,
-                      emission_frame, cosmology, zmin, zmax):
+    @default_units(log_L0='dex(erg / s)', log_Lstar='dex(erg / s)',
+                   phistar='1 / (Gpc^3 yr)', low_frequency='MHz',
+                   high_frequency='MHz', low_frequency_cal='MHz',
+                   high_frequency_cal='MHz')
+    def _load_params(self, phistar, alpha, log_Lstar, log_L0,
+                     low_frequency, high_frequency,
+                     low_frequency_cal, high_frequency_cal,
+                     emission_frame, cosmology, zmin, zmax):
 
-        self.log_L0 = log_L0 * units.LogUnit(units.erg / units.s)
-        self.log_Lstar = log_Lstar * units.LogUnit(units.erg / units.s)
-        self.phistar = phistar / (units.Gpc**3 * units.year)
+        self.log_L0 = log_L0
+        self.log_Lstar = log_Lstar
+        self.phistar = phistar
         self.alpha = alpha
-        self.low_frequency = low_frequency * units.MHz
-        self.high_frequency = high_frequency * units.MHz
-        self.low_frequency_cal = low_frequency_cal * units.MHz
-        self.high_frequency_cal = high_frequency_cal * units.MHz
+        self.low_frequency = low_frequency
+        self.high_frequency = high_frequency
+        self.low_frequency_cal = low_frequency_cal
+        self.high_frequency_cal = high_frequency_cal
         self.emission_frame = emission_frame
         self.cosmology = cosmology
         self.zmin = zmin
@@ -141,7 +147,7 @@ class HealPixMap(BasicSampler, HEALPix):
             return Lthre / (1 + redshift)**sip
         return Lthre
 
-    @method_decorator
+    @observation_method
     def altaz(self, observation):
         """
 
@@ -312,7 +318,7 @@ class HealPixMap(BasicSampler, HEALPix):
 
         return center, lower, upper
 
-    @method_decorator
+    @observation_method
     def maximum_redshift(self, observation, zmin=0, zmax=30,
                          spectral_index=0.0, snr=1, total=False,
                          channels=1, time=1*units.year, tolerance=1,
@@ -358,7 +364,7 @@ class HealPixMap(BasicSampler, HEALPix):
                                          total, channels, time, tolerance,
                                          eps)
 
-    @method_decorator
+    @observation_method
     def redshift_table(self, observation, spectral_index=0.0, snr=1,
                        total=False, channels=1, unit='1/year',
                        eps=1e-4):
@@ -396,7 +402,7 @@ class HealPixMap(BasicSampler, HEALPix):
         return self.get_redshift_table(sens, zmin, zmax, spectral_index,
                                        total, channels, unit, eps)
 
-    @method_decorator
+    @observation_method
     def redshift_rate(self, observation, spectral_index=0.0, snr=1,
                       total=False, channels=1, unit='1/year',
                       eps=1e-4):
@@ -554,7 +560,7 @@ class HealPixMap(BasicSampler, HEALPix):
         return observation.redshift_range(self.low_frequency,
                                           self.high_frequency)
 
-    @method_decorator
+    @observation_method
     def redshift_range(self, observation, channels=1):
 
         """
@@ -577,8 +583,8 @@ class HealPixMap(BasicSampler, HEALPix):
 
         return observation.get_noise(total, channels)
 
-    @method_decorator
-    @todense_decorator
+    @observation_method
+    @todense_option()
     def noise(self, observation, total=False, channels=1):
 
         """
@@ -611,8 +617,8 @@ class HealPixMap(BasicSampler, HEALPix):
         sensitivity.attrs['unit'] = noise.unit / freq_resp.unit
         return sensitivity
 
-    @method_decorator
-    @todense_decorator
+    @observation_method
+    @todense_option
     def sensitivity(self, observation, spectral_index=0.0,
                     total=False, channels=1):
 
@@ -719,23 +725,21 @@ class HealPixMap(BasicSampler, HEALPix):
                                      spectral_index, unit, eps)
         return rate_map.sum('PIXEL', keep_attrs=True)
 
-    def _si_rate_map(self, observation, spectral_index=0.0, snr=None,
+    @xarrayfy(snr=('SNR',))
+    def _si_rate_map(self, observation, spectral_index=0.0, snr=range(1, 11),
                      total=False, channels=1, unit='year', eps=1e-4):
-
-        s = numpy.arange(1, 11) if snr is None else snr
-        s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
 
         sensitivity = self._sensitivity(observation, spectral_index,
                                         total, channels)
 
-        sens = sensitivity * s
+        sens = sensitivity * snr
         sens.attrs = sensitivity.attrs
 
         zmin, zmax = self._redshift_range(observation)
 
         return self.get_rate_map(sens, zmin, zmax, spectral_index, unit, eps)
 
-    def _rate_map(self, observation, spectral_index=0.0, snr=None,
+    def _rate_map(self, observation, spectral_index=0.0, snr=range(1, 11),
                   total=False, channels=1, unit='year', eps=1e-4):
 
         spec_idxs = numpy.atleast_1d(spectral_index)
@@ -748,9 +752,9 @@ class HealPixMap(BasicSampler, HEALPix):
 
         return rates.squeeze()
 
-    @method_decorator
-    @todense_decorator
-    def rate_map(self, observation, spectral_index=0.0, snr=None,
+    @observation_method
+    @todense_option(False)
+    def rate_map(self, observation, spectral_index=0.0, snr=range(1, 11),
                  total=False, channels=1, unit='year', eps=1e-4):
 
         """
@@ -780,16 +784,16 @@ class HealPixMap(BasicSampler, HEALPix):
         return self._rate_map(observation, spectral_index, snr,
                               total, channels, unit, eps)
 
-    def _rate(self, observation, spectral_index=0.0, snr=None,
+    def _rate(self, observation, spectral_index=0.0, snr=range(1, 11),
               total=False, channels=1, unit='year', eps=1e-4):
 
         rate_map = self._rate_map(observation, spectral_index, snr,
                                   total, channels, unit, eps)
         return rate_map.sum('PIXEL', keep_attrs=True)
 
-    @method_decorator
-    @todense_decorator
-    def rate(self, observation, spectral_index=0.0, snr=None,
+    @observation_method
+    @todense_option()
+    def rate(self, observation, spectral_index=0.0, snr=range(1, 11),
              total=False, channels=1, unit='year', eps=1e-4):
 
         """
