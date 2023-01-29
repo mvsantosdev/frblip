@@ -37,8 +37,7 @@ from .decorators import observation_method, todense_option
 
 class FastRadioBursts(BasicSampler):
 
-    DISP_CONST = constants.e.emu**2 * constants.c
-    DISP_CONST = DISP_CONST / (2 * numpy.pi * constants.m_e)
+    KIND = 'FRB'
 
     def __init__(
         self,
@@ -84,13 +83,12 @@ class FastRadioBursts(BasicSampler):
 
         self._frb_rate(size)
         self._S0
-        self.kind = 'FRB'
 
         sys.stdout = old_target
 
     @default_units(
-        duration='day', log_L0='dex(erg / s)', log_Lstar='dex(erg / s)',
-        phistar='1 / (Gpc^3 yr)', ra_range='hourangle', dec_range='deg',
+        duration='day', log_L0='dex(erg s^-1)', log_Lstar='dex(erg s^-1)',
+        phistar='Gpc^-3 yr^-1', ra_range='hourangle', dec_range='deg',
         low_frequency='MHz', high_frequency='MHz', low_frequency_cal='MHz',
         high_frequency_cal='MHz'
     )
@@ -235,9 +233,19 @@ class FastRadioBursts(BasicSampler):
                 yield self[i:j]
 
     @cached_property
+    @default_units('pc^2 MHz')
+    def disperse_constant(self):
+
+        e = constants.e.emu
+        c = constants.c
+        m_e = constants.m_e
+
+        return e**2 * c / m_e / 2 / numpy.pi
+
+    @cached_property
     def _cosmology(self) -> Cosmology:
         kw = {
-            'name': self.cosmology,
+            'source': self.cosmology,
             'free_electron_bias': self.free_electron_bias
         }
         return Cosmology(**kw)
@@ -257,10 +265,11 @@ class FastRadioBursts(BasicSampler):
         return Schechter(self._xmin, self.gamma)
 
     @cached_property
+    @default_units('day^-1')
     def sky_rate(self) -> units.Quantity:
         Lum = self.phistar / self._lumdist.pdf_norm
         Vol = 1 / self._zdist.pdf_norm
-        return (Lum * Vol).to('1 / day')
+        return Lum * Vol
 
     @cached_property
     def redshift(self) -> numpy.ndarray:
@@ -268,16 +277,18 @@ class FastRadioBursts(BasicSampler):
         return self._zdist.rvs(size=self.size)
 
     @cached_property
+    @default_units('dex(erg s^-1)')
     def log_luminosity(self) -> units.Quantity:
 
         loglum = self._lumdist.log_rvs(size=self.size)
         return loglum * units.LogUnit() + self.log_Lstar
 
     @cached_property
+    @default_units('ms')
     def pulse_width(self) -> units.Quantity:
 
         width = random.lognormal(self.w_mean, self.w_std, size=self.size)
-        return (width * units.s).to('ms')
+        return width * units.s
 
     @cached_property
     def emitted_pulse_width(self) -> units.Quantity:
@@ -314,19 +325,22 @@ class FastRadioBursts(BasicSampler):
         return Area.to('deg^2')
 
     @cached_property
+    @default_units('Mpc')
     def luminosity_distance(self) -> units.Quantity:
         z = self.redshift
         return self._cosmology.luminosity_distance(z)
 
     @cached_property
+    @default_units('erg s^-1')
     def _luminosity(self) -> units.Quantity:
-        return self.log_luminosity.to('erg / s')
+        return self.log_luminosity
 
     @cached_property
+    @default_units('Jy MHz')
     def flux(self) -> units.Quantity:
 
         surface = 4 * numpy.pi * self.luminosity_distance**2
-        return (self._luminosity / surface).to('Jy MHz')
+        return self._luminosity / surface
 
     @cached_property
     def _S0(self) -> units.Quantity:
@@ -404,6 +418,7 @@ class FastRadioBursts(BasicSampler):
     def _frb_rate(self, size: int | None = None):
 
         if isinstance(size, int):
+
             self.size = size
             self.rate = size / self.duration
 
@@ -623,16 +638,16 @@ class FastRadioBursts(BasicSampler):
         triggers = self._triggers(observation, snr, total, channels)
         return triggers.sum('FRB')
 
-    @default_units(nu='MHz', DM='pc / cm^3')
+    @default_units('ms', nu='MHz', DM='pc cm^-3')
     def disperse(self, nu, DM):
-        return (self.DISP_CONST * DM / nu**2).to('ms')
+        return self.disperse_constant * DM / nu**2
 
-    @default_units(t='ms', w='ms', t0='ms')
+    @default_units('', t='ms', w='ms', t0='ms')
     def gaussian(self, t, w, t0=0.0):
         z = (t - t0) / w
         return numpy.exp(- z**2 / 2)
 
-    @default_units(t='ms', w='ms', ts='ms', t0='ms')
+    @default_units('', t='ms', w='ms', ts='ms', t0='ms')
     def scattered_gaussian(t, w, ts, t0=0.0):
 
         x = .5 * (w / ts)**2

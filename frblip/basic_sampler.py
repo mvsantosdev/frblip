@@ -104,7 +104,7 @@ class BasicSampler(object):
 
         mask = altaz.alt > 0
 
-        dims = self.kind, obs_name
+        dims = self.KIND, obs_name
 
         resp = telescope.response(altaz[mask])
         shape = self.size, *resp.shape[1:]

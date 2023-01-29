@@ -46,7 +46,10 @@ def fixargs(function, *args, **kwargs):
     return kwargs
 
 
-def default_units(**units):
+def default_units(
+    output_unit: str | Unit | Quantity | None = None,
+    **units
+):
 
     def inner_decorator(function):
 
@@ -57,22 +60,34 @@ def default_units(**units):
 
             for name, unit in units.items():
 
+                un = Unit(unit)
+
                 value = kwargs[name]
                 if value is None:
                     kwargs[name] = value
-                elif hasattr(value, 'unit'):
-                    kwargs[name] = value.to(unit)
+                elif isinstance(value, Quantity):
+                    kwargs[name] = value.to(un)
                 elif isinstance(value, str):
                     value = Quantity(value)
-                    kwargs[name] = value.to(unit)
+                    kwargs[name] = value.to(un)
                 else:
-                    if isinstance(unit, str):
-                        kwargs[name] = value * Unit(unit)
-                    else:
-                        kwargs[name] = value * unit
+                    kwargs[name] = value * un
 
             source = kwargs.pop('self')
-            return function(source, **kwargs)
+            output = function(source, **kwargs)
+
+            if output_unit is None:
+                return output
+            elif isinstance(output_unit, (str, Unit)):
+
+                un = Unit(output_unit)
+
+                if isinstance(output, Quantity):
+                    return output.to(un)
+                elif isinstance(output, (numpy.ndarray, float, int)):
+                    return output * un
+            else:
+                raise TypeError(f'{output_unit} is not a valid astropy unit.')
 
         return wrapper
 
@@ -151,7 +166,7 @@ def observation_method(method):
     return wrapper
 
 
-def from_file(default_folder):
+def from_source(default_folder='', default_dict=None):
 
     def inner_decorator(function):
 
@@ -159,31 +174,41 @@ def from_file(default_folder):
         def wrapper(*args, **kwargs):
 
             kwargs = fixargs(function, *args, **kwargs)
-            name = kwargs.get('name')
+            source = kwargs.get('source')
 
-            if name is None:
-                return function(**kwargs)
+            if isinstance(source, dict):
 
-            folder, file_name = os.path.split(name)
-            _, ext = os.path.splitext(file_name)
+                input_dict = source
 
-            if (folder, ext) == ('', ''):
-                pattern = '{}/{}*'.format(default_folder, file_name)
-                paths = glob(pattern)
-                if len(paths) != 1:
-                    raise FileNotFoundError(pattern)
-                [name] = paths
+            elif isinstance(default_dict, dict) and (source in default_dict):
 
-                _, ext = os.path.splitext(name)
+                input_dict = default_dict.get(source)
 
-            if ext == '.pkl':
-                file = bz2.BZ2File(name, 'rb')
-                input_dict = dill.load(file)
-                file.close()
-            elif ext == '.json':
-                file = open(name, 'r')
-                input_dict = json.load(file)
-                file.close()
+            else:
+
+                if source is None:
+                    return function(**kwargs)
+
+                folder, file_name = os.path.split(source)
+                _, ext = os.path.splitext(file_name)
+
+                if (folder, ext) == ('', ''):
+                    pattern = '{}/{}*'.format(default_folder, file_name)
+                    paths = glob(pattern)
+                    if len(paths) != 1:
+                        raise FileNotFoundError(pattern)
+                    [source] = paths
+
+                    _, ext = os.path.splitext(source)
+
+                if ext == '.pkl':
+                    file = bz2.BZ2File(source, 'rb')
+                    input_dict = dill.load(file)
+                    file.close()
+                elif ext == '.json':
+                    file = open(source, 'r')
+                    input_dict = json.load(file)
+                    file.close()
 
             kwargs.update(input_dict)
 

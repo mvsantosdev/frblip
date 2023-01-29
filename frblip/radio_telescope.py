@@ -16,7 +16,7 @@ from astropy.coordinates.matrix_utilities import rotation_matrix
 from .grid import CartesianGrid
 from .pattern import FunctionalPattern
 
-from .decorators import from_file, default_units
+from .decorators import from_source, default_units
 
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))
@@ -33,10 +33,10 @@ class RadioTelescope(object):
         '2bit-digital': 1.58
     }
 
-    @from_file(_DATA)
+    @from_source(_DATA)
     def __init__(
         self,
-        name: str | None = 'bingo',
+        source: str | dict | None = 'bingo',
         az: units.Quantity | float = 0.0,
         alt: units.Quantity | float = 90.0,
         lat: units.Quantity | float = 90.0,

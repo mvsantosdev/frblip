@@ -6,6 +6,8 @@ from functools import cached_property
 
 from scipy.integrate import quad
 
+from .decorators import default_units, from_source
+
 
 class Cosmology(pyccl.Cosmology):
 
@@ -27,22 +29,54 @@ class Cosmology(pyccl.Cosmology):
         )
     }
 
+    @from_source(default_dict=DEFAULT_PARAMS)
     def __init__(
         self,
-        name: str = 'Planck_18',
+        source: str = 'Planck_18',
         free_electron_bias: str = 'Takahashi2021',
-        **kwargs
+        Omega_c: float = 0.261,
+        Omega_b: float = 0.049,
+        h: float = 0.6766,
+        n_s: float = 0.9665,
+        sigma8: float | None = 0.8102,
+        Omega_k: float | None = 0.0,
+        Neff: float | None = 3.046,
+        T_CMB: float = 2.7255,
+        A_s: float | None = None,
+        Omega_g: float | None = None,
+        m_nu: float | None = 0.0,
+        m_nu_type: float | None = None,
+        w0: float | None = -1.0,
+        wa: float | None = 0.0,
+        bcm_log10Mc: float | None = 14.079181246047625,
+        bcm_etab: float | None = 0.5,
+        bcm_ks: float | None = 55.0,
+        mu_0: float | None = 0.0,
+        sigma_0: float | None = 0.0,
+        c1_mg: float | None = 1.0,
+        c2_mg: float | None = 1.0,
+        lambda_mg: float | None = 0.0,
+        z_mg: float | None = None,
+        df_mg: float | None = None,
+        transfer_function: str | None = 'boltzmann_camb',
+        matter_power_spectrum: str | None = 'halofit',
+        baryons_power_spectrum: str | None = 'nobaryons',
+        mass_function: str | None = 'tinker10',
+        halo_concentration: str | None = 'duffy2008',
+        emulator_neutrinos: str | None = 'strict',
+        extra_parameters: dict | None = None
     ):
 
-        kw = self.DEFAULT_PARAMS[name]
-        kw.update(kwargs)
+        super().__init__(
+            Omega_c, Omega_b, h, n_s, sigma8, A_s, Omega_k, Omega_g,
+            Neff, m_nu, m_nu_type, w0, wa, T_CMB, bcm_log10Mc, bcm_etab,
+            bcm_ks, mu_0, sigma_0, c1_mg, c2_mg, lambda_mg, z_mg, df_mg,
+            transfer_function, matter_power_spectrum, baryons_power_spectrum,
+            mass_function, halo_concentration, emulator_neutrinos,
+            extra_parameters
+        )
 
-        super().__init__(**kw)
-        self.__dict__.update(kw)
-
-        self.H0 = 100 * self.h * units.km / units.s / units.Mpc
-        self.m_nu = self.m_nu * units.eV
-        self.T_CMB = self.T_CMB * units.K
+        self._load_params(h, m_nu, T_CMB, Omega_b)
 
         if isinstance(free_electron_bias, str):
             func_name = f'_{free_electron_bias.lower()}'
@@ -51,6 +85,19 @@ class Cosmology(pyccl.Cosmology):
             self._free_electrons_bias = self._constant_ebias
             self._eb = free_electron_bias
 
+    @default_units(h='km s^-1 Mpc^-1', m_nu='eV', T_CMB='K')
+    def _load_params(
+        self,
+        h: float | units.Quantity,
+        m_nu: float | units.Quantity,
+        T_CMB: float | units.Quantity,
+        Omega_b: float
+    ):
+        self.H0 = 100 * h
+        self.m_nu = m_nu
+        self.T_CMB = T_CMB
+        self.Omega_b = Omega_b
+
     def scale_factor(
         self,
         z: float | numpy.ndarray
@@ -58,32 +105,32 @@ class Cosmology(pyccl.Cosmology):
 
         return 1 / (1 + z)
 
+    @default_units('Mpc')
     def luminosity_distance(
         self,
         z: float | numpy.ndarray
     ) -> units.Quantity:
 
         a = self.scale_factor(z)
-        d = super().luminosity_distance(a)
-        return d * units.Mpc
+        return super().luminosity_distance(a)
 
+    @default_units('Mpc')
     def comoving_radial_distance(
         self,
         z: float | numpy.ndarray
     ) -> units.Quantity:
 
         a = self.scale_factor(z)
-        d = super().comoving_radial_distance(a)
-        return d * units.Mpc
+        return super().comoving_radial_distance(a)
 
+    @default_units('Mpc')
     def angular_diameter_distance(
         self,
         z: float | numpy.ndarray
     ) -> units.Quantity:
 
         a = self.scale_factor(z)
-        d = super().angular_diameter_distance(a)
-        return d * units.Mpc
+        return super().angular_diameter_distance(a)
 
     def h_over_h0(
         self,
@@ -111,7 +158,7 @@ class Cosmology(pyccl.Cosmology):
 
     def _takahashi2021(
         self,
-        k: units.Quantity,
+        k: float | numpy.ndarray | units.Quantity,
         z: float | numpy.ndarray = 0
     ) -> units.Quantity:
 
@@ -122,23 +169,23 @@ class Cosmology(pyccl.Cosmology):
 
     def _constant_ebias(
         self,
-        k: units.Quantity,
+        k: float | numpy.ndarray | units.Quantity,
         z: float | numpy.ndarray = 0
     ) -> float:
         return self._eb
 
+    @default_units(k='Mpc^-1')
     def free_electrons_bias(
         self,
-        k: units.Quantity,
+        k: float | numpy.ndarray | units.Quantity,
         z: float | numpy.ndarray = 0
     ) -> numpy.ndarray | float:
 
-        ki = k / units.Mpc
-        return self._ebias(ki, z)
+        return self._ebias(k.value, z)
 
     def _linear_matter_power(
         self,
-        k: units.Quantity,
+        k: float | numpy.ndarray,
         z: float | numpy.ndarray = 0
     ) -> units.Quantity:
 
@@ -147,7 +194,7 @@ class Cosmology(pyccl.Cosmology):
 
     def _nonlin_matter_power(
         self,
-        k: units.Quantity,
+        k: float | numpy.ndarray,
         z: float | numpy.ndarray = 0
     ) -> units.Quantity:
 
@@ -156,7 +203,7 @@ class Cosmology(pyccl.Cosmology):
 
     def _linear_power(
         self,
-        k: units.Quantity,
+        k: float | numpy.ndarray,
         z: float | numpy.ndarray = 0
     ) -> units.Quantity:
 
@@ -165,56 +212,16 @@ class Cosmology(pyccl.Cosmology):
 
     def _nonlin_power(
         self,
-        k: units.Quantity,
+        k: float | numpy.ndarray,
         z: float | numpy.ndarray = 0
     ) -> units.Quantity:
 
         a = self.scale_factor(z)
         return super().nonlin_power(k, a)
 
-    def linear_matter_power(
-        self,
-        k: units.Quantity,
-        z: float | numpy.ndarray = 0
-    ) -> units.Quantity:
-
-        k = k * units.Mpc
-        P = self._linear_matter_power(k, z)
-        return P * units.Mpc**3
-
-    def nonlin_matter_power(
-        self,
-        k: units.Quantity,
-        z: float | numpy.ndarray = 0
-    ) -> units.Quantity:
-
-        k = k * units.Mpc
-        P = self._nonlin_matter_power(k, z)
-        return P * units.Mpc**3
-
-    def linear_power(
-        self,
-        k: units.Quantity,
-        z: float | numpy.ndarray = 0
-    ) -> units.Quantity:
-
-        k = k * units.Mpc
-        P = self._linear_power(k, z)
-        return P * units.Mpc**3
-
-    def nonlin_power(
-        self,
-        k: units.Quantity,
-        z: float | numpy.ndarray = 0
-    ) -> units.Quantity:
-
-        k = k * units.Mpc
-        P = self._nonlin_power(k, z)
-        return P * units.Mpc**3
-
     def _nonlin_electron_power(
         self,
-        k: units.Quantity,
+        k: float | numpy.ndarray | units.Quantity,
         z: float | numpy.ndarray = 0
     ) -> units.Quantity:
 
@@ -222,15 +229,50 @@ class Cosmology(pyccl.Cosmology):
         P = self._nonlin_power(k, z)
         return be * P
 
-    def nonlin_electron_power(
+    @default_units('Mpc^3', k='Mpc^-1')
+    def linear_matter_power(
         self,
-        k: units.Quantity,
+        k: float | numpy.ndarray | units.Quantity,
         z: float | numpy.ndarray = 0
     ) -> units.Quantity:
 
-        ki = k * units.Mpc
-        P = self._nonlin_electron_power(ki, z)
-        return P * units.Mpc**3
+        return self._linear_matter_power(k.value, z)
+
+    @default_units('Mpc^3', k='Mpc^-1')
+    def nonlin_matter_power(
+        self,
+        k: float | numpy.ndarray | units.Quantity,
+        z: float | numpy.ndarray = 0
+    ) -> units.Quantity:
+
+        return self._nonlin_matter_power(k.value, z)
+
+    @default_units('Mpc^3', k='Mpc^-1')
+    def linear_power(
+        self,
+        k: float | numpy.ndarray | units.Quantity,
+        z: float | numpy.ndarray = 0
+    ) -> units.Quantity:
+
+        return self._linear_power(k.value, z)
+
+    @default_units('Mpc^3', k='Mpc^-1')
+    def nonlin_power(
+        self,
+        k: float | numpy.ndarray | units.Quantity,
+        z: float | numpy.ndarray = 0
+    ) -> units.Quantity:
+
+        return self._nonlin_power(k.value, z)
+
+    @default_units('Mpc^3', k='Mpc^-1')
+    def nonlin_electron_power(
+        self,
+        k: float | numpy.ndarray | units.Quantity,
+        z: float | numpy.ndarray = 0
+    ) -> units.Quantity:
+
+        return self._nonlin_electron_power(k.value, z)
 
     def _dm_igm_integral(
         self,
@@ -257,6 +299,7 @@ class Cosmology(pyccl.Cosmology):
                                excluded=['kmin', 'kmax'])
         return func(z, kmin, kmax) * unit / (2 * numpy.pi)
 
+    @default_units('km s^-1 Mpc^-1')
     def Hubble(
         self,
         z: numpy.ndarray | float
@@ -265,6 +308,7 @@ class Cosmology(pyccl.Cosmology):
         E = self.h_over_h0(z)
         return self.H0 * E
 
+    @default_units('Mpc^3 sr^-1')
     def differential_comoving_volume(
         self,
         z: numpy.ndarray | float
@@ -272,9 +316,9 @@ class Cosmology(pyccl.Cosmology):
 
         r = self.comoving_radial_distance(z)
         Dh = constants.c / self.Hubble(z)
-        dcoVol = (Dh * r**2).to(units.Mpc**3)
-        return dcoVol / units.sr
+        return Dh * r**2 / units.sr
 
+    @default_units('Msun yr^-1 Mpc^-3')
     def star_formation_rate(
         self,
         z: numpy.ndarray | float
@@ -282,10 +326,7 @@ class Cosmology(pyccl.Cosmology):
 
         num = 0.017 + 0.13 * z
         dem = 1 + (z / 3.3)**5.3
-        unit = units.Msun / units.yr / units.Mpc**3
-        sfr = (num / dem) * unit
-
-        return sfr
+        return num / dem
 
     @cached_property
     def sfr0(self) -> units.Quantity:
@@ -293,21 +334,21 @@ class Cosmology(pyccl.Cosmology):
         return self.star_formation_rate(0)
 
     @cached_property
+    @default_units('g cm^-3')
     def critical_density0(self) -> units.Quantity:
 
-        rho_c0 = 3 * self.H0**2 / (8 * numpy.pi * constants.G)
-        return rho_c0.to(units.g / units.cm**3)
+        return 3 * self.H0**2 / (8 * numpy.pi * constants.G)
 
     @cached_property
+    @default_units('Mpc')
     def hubble_distance(self) -> units.Quantity:
 
-        Dh = constants.c / self.H0
-        return Dh.to(units.Mpc)
+        return constants.c / self.H0
 
     @cached_property
+    @default_units('cm^-3')
     def baryon_number_density(self) -> units.Quantity:
 
         Omega_b = self.Omega_b
         rho_c0 = self.critical_density0
-        n = Omega_b * rho_c0 / constants.m_p
-        return n.to(1 / units.cm**3)
+        return Omega_b * rho_c0 / constants.m_p

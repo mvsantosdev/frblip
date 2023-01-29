@@ -23,6 +23,8 @@ from .observation import Observation
 
 class SensitivityMap(BasicSampler, HEALPix):
 
+    KIND = 'PIXEL'
+
     def __init__(
         self,
         nside: int = 128,
@@ -47,8 +49,6 @@ class SensitivityMap(BasicSampler, HEALPix):
                           low_frequency, high_frequency,
                           low_frequency_cal, high_frequency_cal,
                           emission_frame, cosmology, zmin, zmax)
-
-        self.kind = 'PIXEL'
 
     @default_units(
         log_L0='dex(erg / s)', log_Lstar='dex(erg / s)',
