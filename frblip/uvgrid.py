@@ -6,9 +6,11 @@ from .basic_sampler import BasicSampler
 
 
 class UVGrid(BasicSampler):
-    """ """
 
-    def __init__(self, urange=(-1, 1), vrange=(-1, 1), nu=201, nv=201):
+    def __init__(self,
+                 urange: tuple[float, float] = (-1, 1),
+                 vrange: tuple[float, float] = (-1, 1),
+                 nu=201, nv=201):
 
         self.urange = urange
         self.vrange = vrange
@@ -25,11 +27,10 @@ class UVGrid(BasicSampler):
 
     @property
     def size(self):
-        """ """
+
         return self.nu * self.nv
 
     def polar(self):
-        """ """
 
         q = numpy.arctan2(self.v, self.u)
         r = numpy.sqrt(self.v**2 + self.u**2)
@@ -38,19 +39,6 @@ class UVGrid(BasicSampler):
 
     @numpy.errstate(invalid='ignore')
     def altaz_from_location(self, location=None, interp=300):
-        """
-
-        Parameters
-        ----------
-        location :
-             (Default value = None)
-        interp :
-             (Default value = 300)
-
-        Returns
-        -------
-
-        """
 
         u = self.u.ravel()
         v = self.v.ravel()
@@ -64,23 +52,6 @@ class UVGrid(BasicSampler):
         return coordinates.AltAz(alt=alt, az=az)
 
     def _sensitivity(self, name, spectral_index=0.0, total=False, channels=1):
-        """
-
-        Parameters
-        ----------
-        name :
-
-        spectral_index :
-             (Default value = 0.0)
-        total :
-             (Default value = False)
-        channels :
-             (Default value = 1)
-
-        Returns
-        -------
-
-        """
 
         observation = self[name]
         spec_idx = numpy.full(self.size, spectral_index)
@@ -92,21 +63,6 @@ class UVGrid(BasicSampler):
         return sensitivity
 
     def _noise(self, name, total=False, channels=1):
-        """
-
-        Parameters
-        ----------
-        name :
-
-        total :
-             (Default value = False)
-        channels :
-             (Default value = 1)
-
-        Returns
-        -------
-
-        """
 
         observation = self[name]
         return observation.get_noise(total, channels)

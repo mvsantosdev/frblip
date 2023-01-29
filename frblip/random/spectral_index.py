@@ -14,16 +14,19 @@ galactic_edge = 30 * units.kpc
 
 
 class SpectralIndex():
-    """ """
 
-    def __init__(self, params, source='spec_idx'):
+    def __init__(
+        self,
+        params: tuple[float, float],
+        source: str = 'spec_idx'
+    ):
 
         if isinstance(params, tuple):
             self.si_min, self.si_max = params
-            self.rvs = self.__uniform
+            self.rvs = self._uniform
         elif isinstance(params, (float, int)):
             self.spectral_index = params
-            self.rvs = self.__constant
+            self.rvs = self._constant
         elif isinstance(params, str):
             path = '{}/{}.csv'.format(_DATA, source)
             df = pandas.read_csv(path, index_col=[0, 1])
@@ -31,14 +34,14 @@ class SpectralIndex():
             scale = df.loc['scale', params].values
             weight = df.loc['weight', params].values
             self.mixture = Mixture(loc, scale, weight)
-            self.rvs = self.__mixture
+            self.rvs = self._mixture
 
-    def __uniform(self, size):
+    def _uniform(self, size: int) -> numpy.ndarray:
         return numpy.random.uniform(self.si_min, self.si_max,
                                     size=size)
 
-    def __constant(self, size):
+    def _constant(self, size: int) -> numpy.ndarray:
         return numpy.full(size, self.spectral_index)
 
-    def __mixture(self, size):
+    def _mixture(self, size: int) -> numpy.ndarray:
         return self.mixture.rvs(size=size)

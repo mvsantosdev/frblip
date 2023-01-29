@@ -5,9 +5,13 @@ from scipy.integrate import quad, cumtrapz
 
 
 class Schechter(rv_continuous):
-    """ """
 
-    def __init__(self, xmin, gamma, eps=1e-3):
+    def __init__(
+        self,
+        xmin: float,
+        gamma: float,
+        eps: float = 1e-3
+    ):
 
         super().__init__()
         self.xmin = xmin
@@ -28,157 +32,47 @@ class Schechter(rv_continuous):
         self.cdf_grid = cumtrapz(x=self.xgrid, y=pdf, initial=0.0)
         self.isf_grid = 1 - self.cdf_grid
 
-    def _get_support(self):
-        """ """
+    def _get_support(self) -> tuple[float, float]:
+
         return self.xmin, self.xmax
 
-    def schechter(self, x):
-        """
+    def schechter(self, x: numpy.ndarray) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        x : float
-            x = Luminosity / Lstar
-
-        Returns
-        -------
-
-
-        """
         return x**self.gamma * numpy.exp(-x)
 
-    def _pdf(self, x):
-        """
+    def _pdf(self, x: numpy.ndarray) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        x : float
-            x = Luminosity / Lstar
-
-        Returns
-        -------
-
-
-        """
         return self.pdf_norm * self.schechter(x)
 
-    def _logpdf(self, x):
-        """
+    def _logpdf(self, x: numpy.ndarray) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        x : float
-            x = Luminosity / Lstar
-
-        Returns
-        -------
-
-
-        """
         return numpy.log(self._pdf(x))
 
-    def _cdf(self, x):
-        """
+    def _cdf(self, x: numpy.ndarray) -> float:
 
-        Parameters
-        ----------
-        x : float
-            x = Luminosity / Lstar
-
-        Returns
-        -------
-
-
-        """
         return numpy.interp(x=x, xp=self.xgrid, fp=self.cdf_grid)
 
-    def _logcdf(self, x):
-        """
+    def _logcdf(self, x: numpy.ndarray) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        x : float
-            x = Luminosity / Lstar
-
-        Returns
-        -------
-
-
-        """
         return numpy.log(self._cdf(x))
 
-    def _sf(self, x):
-        """
+    def _sf(self, x: numpy.ndarray) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        x : float
-            x = Luminosity / Lstar
-
-        Returns
-        -------
-
-
-        """
         return 1 - self._cdf(x)
 
-    def _logsf(self, x):
-        """
+    def _logsf(self, x: numpy.ndarray) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        x : float
-            x = Luminosity / Lstar
-
-        Returns
-        -------
-
-
-        """
         return numpy.log(self._sf(x))
 
-    def _ppf(self, u):
-        """
+    def _ppf(self, u: numpy.ndarray) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        u :
-
-
-        Returns
-        -------
-
-
-        """
         return numpy.interp(x=u, xp=self.cdf_grid, fp=self.xgrid)
 
-    def _isf(self, u):
-        """
+    def _isf(self, u: numpy.ndarray) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        u :
-
-
-        Returns
-        -------
-
-
-        """
         return numpy.interp(x=u, xp=self.isf_grid, fp=self.xgrid)
 
-    def log_rvs(self, size):
-        """
+    def log_rvs(self, size: tuple[int]) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        size :
-
-
-        Returns
-        -------
-
-
-        """
         sample = self.rvs(size=size)
         return numpy.log10(sample)

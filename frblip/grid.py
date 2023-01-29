@@ -6,7 +6,6 @@ from scipy.interpolate import RectBivariateSpline
 
 
 class CartesianGrid(object):
-    """ """
 
     def __init__(self, grid, xrange, yrange, alt=90, az=0.0):
 
@@ -79,20 +78,6 @@ class CartesianGrid(object):
             ])
 
     def set_directions(self, alt, az):
-        """
-
-        Parameters
-        ----------
-        alt :
-
-        az :
-
-
-        Returns
-        -------
-
-
-        """
 
         altaz = coordinates.AltAz(alt=alt, az=az)
         self.offsets = coordinates.SkyOffsetFrame(origin=altaz)

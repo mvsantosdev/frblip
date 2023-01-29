@@ -5,6 +5,8 @@ import warnings
 from astropy import units
 from pygedm import generate_healpix_dm_map
 
+from ...decorators import default_units
+
 _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = _ROOT.replace('random/dispersion_measure', 'data')
 
@@ -13,9 +15,12 @@ galactic_edge = 30 * units.kpc
 
 
 class GalacticDM():
-    """ """
 
-    def __init__(self, nside=128, method='yt2020_analytic'):
+    def __init__(
+        self,
+        nside: int = 128,
+        method: str = 'yt2020_analytic'
+    ):
 
         self.nside = nside
         self.method = method
@@ -29,7 +34,12 @@ class GalacticDM():
 
             warnings.warn(warning_message)
 
-    def __call__(self, gl, gb):
+    @default_units(gl='deg', gb='deg')
+    def __call__(
+        self,
+        gl: units.Quantity | float,
+        gb: units.Quantity | float
+    ) -> units.Quantity:
 
         if not hasattr(self, 'dm_map'):
             path = '{}/{}_{}.npy'.format(_DATA, self.method, self.nside)
@@ -41,6 +51,6 @@ class GalacticDM():
                                                       self.method)
                 numpy.save(path, self.dm_map, allow_pickle=True)
 
-        dm_gal = healpy.get_interp_val(self.dm_map, gl.value,
-                                       gb.value, lonlat=True)
+        dm_gal = healpy.get_interp_val(self.dm_map, gl.value, gb.value,
+                                       lonlat=True)
         return unit * dm_gal

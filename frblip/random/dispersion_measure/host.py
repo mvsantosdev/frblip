@@ -16,10 +16,14 @@ galactic_edge = 30 * units.kpc
 
 
 class HostGalaxyDM():
-    """ """
 
-    def __init__(self, source='luo18', model=('ALG', 'YMW16'),
-                 cosmology='Planck_18', dist='lognormal'):
+    def __init__(
+        self,
+        source: str = 'luo18',
+        model: tuple[str, str] = ('ALG', 'YMW16'),
+        cosmology: str = 'Planck_18',
+        dist: str = 'lognormal'
+    ):
 
         path = '{}/{}_host.csv'.format(_DATA, source)
 
@@ -38,19 +42,19 @@ class HostGalaxyDM():
         key = '_{}'.format(dist)
         self._dist = getattr(self, key)
 
-    def _lognormal(self, z):
+    def _lognormal(self, z: numpy.ndarray) -> units.Quantity:
         logDM0 = self.mixture.rvs(size=z.shape)
         sfr = self.cosmology.star_formation_rate(z)
         sfr_ratio = numpy.sqrt(sfr / self.cosmology.sfr0)
 
         return sfr_ratio * (10**logDM0) * unit
 
-    def _normal(self, z):
+    def _normal(self, z: numpy.ndarray) -> units.Quantity:
         DM0 = self.mixture.rvs(size=z.shape)
         sfr = self.cosmology.star_formation_rate(z)
         sfr_ratio = numpy.sqrt(sfr / self.cosmology.sfr0)
 
         return sfr_ratio * DM0 * unit
 
-    def __call__(self, z):
+    def __call__(self, z: numpy.ndarray) -> units.Quantity:
         return self._dist(z)

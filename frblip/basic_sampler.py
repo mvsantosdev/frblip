@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import sys
 import types
@@ -12,20 +14,24 @@ from sparse import COO
 
 from operator import itemgetter
 
+from astropy.time import Time
 from astropy import units, constants, coordinates
 from astropy.coordinates.erfa_astrom import erfa_astrom
 from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
 
+from .radio_telescope import RadioTelescope
 from .observation import Observation, Interferometry
 
 
 class BasicSampler(object):
-    """ """
 
     def __len__(self):
         return self.size
 
-    def __getitem__(self, keys):
+    def __getitem__(
+        self,
+        keys: str
+    ) -> Observation | tuple[Observation] | None:
 
         if isinstance(keys, str):
             return self.observations[keys]
@@ -34,18 +40,10 @@ class BasicSampler(object):
             return itemgetter(*keys)(self.observations)
         return None
 
-    def obstime(self, location):
-        """
-
-        Parameters
-        ----------
-        location :
-
-
-        Returns
-        -------
-
-        """
+    def obstime(
+        self,
+        location: coordinates.EarthLocation
+    ) -> Time:
 
         loc = location.get_itrs()
         loc = loc.cartesian.xyz
@@ -55,20 +53,11 @@ class BasicSampler(object):
 
         return self.time - time_delay
 
-    def altaz_from_location(self, location, interp=300):
-        """
-
-        Parameters
-        ----------
-        location :
-
-        interp :
-             (Default value = 300)
-
-        Returns
-        -------
-
-        """
+    def altaz_from_location(
+        self,
+        location: coordinates.EarthLocation,
+        interp: int = 300
+    ) -> coordinates.SkyCoord:
 
         lon = location.lon
         lat = location.lat
@@ -87,7 +76,13 @@ class BasicSampler(object):
         with erfa_astrom.set(ErfaAstromInterpolator(interp_time)):
             return self.icrs.transform_to(frame)
 
-    def _observe(self, telescope, name=None, sparse=True, dtype=numpy.double):
+    def _observe(
+        self,
+        telescope: RadioTelescope,
+        name: str = None,
+        sparse: bool = True,
+        dtype: type = numpy.double
+    ):
 
         print('Performing observation for telescope {}...'.format(name))
 
@@ -138,29 +133,15 @@ class BasicSampler(object):
 
         self.observations[obs_name] = observation
 
-    def observe(self, telescopes, name=None, location=None,
-                sparse=True, dtype=numpy.double, verbose=True):
-        """
-
-        Parameters
-        ----------
-        telescopes :
-
-        name :
-             (Default value = None)
-        location :
-             (Default value = None)
-        sparse :
-             (Default value = True)
-        dtype :
-             (Default value = numpy.double)
-        verbose :
-             (Default value = True)
-
-        Returns
-        -------
-
-        """
+    def observe(
+        self,
+        telescopes: RadioTelescope | dict[str, RadioTelescope],
+        name: str | None = None,
+        location: coordinates.EarthLocation | None = None,
+        sparse: bool = True,
+        dtype: type = numpy.double,
+        verbose: bool = True
+    ):
 
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
@@ -186,27 +167,14 @@ class BasicSampler(object):
 
         sys.stdout = old_target
 
-    def interferometry(self, namei, namej=None, reference=False,
-                       degradation=None, overwrite=False):
-        """
-
-        Parameters
-        ----------
-        namei :
-
-        namej :
-             (Default value = None)
-        reference :
-             (Default value = False)
-        degradation :
-             (Default value = None)
-        overwrite :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
+    def interferometry(
+        self,
+        namei: str,
+        namej: str | None = None,
+        reference: bool = False,
+        degradation: float | int | tuple[float] | None = None,
+        overwrite=False
+    ):
 
         if reference:
             names = [
@@ -227,49 +195,27 @@ class BasicSampler(object):
                 interferometry = Interferometry(obsi, obsj, degradation)
                 self.observations[key] = interferometry
             else:
-                warning_message = '{} is already computed. '.format(key) + \
-                                  'You may set overwrite=True to recompute.'
+                warning_message = f'{key} is already computed.\n'
+                warning_message += 'You may set overwrite=True to recompute.'
                 warnings.warn(warning_message)
 
-    def iterfrbs(self, start=0, stop=None, step=1):
-        """
-
-        Parameters
-        ----------
-        start :
-             (Default value = 0)
-        stop :
-             (Default value = None)
-        step :
-             (Default value = 1)
-
-        Returns
-        -------
-
-        """
+    def iterfrbs(
+        self, start: int = 0,
+        stop: int | None = None,
+        step: int = 1
+    ) -> BasicSampler:
 
         stop = self.size if stop is None else stop
         for i in range(start, stop, step):
             yield self[i]
 
-    def iterchunks(self, size=1, start=0, stop=None, retindex=False):
-        """
-
-        Parameters
-        ----------
-        size :
-             (Default value = 1)
-        start :
-             (Default value = 0)
-        stop :
-             (Default value = None)
-        retindex :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
+    def iterchunks(
+        self,
+        size: int = 1,
+        start: int = 0,
+        stop: int | None = None,
+        retindex: bool = False
+    ) -> BasicSampler:
 
         stop = self.size if stop is None else stop
 
@@ -282,18 +228,7 @@ class BasicSampler(object):
                 j = i + size
                 yield self[i:j]
 
-    def clean(self, names=None):
-        """
-
-        Parameters
-        ----------
-        names :
-             (Default value = None)
-
-        Returns
-        -------
-
-        """
+    def clean(self, names: str = None):
 
         if hasattr(self, 'observations'):
             if names is None:
@@ -304,18 +239,7 @@ class BasicSampler(object):
                 for name in names:
                     del self.observations[name]
 
-    def copy(self, clear=False):
-        """
-
-        Parameters
-        ----------
-        clear :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
+    def copy(self, clear: bool = False) -> BasicSampler:
 
         copy = dill.copy(self)
         keys = self.__dict__.keys()
@@ -327,18 +251,7 @@ class BasicSampler(object):
                     delattr(copy, key)
         return copy
 
-    def save(self, name):
-        """
-
-        Parameters
-        ----------
-        name :
-
-
-        Returns
-        -------
-
-        """
+    def save(self, name: str):
 
         file_name = '{}.blips'.format(name)
         file = bz2.BZ2File(file_name, 'wb')
@@ -347,18 +260,7 @@ class BasicSampler(object):
         file.close()
 
     @staticmethod
-    def load(file):
-        """
-
-        Parameters
-        ----------
-        file :
-
-
-        Returns
-        -------
-
-        """
+    def load(file: str) -> BasicSampler:
 
         file_name = '{}.blips'.format(file)
         file = bz2.BZ2File(file_name, 'rb')

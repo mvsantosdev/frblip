@@ -5,7 +5,8 @@ import dill
 
 import numpy
 import xarray
-import sparse
+from sparse import COO
+from toolz.dicttoolz import valfilter
 
 import inspect
 from glob import glob
@@ -57,7 +58,9 @@ def default_units(**units):
             for name, unit in units.items():
 
                 value = kwargs[name]
-                if hasattr(value, 'unit'):
+                if value is None:
+                    kwargs[name] = value
+                elif hasattr(value, 'unit'):
                     kwargs[name] = value.to(unit)
                 elif isinstance(value, str):
                     value = Quantity(value)
@@ -100,22 +103,22 @@ def xarrayfy(**dimensions):
     return inner_decorator
 
 
-def todense_option(default=True):
+def todense_option(method):
+    @wraps(method)
+    def wrapper(*args, **kwargs):
 
-    def inner_decorator(method):
-        @wraps(method)
-        def wrapper(*args, todense: bool = default, **kwargs):
+        kwargs = fixargs(method, *args, **kwargs)
+        output = method(**kwargs)
 
-            sampler = args[0]
-            output = method(sampler, *args[1:], **kwargs)
-            if todense:
-                data = getattr(output, 'data', None)
-                if isinstance(data, sparse.COO):
-                    return output.as_numpy()
-            return output
+        todense = kwargs.get('todense', False)
 
-        return wrapper
-    return inner_decorator
+        if todense:
+            data = getattr(output, 'data', None)
+            if isinstance(data, COO):
+                return output.as_numpy()
+        return output
+
+    return wrapper
 
 
 def observation_method(method):
@@ -138,10 +141,12 @@ def observation_method(method):
             [(_, observation)] = observations.items()
             return method(sampler, observation, **kwargs)
 
-        return {
+        observation = {
             name: method(sampler, observation, **kwargs)
             for name, observation in observations.items()
         }
+
+        return valfilter(lambda x: x is not None, observation)
 
     return wrapper
 

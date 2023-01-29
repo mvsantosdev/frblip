@@ -9,8 +9,6 @@ from scipy.integrate import quad
 
 class Cosmology(pyccl.Cosmology):
 
-    """ """
-
     DEFAULT_PARAMS = {
         'Planck_18': dict(
             Omega_c=0.261, Omega_b=0.049, h=0.6766, n_s=0.9665,
@@ -50,116 +48,39 @@ class Cosmology(pyccl.Cosmology):
             self._eb = free_electron_bias
 
     def scale_factor(self, z):
-        """
 
-        Parameters
-        ----------
-        z :
-
-
-        Returns
-        -------
-
-
-        """
         return 1 / (1 + z)
 
     def luminosity_distance(self, z):
-        """
 
-        Parameters
-        ----------
-        z :
-
-
-        Returns
-        -------
-
-
-        """
         a = self.scale_factor(z)
         d = super().luminosity_distance(a)
         return d * units.Mpc
 
     def comoving_radial_distance(self, z):
-        """
 
-        Parameters
-        ----------
-        z :
-
-
-        Returns
-        -------
-
-
-        """
         a = self.scale_factor(z)
         d = super().comoving_radial_distance(a)
         return d * units.Mpc
 
     def angular_diameter_distance(self, z):
-        """
 
-        Parameters
-        ----------
-        z :
-
-
-        Returns
-        -------
-
-
-        """
         a = self.scale_factor(z)
         d = super().angular_diameter_distance(a)
         return d * units.Mpc
 
     def h_over_h0(self, z):
-        """
 
-        Parameters
-        ----------
-        z :
-
-
-        Returns
-        -------
-
-
-        """
         a = self.scale_factor(z)
         return super().h_over_h0(a)
 
     def growth_factor(self, z):
-        """
 
-        Parameters
-        ----------
-        z :
-
-
-        Returns
-        -------
-
-
-        """
         a = self.scale_factor(z)
         return super().growth_factor(a)
 
     def growth_rate(self, z):
-        """
 
-        Parameters
-        ----------
-        z :
-
-
-        Returns
-        -------
-
-
-        """
         a = self.scale_factor(z)
         return super().growth_rate(a)
 
@@ -174,20 +95,7 @@ class Cosmology(pyccl.Cosmology):
         return self._eb
 
     def free_electrons_bias(self, k, z=0):
-        """
 
-        Parameters
-        ----------
-        k :
-
-        z :
-            (Default value = 0)
-
-        Returns
-        -------
-
-
-        """
         ki = k / units.Mpc
         return self._ebias(ki, z)
 
@@ -208,76 +116,24 @@ class Cosmology(pyccl.Cosmology):
         return super().nonlin_power(k, a)
 
     def linear_matter_power(self, k, z=0):
-        """
-
-        Parameters
-        ----------
-        k :
-
-        z :
-             (Default value = 0)
-
-        Returns
-        -------
-
-        """
 
         k = k * units.Mpc
         P = self._linear_matter_power(k, z)
         return P * units.Mpc**3
 
     def nonlin_matter_power(self, k, z=0):
-        """
-
-        Parameters
-        ----------
-        k :
-
-        z :
-             (Default value = 0)
-
-        Returns
-        -------
-
-        """
 
         k = k * units.Mpc
         P = self._nonlin_matter_power(k, z)
         return P * units.Mpc**3
 
     def linear_power(self, k, z=0):
-        """
-
-        Parameters
-        ----------
-        k :
-
-        z :
-             (Default value = 0)
-
-        Returns
-        -------
-
-        """
 
         k = k * units.Mpc
         P = self._linear_power(k, z)
         return P * units.Mpc**3
 
     def nonlin_power(self, k, z=0):
-        """
-
-        Parameters
-        ----------
-        k :
-
-        z :
-             (Default value = 0)
-
-        Returns
-        -------
-
-        """
 
         k = k * units.Mpc
         P = self._nonlin_power(k, z)
@@ -289,19 +145,6 @@ class Cosmology(pyccl.Cosmology):
         return be * P
 
     def nonlin_electron_power(self, k, z=0):
-        """
-
-        Parameters
-        ----------
-        k :
-
-        z :
-             (Default value = 0)
-
-        Returns
-        -------
-
-        """
 
         ki = k * units.Mpc
         P = self._nonlin_electron_power(ki, z)
@@ -316,56 +159,17 @@ class Cosmology(pyccl.Cosmology):
         return integral
 
     def dm_igm_integral(self, z, kmin=0.0, kmax=numpy.inf, unit=units.Mpc):
-        """
-
-        Parameters
-        ----------
-        z :
-
-        kmin :
-             (Default value = 0.0)
-        kmax :
-             (Default value = numpy.inf)
-        unit :
-             (Default value = units.Mpc)
-
-        Returns
-        -------
-
-        """
 
         func = numpy.vectorize(self._dm_igm_integral,
                                excluded=['kmin', 'kmax'])
         return func(z, kmin, kmax) * unit / (2 * numpy.pi)
 
     def Hubble(self, z):
-        """
-
-        Parameters
-        ----------
-        z :
-
-
-        Returns
-        -------
-
-        """
 
         E = self.h_over_h0(z)
         return self.H0 * E
 
     def differential_comoving_volume(self, z):
-        """
-
-        Parameters
-        ----------
-        z :
-
-
-        Returns
-        -------
-
-        """
 
         r = self.comoving_radial_distance(z)
         Dh = constants.c / self.Hubble(z)
@@ -373,17 +177,6 @@ class Cosmology(pyccl.Cosmology):
         return dcoVol / units.sr
 
     def star_formation_rate(self, z):
-        """
-
-        Parameters
-        ----------
-        z :
-
-
-        Returns
-        -------
-
-        """
 
         num = 0.017 + 0.13 * z
         dem = 1 + (z / 3.3)**5.3
@@ -394,24 +187,24 @@ class Cosmology(pyccl.Cosmology):
 
     @cached_property
     def sfr0(self):
-        """Present star formation rate"""
+
         return self.star_formation_rate(0)
 
     @cached_property
     def critical_density0(self):
-        """Present critical density"""
+
         rho_c0 = 3 * self.H0**2 / (8 * numpy.pi * constants.G)
         return rho_c0.to(units.g / units.cm**3)
 
     @cached_property
     def hubble_distance(self):
-        """Present Hubble distance"""
+
         Dh = constants.c / self.H0
         return Dh.to(units.Mpc)
 
     @cached_property
     def baryon_number_density(self):
-        """Present baryon number density"""
+
         Omega_b = self.Omega_b
         rho_c0 = self.critical_density0
         n = Omega_b * rho_c0 / constants.m_p

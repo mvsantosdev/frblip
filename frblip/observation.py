@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import dill
 
 import numpy
@@ -8,46 +10,20 @@ from itertools import combinations
 from scipy.special import erf
 from astropy import coordinates, units
 
-
-def scattered_gaussian(t, w, ts, t0=0.0):
-    """
-
-    Parameters
-    ----------
-    t :
-
-    w :
-
-    ts :
-
-    t0 :
-         (Default value = 0.0)
-
-    Returns
-    -------
-
-    """
-
-    x = .5 * (w / ts)**2
-    f = numpy.exp(x)
-
-    x = (t0 - t) / ts
-    g = numpy.exp(x)
-
-    x = t - t0 - w**2 / ts
-    y = w * numpy.sqrt(2)
-    h = 1 + erf(x / y)
-
-    ff = f * g * h
-
-    return ff / ff.max(0)
+from astropy.time import Time
 
 
 class Observation():
-    """ """
 
-    def __init__(self, response=None, noise=None, time_delay=None,
-                 frequency_range=None, sampling_time=None, altaz=None):
+    def __init__(
+        self,
+        response: xarray.DataArray | None = None,
+        noise: xarray.DataArray | None = None,
+        time_delay: xarray.DataArray | None = None,
+        frequency_range: units.Quantity | None = None,
+        sampling_time: units.Quantity | None = None,
+        altaz: coordinates.SkyCoord | None = None
+    ):
 
         self.response = response
         self.noise = noise
@@ -61,12 +37,32 @@ class Observation():
         self.kind = response.dims[0]
         self.width = self.frequency_range.diff()
 
-    def __getitem__(self, idx):
+    def __getitem__(
+        self,
+        idx: int
+    ) -> Observation:
 
         if isinstance(idx, slice):
             return self.select(idx)
         idx = numpy.array(idx)
         return self.select(idx)
+
+    def select(
+        self,
+        idx: int,
+        inplace: bool = False
+    ) -> Observation | None:
+
+        if not inplace:
+            obs = self.copy()
+            obs.select(idx, inplace=True)
+            return obs
+
+        self.response = self.response[idx]
+        if hasattr(self, 'altaz'):
+            self.altaz = self.altaz[idx]
+        if hasattr(self, 'time_delay'):
+            self.time_delay = self.time_delay[idx]
 
     def __set_coordinates(self):
 
@@ -85,16 +81,14 @@ class Observation():
 
         self.altaz = coordinates.AltAz(**kwargs)
 
-    def get_obstime(self):
-        """ """
+    def get_obstime(self) -> Time:
 
         if hasattr(self, 'altaz'):
             return self.altaz.obstime
         size = self.response.sizes[self.kind]
         return numpy.zeros(size) * units.ms
 
-    def get_time_delay(self):
-        """ """
+    def get_time_delay(self) -> xarray.DataArray:
 
         if hasattr(self, 'time_delay'):
             return self.time_delay
@@ -103,7 +97,10 @@ class Observation():
         return xarray.DataArray(values, dims=dims,
                                 attrs={'unit': units.ms})
 
-    def get_response(self, total=False):
+    def get_response(
+        self,
+        total: bool = False
+    ) -> xarray.DataArray:
 
         response = self.response
 
@@ -120,22 +117,12 @@ class Observation():
 
         return response
 
-    def get_noise(self, total=False, channels=1, minimum=False):
-        """
-
-        Parameters
-        ----------
-        total :
-             (Default value = False)
-        channels :
-             (Default value = 1)
-        minimum : Bool
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
+    def get_noise(
+        self,
+        total: bool = False,
+        channels: int = 1,
+        minimum: bool = False
+    ) -> xarray.DataArray:
 
         noise = numpy.full(channels, numpy.sqrt(channels))
         noise = xarray.DataArray(noise, dims='CHANNEL')
@@ -160,42 +147,23 @@ class Observation():
             return noise.squeeze('CHANNEL')
         return noise
 
-    def redshift_range(self, low_frequency, high_frequency):
-        """
-
-        Parameters
-        ----------
-        low_frequency :
-
-        high_frequency :
-
-
-        Returns
-        -------
-
-        """
+    def redshift_range(
+        self,
+        low_frequency: float | units.Quantity,
+        high_frequency: float | units.Quantity
+    ) -> tuple[float, float]:
 
         zmax = high_frequency / self.frequency_range[0] - 1
         zmin = low_frequency / self.frequency_range[-1] - 1
 
         return zmin.clip(0), zmax
 
-    def in_range(self, redshift, low_frequency, high_frequency):
-        """
-
-        Parameters
-        ----------
-        redshift :
-
-        low_frequency :
-
-        high_frequency :
-
-
-        Returns
-        -------
-
-        """
+    def in_range(
+        self,
+        redshift: numpy.ndarray | float,
+        low_frequency: float | units.Quantity,
+        high_frequency: float | units.Quantity
+    ) -> xarray.DataArray:
 
         zmin, zmax = self.redshift_range(low_frequency, high_frequency)
 
@@ -203,20 +171,11 @@ class Observation():
         return xarray.DataArray(in_range.astype(numpy.intp),
                                 dims=self.kind)
 
-    def get_frequency_response(self, spectral_index, channels=1):
-        """
-
-        Parameters
-        ----------
-        spectral_index : float
-
-        channels : int
-             (Default value = 1)
-
-        Returns
-        -------
-
-        """
+    def get_frequency_response(
+        self,
+        spectral_index: numpy.ndarray | float,
+        channels: int = 1
+    ) -> xarray.DataArray:
 
         nu = numpy.linspace(*self.frequency_range.value, channels + 1)
         nu = xarray.DataArray(nu, dims='CHANNEL')
@@ -231,18 +190,10 @@ class Observation():
 
         return density_flux.T
 
-    def update(self, duration=0):
-        """
-
-        Parameters
-        ----------
-        duration :
-             (Default value = 0)
-
-        Returns
-        -------
-
-        """
+    def update(
+        self,
+        duration: float | units.Quantity = 0
+    ):
 
         kw = {
             'alt': self.altaz.alt,
@@ -251,42 +202,19 @@ class Observation():
         }
         self.altaz = coordinates.AltAz(**kw)
 
-    def copy(self):
-        """ """
+    def copy(self) -> Observation:
 
         return dill.copy(self)
 
-    def select(self, idx, inplace=False):
-        """
-
-        Parameters
-        ----------
-        idx :
-
-        inplace :
-             (Default value = False)
-
-        Returns
-        -------
-
-        """
-
-        if not inplace:
-            obs = self.copy()
-            obs.select(idx, inplace=True)
-            return obs
-
-        self.response = self.response[idx]
-        if hasattr(self, 'altaz'):
-            self.altaz = self.altaz[idx]
-        if hasattr(self, 'time_delay'):
-            self.time_delay = self.time_delay[idx]
-
 
 class Interferometry(Observation):
-    """ """
 
-    def __init__(self, obsi, obsj=None, degradation=None):
+    def __init__(
+        self,
+        obsi: Observation,
+        obsj: Observation | None = None,
+        degradation: float | int | tuple[float] | None = None
+    ):
 
         kind, namei = obsi.response.dims
 
@@ -398,17 +326,26 @@ class Interferometry(Observation):
         if degradation is not None:
             if isinstance(degradation, (float, int)):
                 self.degradation = numpy.exp(-degradation**2 / 2)
-                self.get_response = self.__degradation
+                self.get_response = self._degradation
             elif isinstance(degradation, tuple):
                 self.amp, self.scale, self.power = degradation
                 self.scale = (self.scale * units.MHz).to(1)
-                self.get_response = self.__time_delay_degradation
+                self.get_response = self._time_delay_degradation
 
-    def __degradation(self, spectral_index, channels=1):
+    def _degradation(
+        self,
+        spectral_index: numpy.ndarray | float = 0,
+        channels: int = 1
+    ) -> xarray.DataArray:
+
         response = Observation.get_response(self, spectral_index, channels)
         return self.degradation * response
 
-    def __time_delay_degradation(self, spectral_index, channels=1):
+    def _time_delay_degradation(
+        self,
+        spectral_index: numpy.ndarray | float = 0,
+        channels: int = 1
+    ) -> xarray.DataArray:
 
         response = Observation.get_response(self, spectral_index, channels)
         log = (self.time_delay / self.scale)**self.power

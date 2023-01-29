@@ -10,7 +10,6 @@ unit = units.pc / units.cm**3
 
 
 class InterGalacticDM():
-    """ """
 
     MODELS = {
         'Takahashi2021': {
@@ -18,9 +17,15 @@ class InterGalacticDM():
         }
     }
 
-    def __init__(self, free_electron_model='Takahashi2021',
-                 cosmology='Planck_18', zmin=0.0, zmax=6.2,
-                 Xp=0.76, **kwargs):
+    def __init__(
+        self,
+        free_electron_model: str = 'Takahashi2021',
+        cosmology: str = 'Planck_18',
+        zmin: float = 0.0,
+        zmax: float = 6.2,
+        Xp: float = 0.76,
+        **kwargs
+    ):
 
         self.Xp = Xp
         self.Yp = 1 - Xp
@@ -44,16 +49,16 @@ class InterGalacticDM():
 
         self._integrate()
 
-    def _takahashi2021(self, z):
+    def _takahashi2021(self, z: numpy.ndarray) -> numpy.ndarray:
         c1 = self.a * (z + self.b)**self.d
         c2 = 1 - numpy.tanh(self.c * (z - self.z0))
         return c1 * c2
 
-    def _W(self, z):
+    def _W(self, z: numpy.ndarray) -> numpy.ndarray:
         fe = self.figm * self._fe(z)
         return (1 + z) * fe
 
-    def _integrand(self, X, z):
+    def _integrand(self, X: tuple[float, float], z: float) -> tuple[float, float]:
 
         X1, X2 = X
         h_over_h0 = self.cosmology.h_over_h0(z)
@@ -79,37 +84,15 @@ class InterGalacticDM():
         self.mean_dm = self.mean_dm.to(unit)
         self.std_dm = self.std_dm.to(unit)
 
-    def mean(self, z):
-        """
+    def mean(self, z: numpy.ndarray) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        z : float
-            redshift
-
-        Returns
-        -------
-
-
-        """
         return numpy.interp(x=z, xp=self.redshift, fp=self.mean_dm)
 
-    def std(self, z):
-        """
+    def std(self, z: numpy.ndarray) -> numpy.ndarray:
 
-        Parameters
-        ----------
-        z : float
-            redshift
-
-        Returns
-        -------
-
-
-        """
         return numpy.interp(x=z, xp=self.redshift, fp=self.std_dm)
 
-    def __call__(self, z):
+    def __call__(self, z: numpy.ndarray) -> numpy.ndarray:
         loc = self.mean(z)
         scale = self.std(z)
         z = truncnorm.rvs(a=-loc/scale, b=numpy.inf, size=z.size)

@@ -9,33 +9,12 @@ blips = FastRadioBursts
 telescope = RadioTelescope
 
 
-def load(file):
-    """
+def load(file: str) -> FastRadioBursts:
 
-    Parameters
-    ----------
-    file :
-
-
-    Returns
-    -------
-
-    """
     return FastRadioBursts.load(file)
 
 
-def load_catalog(name):
-    """
-
-    Parameters
-    ----------
-    name :
-
-
-    Returns
-    -------
-
-    """
+def load_catalog(name: str) -> dict:
 
     file = bz2.BZ2File(name, 'rb')
     catalog = dill.load(file)
