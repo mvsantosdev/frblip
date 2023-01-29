@@ -7,7 +7,6 @@ import xarray
 
 from itertools import combinations
 
-from scipy.special import erf
 from astropy import coordinates, units
 
 from astropy.time import Time

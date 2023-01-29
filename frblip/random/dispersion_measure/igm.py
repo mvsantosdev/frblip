@@ -58,7 +58,11 @@ class InterGalacticDM():
         fe = self.figm * self._fe(z)
         return (1 + z) * fe
 
-    def _integrand(self, X: tuple[float, float], z: float) -> tuple[float, float]:
+    def _integrand(
+        self,
+        X: tuple[float, float],
+        z: float
+    ) -> tuple[float, float]:
 
         X1, X2 = X
         h_over_h0 = self.cosmology.h_over_h0(z)

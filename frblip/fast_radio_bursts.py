@@ -13,6 +13,8 @@ import sparse
 
 from numpy import random
 
+from scipy.special import erf
+
 from operator import itemgetter
 from functools import cached_property
 from toolz.dicttoolz import merge, valmap
