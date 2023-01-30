@@ -15,7 +15,7 @@ bla = setup(
             'data/*.csv'
         ]
     },
-    python_requires='>=3.8',
+    python_requires='>=3.10',
     install_requires=[
         'toolz',
         'dill==0.3.4',
@@ -30,6 +30,6 @@ bla = setup(
         'healpy',
         'pygedm',
         'camb',
-        'pyccl==2.3.0'
+        'pyccl>=2.3.0'
     ]
 )

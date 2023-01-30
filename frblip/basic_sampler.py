@@ -86,9 +86,6 @@ class BasicSampler(object):
 
         print('Performing observation for telescope {}...'.format(name))
 
-        if 'observations' not in self.__dict__:
-            self.observations = {}
-
         n_obs = len(self.observations)
         obs_name = 'OBS_{}'.format(n_obs) if name is None else name
         obs_name = obs_name.replace(' ', '_')
@@ -143,6 +140,9 @@ class BasicSampler(object):
         verbose: bool = True
     ):
 
+        if not hasattr(self, 'observations'):
+            self.observations = {}
+
         old_target = sys.stdout
         sys.stdout = old_target if verbose else open(os.devnull, 'w')
 
@@ -159,10 +159,12 @@ class BasicSampler(object):
                 error = '{} is not a valid location'.format(location)
                 raise TypeError(error)
 
-        if type(telescopes) is dict:
+        if isinstance(telescopes, dict):
             for name, telescope in telescopes.items():
                 self._observe(telescope, name, sparse, dtype)
-        else:
+        elif isinstance(telescopes, RadioTelescope):
+            if name is None:
+                name = f'OBS_{len(self.observations)}'
             self._observe(telescopes, name, sparse, dtype)
 
         sys.stdout = old_target
