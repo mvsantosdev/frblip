@@ -14,6 +14,7 @@ import sparse
 from numpy import random
 
 from scipy.special import erf
+from scipy._lib._util import check_random_state
 
 from operator import itemgetter
 from functools import cached_property
@@ -67,6 +68,7 @@ class FastRadioBursts(BasicSampler):
         cosmology: str = 'Planck_18',
         igm_model: str = 'Takahashi2021',
         free_electron_bias: str = 'Takahashi2021',
+        random_state: int | numpy.random.RandomState | None = None,
         verbose: bool = True
     ):
 
@@ -75,11 +77,13 @@ class FastRadioBursts(BasicSampler):
 
         self._load_params(duration, log_Lstar, log_L0, phistar, gamma,
                           pulse_width, zmin, zmax, ra_range, dec_range, start,
-                          low_frequency, high_frequency,
-                          low_frequency_cal, high_frequency_cal,
-                          emission_frame, spectral_index, gal_method,
-                          gal_nside, host_dist, host_source, host_model,
-                          cosmology, igm_model, free_electron_bias)
+                          low_frequency, high_frequency, low_frequency_cal,
+                          high_frequency_cal, emission_frame, spectral_index,
+                          gal_method, gal_nside, host_dist, host_source,
+                          host_model, cosmology, igm_model, free_electron_bias)
+
+        self.random_state = check_random_state(random_state).get_state()
+        numpy.random.set_state(self.random_state)
 
         self._frb_rate(size)
         self._S0
