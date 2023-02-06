@@ -133,7 +133,7 @@ class FastRadioBursts(BasicSampler):
         self.phistar = phistar
         self.gamma = gamma
         self.w_mean, self.w_std = pulse_width
-        self.__spec_idx_dist = SpectralIndex(spectral_index)
+        self._spec_idx_dist = SpectralIndex(spectral_index)
         self.ra_range = ra_range
         self.dec_range = dec_range
         self.low_frequency = low_frequency
@@ -308,7 +308,7 @@ class FastRadioBursts(BasicSampler):
     @cached_property
     def spectral_index(self) -> numpy.ndarray:
 
-        return self.__spec_idx_dist.rvs(self.size)
+        return self._spec_idx_dist.rvs(self.size)
 
     @cached_property
     def icrs(self) -> coordinates.SkyCoord:
@@ -601,7 +601,7 @@ class FastRadioBursts(BasicSampler):
 
         return self._signal_to_noise(observation, total, channels)
 
-    @xarrayfy(snr='SNR')
+    @xarrayfy(snr=('SNR',))
     def _triggers(
         self,
         observation: Observation | None = None,
@@ -611,9 +611,7 @@ class FastRadioBursts(BasicSampler):
     ) -> xarray.DataArray:
 
         _snr = self._signal_to_noise(observation, total, channels)
-        s = numpy.arange(1, 11) if snr is None else snr
-        s = xarray.DataArray(numpy.atleast_1d(s), dims='SNR')
-        return (_snr >= s).squeeze()
+        return (_snr >= snr).assign_coords({'SNR': snr.values})
 
     @observation_method
     @todense_option

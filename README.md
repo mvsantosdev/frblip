@@ -14,11 +14,26 @@ First clone the repository:
 It is strongly recommended to create a exclusive enviorement, using conda for example
 
 ```
->>> conda create -n <env name>
->>> conda activate <env name>
->>> cd frblip
->>> pip install -r requirements.txt
->>> python setup.py install
+>>> conda create -n env_name
+>>> conda activate env_name
 ```
-        
-**Take a look at the examples [here](https://github.com/mvsantosdev/frblip/tree/master/examples)**
+
+The easiest way to install `pyccl` and `pygedm`, dependencies, is by using conda (it may take some minutes):
+
+```
+>>> (env_name) conda install -c conda-forge pyccl pygedm
+```
+
+To install the remaining dependencies and frblip:
+
+```
+>>> (env_name) cd frblip
+>>> (env_name) pip install -r requirements.txt
+>>> (env_name) pip install -e .
+```
+
+## Examples notebooks
+
+1. **[Quick Start](https://github.com/mvsantosdev/frblip/tree/master/examples/quick_start.ipynb)**
+
+2. **[All examples](https://github.com/mvsantosdev/frblip/tree/master/examples)**
