@@ -63,23 +63,6 @@ class Observation():
         if hasattr(self, 'time_delay'):
             self.time_delay = self.time_delay[idx]
 
-    def __set_coordinates(self):
-
-        params = self.__dict__
-        location = {
-            key: params.pop(key)
-            for key in ('lon', 'lat', 'height')
-        }
-        kwargs = {
-            key: params.pop(key)
-            for key in ('alt', 'az', 'obstime')
-        }
-
-        if location:
-            kwargs['location'] = coordinates.EarthLocation(**location)
-
-        self.altaz = coordinates.AltAz(**kwargs)
-
     def get_obstime(self) -> Time:
 
         if hasattr(self, 'altaz'):
@@ -194,12 +177,13 @@ class Observation():
         duration: float | units.Quantity = 0
     ):
 
-        kw = {
-            'alt': self.altaz.alt,
-            'az': self.altaz.az,
-            'obstime': self.altaz.obstime + duration
-        }
-        self.altaz = coordinates.AltAz(**kw)
+        if hasattr(self, 'altaz'):
+            kw = {
+                'alt': self.altaz.alt,
+                'az': self.altaz.az,
+                'obstime': self.altaz.obstime + duration
+            }
+            self.altaz = coordinates.AltAz(**kw)
 
     def copy(self) -> Observation:
 

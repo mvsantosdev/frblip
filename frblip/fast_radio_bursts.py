@@ -1,4 +1,5 @@
 from __future__ import annotations
+import warnings
 
 import os
 import sys
@@ -18,7 +19,7 @@ from scipy._lib._util import check_random_state
 
 from operator import itemgetter
 from functools import cached_property
-from toolz.dicttoolz import merge, valmap
+from toolz.dicttoolz import merge, valmap, keyfilter
 
 from astropy.time import Time
 from astropy import units, coordinates, constants
@@ -86,7 +87,10 @@ class FastRadioBursts(BasicSampler):
         numpy.random.set_state(self.random_state)
 
         self._frb_rate(size)
-        self._S0
+
+        self.params = [*self.__dict__.keys()]
+
+        self._energy_normalization
 
         sys.stdout = old_target
 
@@ -248,11 +252,10 @@ class FastRadioBursts(BasicSampler):
 
     @cached_property
     def _cosmology(self) -> Cosmology:
-        kw = {
-            'source': self.cosmology,
-            'free_electron_bias': self.free_electron_bias
-        }
-        return Cosmology(**kw)
+        return Cosmology(
+            source=self.cosmology,
+            free_electron_bias=self.free_electron_bias
+        )
 
     @cached_property
     def _xmin(self) -> units.Quantity:
@@ -347,7 +350,7 @@ class FastRadioBursts(BasicSampler):
         return self._luminosity / surface
 
     @cached_property
-    def _S0(self) -> units.Quantity:
+    def _energy_normalization(self) -> units.Quantity:
         _sip1 = self.spectral_index + 1
         nu_lp = (self.low_frequency_cal / units.MHz)**_sip1
         nu_hp = (self.high_frequency_cal / units.MHz)**_sip1
@@ -419,6 +422,17 @@ class FastRadioBursts(BasicSampler):
 
         return self.galactic_dm + self.extra_galactic_dm
 
+    def clear_cache(self):
+
+        deriveds = [
+            'luminosity_distance',
+            'flux',
+            '_energy_normalization'
+        ]
+
+        for derived in deriveds:
+            del self.__dict__[derived]
+
     def _frb_rate(self, size: int | None = None):
 
         if isinstance(size, int):
@@ -471,20 +485,66 @@ class FastRadioBursts(BasicSampler):
             for name in self.observations:
                 self.observations[name].update(self.duration)
 
-    def shuffle(self, update: bool = True):
+    def shuffle(
+        self,
+        update: bool = True,
+        inplace: bool = True,
+        skip: list | tuple = ('icrs', 'itrs', 'time', 'altaz', 'observations'),
+        full: bool = True
+    ) -> FastRadioBursts:
 
-        idx = numpy.arange(self.size)
-        numpy.random.shuffle(idx)
+        warnings.filterwarnings('ignore',
+                                category=numpy.VisibleDeprecationWarning)
 
-        self.__dict__.update({
-            key: value[idx]
-            for key, value in self.__dict__.items()
-            if key not in ('icrs', 'itrs', 'itrs_time', 'altaz')
-            and numpy.size(value) == self.size
-        })
+        copy = self if inplace else self.copy()
+
+        params = (*copy.params, *skip, 'params')
+        idx = numpy.arange(copy.size)
+
+        if full:
+
+            copy.__dict__.update({
+                key: value[random.choice(idx, idx.size, False)]
+                for key, value in copy.__dict__.items()
+                if numpy.size(value) == copy.size
+                and key not in skip
+            })
+
+        else:
+
+            idx = random.choice(idx, idx.size, False)
+
+            copy.__dict__.update({
+                key: value[idx]
+                for key, value in copy.__dict__.items()
+                if numpy.size(value) == copy.size
+                and key not in params
+            })
 
         if update:
-            self.update()
+            copy.update()
+
+        return copy
+
+    def resample(
+        self,
+        update: bool = True,
+        skip: list | tuple = ('icrs', 'itrs', 'time', 'altaz', 'observations'),
+        inplace: bool = True
+    ) -> FastRadioBursts:
+
+        copy = self if inplace else self.copy()
+
+        params = (*copy.params, *skip, 'params')
+
+        copy.__dict__ = keyfilter(lambda x: x in params, copy.__dict__)
+
+        copy._energy_normalization
+
+        if update:
+            copy.update()
+
+        return copy
 
     def reduce(self, tolerance: int = 0) -> FastRadioBursts:
 
@@ -519,8 +579,8 @@ class FastRadioBursts(BasicSampler):
 
         spectral_index = self.spectral_index
         response = observation.get_frequency_response(spectral_index, channels)
-        S0 = xarray.DataArray(self._S0.value, dims='FRB')
-        unit = response.attrs['unit'] * self._S0.unit
+        S0 = xarray.DataArray(self._energy_normalization.value, dims='FRB')
+        unit = response.attrs['unit'] * self._energy_normalization.unit
         signal = response * S0
         signal.attrs['unit'] = unit.to('Jy')
         return signal
@@ -791,6 +851,7 @@ class FastRadioBursts(BasicSampler):
             if isinstance(value, (numpy.ndarray, units.Quantity))
             and numpy.size(value) == self.size
             and not attr.startswith('_')
+            and attr not in self.params
         }
 
         icrs = self.icrs
