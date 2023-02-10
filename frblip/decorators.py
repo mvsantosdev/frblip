@@ -41,9 +41,7 @@ def fixargs(function, *args, **kwargs):
         and val.name not in kwargs
     }
 
-    kwargs.update(defaults)
-
-    return kwargs
+    return kwargs, defaults
 
 
 def default_units(
@@ -56,7 +54,8 @@ def default_units(
         @wraps(function)
         def wrapper(*args, **kwargs):
 
-            kwargs = fixargs(function, *args, **kwargs)
+            user, kwargs = fixargs(function, *args, **kwargs)
+            kwargs.update(user)
 
             for name, unit in units.items():
 
@@ -101,7 +100,8 @@ def xarrayfy(**dimensions):
         @wraps(function)
         def wrapper(*args, **kwargs):
 
-            kwargs = fixargs(function, *args, **kwargs)
+            user, kwargs = fixargs(function, *args, **kwargs)
+            kwargs.update(user)
 
             for name, dims in dimensions.items():
                 value = kwargs[name]
@@ -122,7 +122,8 @@ def todense_option(method):
     @wraps(method)
     def wrapper(*args, **kwargs):
 
-        kwargs = fixargs(method, *args, **kwargs)
+        user, kwargs = fixargs(method, *args, **kwargs)
+        kwargs.update(user)
         output = method(**kwargs)
 
         todense = kwargs.get('todense', False)
@@ -173,7 +174,8 @@ def from_source(default_folder='', default_dict=None):
         @wraps(function)
         def wrapper(*args, **kwargs):
 
-            kwargs = fixargs(function, *args, **kwargs)
+            user, kwargs = fixargs(function, *args, **kwargs)
+            kwargs.update(user)
             source = kwargs.get('source')
 
             if isinstance(source, dict):
@@ -211,6 +213,7 @@ def from_source(default_folder='', default_dict=None):
                     file.close()
 
             kwargs.update(input_dict)
+            kwargs.update(user)
 
             return function(**kwargs)
 
