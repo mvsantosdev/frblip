@@ -18,7 +18,7 @@ bla = setup(
     python_requires='>=3.10',
     install_requires=[
         'toolz',
-        'dill==0.3.4',
+        'dill>=0.3.6',
         'numba>=0.55',
         'numpy>=1.21',
         'pandas',
