@@ -39,11 +39,10 @@ class InterGalacticDM():
         self.zmax = min(zmax, 6.43)
 
         if isinstance(cosmology, str):
-            kw = {
-                'name': cosmology,
-                'free_electron_bias': free_electron_model
-            }
-            self.cosmology = Cosmology(**kw)
+            self.cosmology = Cosmology(
+                source=cosmology,
+                free_electron_bias=free_electron_model
+            )
         elif isinstance(cosmology, Cosmology):
             self.cosmology = cosmology
 
