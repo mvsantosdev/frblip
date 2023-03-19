@@ -1,0 +1,13 @@
+site_name: FRBlip
+repo_url: https://github.com/mvsantosdev/frblip
+repo_name: mvsantosdev/frblip
+edit_uri: tree/main/docs
+
+theme:
+  name: readthedocs
+  language: en
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  
+markdown_extensions:
+   - attr_list
