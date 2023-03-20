@@ -7,13 +7,12 @@ from scipy.stats import rv_continuous
 
 
 class Redshift(rv_continuous):
-
     def __init__(
         self,
         zmin: float = 0.0,
         zmax: float = 6.0,
         cosmology: str | None = None,
-        eps: float = 1e-3
+        eps: float = 1e-3,
     ):
 
         super().__init__()

@@ -8,13 +8,7 @@ bla = setup(
     author_email='mvsantos_at_protonmail.com',
     packages=find_packages(include=['frblip', 'frblip.*']),
     include_package_data=True,
-    package_data={
-        'frblip': [
-            'data/*.npy',
-            'data/*.npz',
-            'data/*.csv'
-        ]
-    },
+    package_data={'frblip': ['data/*.npy', 'data/*.npz', 'data/*.csv']},
     python_requires='>=3.10',
     install_requires=[
         'toolz',
@@ -30,6 +24,6 @@ bla = setup(
         'healpy',
         'pygedm',
         'camb',
-        'pyccl>=2.3.0'
-    ]
+        'pyccl>=2.3.0',
+    ],
 )

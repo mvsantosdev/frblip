@@ -13,12 +13,11 @@ unit = units.pc / units.cm**3
 galactic_edge = 30 * units.kpc
 
 
-class SpectralIndex():
-
+class SpectralIndex(object):
     def __init__(
         self,
         params: tuple[float, float],
-        source: str = 'spec_idx'
+        source: str = 'spec_idx',
     ):
 
         if isinstance(params, tuple):
@@ -37,8 +36,7 @@ class SpectralIndex():
             self.rvs = self._mixture
 
     def _uniform(self, size: int) -> numpy.ndarray:
-        return numpy.random.uniform(self.si_min, self.si_max,
-                                    size=size)
+        return numpy.random.uniform(self.si_min, self.si_max, size=size)
 
     def _constant(self, size: int) -> numpy.ndarray:
         return numpy.full(size, self.spectral_index)

@@ -15,14 +15,13 @@ unit = units.pc / units.cm**3
 galactic_edge = 30 * units.kpc
 
 
-class HostGalaxyDM():
-
+class HostGalaxyDM(object):
     def __init__(
         self,
         source: str = 'luo18',
         model: tuple[str, str] = ('ALG', 'YMW16'),
         cosmology: str = 'Planck_18',
-        dist: str = 'lognormal'
+        dist: str = 'lognormal',
     ):
 
         path = '{}/{}_host.csv'.format(_DATA, source)

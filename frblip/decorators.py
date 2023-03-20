@@ -37,20 +37,14 @@ def fixargs(function, *args, **kwargs):
     defaults = {
         val.name: val.default
         for val in parameters.values()
-        if val.default is not inspect._empty
-        and val.name not in kwargs
+        if val.default is not inspect._empty and val.name not in kwargs
     }
 
     return kwargs, defaults
 
 
-def default_units(
-    output_unit: str | Unit | Quantity | None = None,
-    **units
-):
-
+def default_units(output_unit: str | Unit | Quantity | None = None, **units):
     def inner_decorator(function):
-
         @wraps(function)
         def wrapper(*args, **kwargs):
 
@@ -94,9 +88,7 @@ def default_units(
 
 
 def xarrayfy(**dimensions):
-
     def inner_decorator(function):
-
         @wraps(function)
         def wrapper(*args, **kwargs):
 
@@ -108,13 +100,13 @@ def xarrayfy(**dimensions):
                 if isinstance(value, xarray.DataArray):
                     assert value.dims == dims, f'{name}.dims is not {dims}'
                 elif hasattr(value, '__iter__'):
-                    kwargs[name] = xarray.DataArray(
-                        value, dims=dims
-                    )
+                    kwargs[name] = xarray.DataArray(value, dims=dims)
                 else:
                     raise TypeError(f'{name} is not an iterable')
             return function(**kwargs)
+
         return wrapper
+
     return inner_decorator
 
 
@@ -132,13 +124,13 @@ def todense_option(method):
             data = getattr(output, 'data', None)
             if isinstance(data, COO):
                 return output.as_numpy()
+
         return output
 
     return wrapper
 
 
 def observation_method(method):
-
     @wraps(method)
     def wrapper(*args, **kwargs):
 
@@ -148,10 +140,7 @@ def observation_method(method):
         if names == ():
             observations = sampler.observations
         else:
-            observations = {
-                name: sampler.observations[name]
-                for name in names
-            }
+            observations = {name: sampler.observations[name] for name in names}
 
         if len(observations) == 1:
             [(_, observation)] = observations.items()
@@ -161,16 +150,13 @@ def observation_method(method):
             name: method(sampler, observation, **kwargs)
             for name, observation in observations.items()
         }
-
         return valfilter(lambda x: x is not None, observation)
 
     return wrapper
 
 
 def from_source(default_folder='', default_dict=None):
-
     def inner_decorator(function):
-
         @wraps(function)
         def wrapper(*args, **kwargs):
 
@@ -214,7 +200,6 @@ def from_source(default_folder='', default_dict=None):
 
             kwargs.update(input_dict)
             kwargs.update(user)
-
             return function(**kwargs)
 
         return wrapper

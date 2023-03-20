@@ -6,11 +6,13 @@ from .basic_sampler import BasicSampler
 
 
 class UVGrid(BasicSampler):
-
-    def __init__(self,
-                 urange: tuple[float, float] = (-1, 1),
-                 vrange: tuple[float, float] = (-1, 1),
-                 nu=201, nv=201):
+    def __init__(
+        self,
+        urange: tuple[float, float] = (-1, 1),
+        vrange: tuple[float, float] = (-1, 1),
+        nu=201,
+        nv=201,
+    ):
 
         self.urange = urange
         self.vrange = vrange
@@ -47,7 +49,7 @@ class UVGrid(BasicSampler):
         _, alt, az = coordinates.cartesian_to_spherical(u, v, w)
 
         az = az.to(units.deg)
-        alt = numpy.nan_to_num(alt, nan=-90*units.deg).to(units.deg)
+        alt = numpy.nan_to_num(alt, nan=-90 * units.deg).to(units.deg)
 
         return coordinates.AltAz(alt=alt, az=az)
 

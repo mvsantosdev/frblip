@@ -12,8 +12,7 @@ from astropy import coordinates, units
 from astropy.time import Time
 
 
-class Observation():
-
+class Observation(object):
     def __init__(
         self,
         response: xarray.DataArray | None = None,
@@ -21,7 +20,7 @@ class Observation():
         time_delay: xarray.DataArray | None = None,
         frequency_range: units.Quantity | None = None,
         sampling_time: units.Quantity | None = None,
-        altaz: coordinates.SkyCoord | None = None
+        altaz: coordinates.SkyCoord | None = None,
     ):
 
         self.response = response
@@ -36,10 +35,7 @@ class Observation():
         self.kind = response.dims[0]
         self.width = self.frequency_range.diff()
 
-    def __getitem__(
-        self,
-        idx: int
-    ) -> Observation:
+    def __getitem__(self, idx: int) -> Observation:
 
         if isinstance(idx, slice):
             return self.select(idx)
@@ -49,7 +45,7 @@ class Observation():
     def select(
         self,
         idx: int,
-        inplace: bool = False
+        inplace: bool = False,
     ) -> Observation | None:
 
         if not inplace:
@@ -76,13 +72,9 @@ class Observation():
             return self.time_delay
         values = numpy.zeros_like(self.response.as_numpy())
         dims = self.response.dims
-        return xarray.DataArray(values, dims=dims,
-                                attrs={'unit': units.ms})
+        return xarray.DataArray(values, dims=dims, attrs={'unit': units.ms})
 
-    def get_response(
-        self,
-        total: bool = False
-    ) -> xarray.DataArray:
+    def get_response(self, total: bool = False) -> xarray.DataArray:
 
         response = self.response
 
@@ -92,8 +84,12 @@ class Observation():
             if isinstance(total, list):
                 levels = [*filter(lambda x: x in response.dims, total)]
             elif total is True:
-                levels = [*filter(lambda x: x not in (self.kind, 'CHANNEL'),
-                                  response.dims)]
+                levels = [
+                    *filter(
+                        lambda x: x not in (self.kind, 'CHANNEL'),
+                        response.dims,
+                    )
+                ]
             response = (response**2).sum(dim=levels)
             response = numpy.sqrt(response)
 
@@ -103,7 +99,7 @@ class Observation():
         self,
         total: bool = False,
         channels: int = 1,
-        minimum: bool = False
+        minimum: bool = False,
     ) -> xarray.DataArray:
 
         noise = numpy.full(channels, numpy.sqrt(channels))
@@ -118,8 +114,11 @@ class Observation():
             if isinstance(total, list):
                 levels = [*filter(lambda x: x in noise.dims, total)]
             elif total is True:
-                levels = [*filter(lambda x: x not in (self.kind, 'CHANNEL'),
-                                  noise.dims)]
+                levels = [
+                    *filter(
+                        lambda x: x not in (self.kind, 'CHANNEL'), noise.dims
+                    )
+                ]
             noise = (1 / noise**2).sum(dim=levels)
             noise = 1 / numpy.sqrt(noise)
 
@@ -132,7 +131,7 @@ class Observation():
     def redshift_range(
         self,
         low_frequency: float | units.Quantity,
-        high_frequency: float | units.Quantity
+        high_frequency: float | units.Quantity,
     ) -> tuple[float, float]:
 
         zmax = high_frequency / self.frequency_range[0] - 1
@@ -144,26 +143,25 @@ class Observation():
         self,
         redshift: numpy.ndarray | float,
         low_frequency: float | units.Quantity,
-        high_frequency: float | units.Quantity
+        high_frequency: float | units.Quantity,
     ) -> xarray.DataArray:
 
         zmin, zmax = self.redshift_range(low_frequency, high_frequency)
 
         in_range = (zmin <= redshift) & (redshift <= zmax)
-        return xarray.DataArray(in_range.astype(numpy.intp),
-                                dims=self.kind)
+        return xarray.DataArray(in_range.astype(numpy.intp), dims=self.kind)
 
     def get_frequency_response(
         self,
         spectral_index: numpy.ndarray | float,
-        channels: int = 1
+        channels: int = 1,
     ) -> xarray.DataArray:
 
         nu = numpy.linspace(*self.frequency_range.value, channels + 1)
         nu = xarray.DataArray(nu, dims='CHANNEL')
         nu.attrs['unit'] = self.frequency_range.unit
         spec_idx = xarray.DataArray(spectral_index, dims=self.kind)
-        nu_pow = nu**(1 + spec_idx)
+        nu_pow = nu ** (1 + spec_idx)
         density_flux = nu_pow.diff('CHANNEL') / nu.diff('CHANNEL')
         density_flux.attrs['unit'] = 1 / nu.attrs['unit']
 
@@ -174,14 +172,14 @@ class Observation():
 
     def update(
         self,
-        duration: float | units.Quantity = 0
+        duration: float | units.Quantity = 0,
     ):
 
         if hasattr(self, 'altaz'):
             kw = {
                 'alt': self.altaz.alt,
                 'az': self.altaz.az,
-                'obstime': self.altaz.obstime + duration
+                'obstime': self.altaz.obstime + duration,
             }
             self.altaz = coordinates.AltAz(**kw)
 
@@ -191,12 +189,11 @@ class Observation():
 
 
 class Interferometry(Observation):
-
     def __init__(
         self,
         obsi: Observation,
         obsj: Observation | None = None,
-        degradation: float | int | tuple[float] | None = None
+        degradation: float | int | tuple[float] | None = None,
     ):
 
         kind, namei = obsi.response.dims
@@ -215,35 +212,56 @@ class Interferometry(Observation):
                 sampling_time = obsi.sampling_time
 
                 coords = [
-                    *map(lambda x: '{}x{}'.format(*x),
-                         combinations(range(beams), 2))
+                    *map(
+                        lambda x: '{}x{}'.format(*x),
+                        combinations(range(beams), 2),
+                    )
                 ]
 
-                response = xarray.concat([
-                    response[:, i] * response[:, j]
-                    for i, j in combinations(range(beams), 2)
-                ], dim=namei).assign_coords({namei: coords}).T
+                response = (
+                    xarray.concat(
+                        [
+                            response[:, i] * response[:, j]
+                            for i, j in combinations(range(beams), 2)
+                        ],
+                        dim=namei,
+                    )
+                    .assign_coords({namei: coords})
+                    .T
+                )
                 response = numpy.sqrt(response / 2)
 
                 unit = noise.attrs['unit']
-                noise = xarray.concat([
-                    noise[i] * noise[j]
-                    for i, j in combinations(range(beams), 2)
-                ], dim=namei).assign_coords({namei: coords})
+                noise = xarray.concat(
+                    [
+                        noise[i] * noise[j]
+                        for i, j in combinations(range(beams), 2)
+                    ],
+                    dim=namei,
+                ).assign_coords({namei: coords})
                 noise = numpy.sqrt(noise / 2)
                 noise.attrs['unit'] = unit
 
                 if time_delay is not None:
                     unit = time_delay.attrs['unit']
-                    time_delay = xarray.concat([
-                        time_delay[:, i] - time_delay[:, j]
-                        for i, j in combinations(range(beams), 2)
-                    ], dim=namei).assign_coords({namei: coords}).T
+                    time_delay = (
+                        xarray.concat(
+                            [
+                                time_delay[:, i] - time_delay[:, j]
+                                for i, j in combinations(range(beams), 2)
+                            ],
+                            dim=namei,
+                        )
+                        .assign_coords({namei: coords})
+                        .T
+                    )
                     time_delay.attrs['unit'] = unit
 
             else:
-                raise Exception('FRBlip does not compute self',
-                                'correlations of single beams.')
+                raise Exception(
+                    'FRBlip does not compute self',
+                    'correlations of single beams.',
+                )
         else:
 
             respi = obsi.response
@@ -276,8 +294,9 @@ class Interferometry(Observation):
             obs_tj = obsj.get_obstime()
 
             dt_obs = (obs_ti - obs_tj).to(units.ms)
-            dt_obs = xarray.DataArray(dt_obs.value, dims=dt.dims[0],
-                                      attrs={'unit': dt_obs.unit})
+            dt_obs = xarray.DataArray(
+                dt_obs.value, dims=dt.dims[0], attrs={'unit': dt_obs.unit}
+            )
 
             time_delay = dt + dt_obs
             time_delay.attrs['unit'] = units.ms
@@ -303,12 +322,13 @@ class Interferometry(Observation):
             sampling_time = numpy.stack([ti, tj])
             sampling_time = sampling_time.max()
 
-        Observation.__init__(self, response, noise, time_delay,
-                             frequency_range, sampling_time)
+        Observation.__init__(
+            self, response, noise, time_delay, frequency_range, sampling_time
+        )
 
         if degradation is not None:
             if isinstance(degradation, (float, int)):
-                self.degradation = numpy.exp(-degradation**2 / 2)
+                self.degradation = numpy.exp(-(degradation**2) / 2)
                 self.get_response = self._degradation
             elif isinstance(degradation, tuple):
                 self.amp, self.scale, self.power = degradation
@@ -318,7 +338,7 @@ class Interferometry(Observation):
     def _degradation(
         self,
         spectral_index: numpy.ndarray | float = 0,
-        channels: int = 1
+        channels: int = 1,
     ) -> xarray.DataArray:
 
         response = Observation.get_response(self, spectral_index, channels)
@@ -327,10 +347,10 @@ class Interferometry(Observation):
     def _time_delay_degradation(
         self,
         spectral_index: numpy.ndarray | float = 0,
-        channels: int = 1
+        channels: int = 1,
     ) -> xarray.DataArray:
 
         response = Observation.get_response(self, spectral_index, channels)
-        log = (self.time_delay / self.scale)**self.power
+        log = (self.time_delay / self.scale) ** self.power
         degradation = self.amp * numpy.exp(-log)
         return degradation * response

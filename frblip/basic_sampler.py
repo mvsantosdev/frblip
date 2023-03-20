@@ -24,13 +24,12 @@ from .observation import Observation, Interferometry
 
 
 class BasicSampler(object):
-
     def __len__(self):
         return self.size
 
     def __getitem__(
         self,
-        keys: str
+        keys: str,
     ) -> Observation | tuple[Observation] | None:
 
         if isinstance(keys, str):
@@ -42,7 +41,7 @@ class BasicSampler(object):
 
     def obstime(
         self,
-        location: coordinates.EarthLocation
+        location: coordinates.EarthLocation,
     ) -> Time:
 
         loc = location.get_itrs()
@@ -56,7 +55,7 @@ class BasicSampler(object):
     def altaz_from_location(
         self,
         location: coordinates.EarthLocation,
-        interp: int = 300
+        interp: int = 300,
     ) -> coordinates.SkyCoord:
 
         lon = location.lon
@@ -66,7 +65,8 @@ class BasicSampler(object):
         print(
             'Computing positions for {} sources'.format(self.size),
             'at site lon={:.3f}, lat={:.3f},'.format(lon, lat),
-            'height={:.3f}.'.format(height), end='\n\n'
+            'height={:.3f}.'.format(height),
+            end='\n\n',
         )
 
         obstime = self.obstime(location)
@@ -81,7 +81,7 @@ class BasicSampler(object):
         telescope: RadioTelescope,
         name: str = None,
         sparse: bool = True,
-        dtype: type = numpy.double
+        dtype: type = numpy.double,
     ):
 
         print('Performing observation for telescope {}...'.format(name))
@@ -118,15 +118,17 @@ class BasicSampler(object):
         time_delay = telescope.time_array(altaz)
         if time_delay is not None:
             unit = time_delay.unit
-            time_delay = xarray.DataArray(time_delay.value, dims=dims,
-                                          name='Time Delay')
+            time_delay = xarray.DataArray(
+                time_delay.value, dims=dims, name='Time Delay'
+            )
             time_delay.attrs['unit'] = unit
 
         if isinstance(self.altaz, coordinates.SkyCoord):
             altaz = None
 
-        observation = Observation(response, noise, time_delay, frequency_range,
-                                  sampling_time, altaz)
+        observation = Observation(
+            response, noise, time_delay, frequency_range, sampling_time, altaz
+        )
 
         self.observations[obs_name] = observation
 
@@ -137,7 +139,7 @@ class BasicSampler(object):
         location: coordinates.EarthLocation | None = None,
         sparse: bool = True,
         dtype: type = numpy.double,
-        verbose: bool = True
+        verbose: bool = True,
     ):
 
         if not hasattr(self, 'observations'):
@@ -175,12 +177,13 @@ class BasicSampler(object):
         namej: str | None = None,
         reference: bool = False,
         degradation: float | int | tuple[float] | None = None,
-        overwrite=False
+        overwrite=False,
     ):
 
         if reference:
             names = [
-                name for name in self.observations
+                name
+                for name in self.observations
                 if (name != namei) and ('INTF' not in name)
             ]
             for namej in names:
@@ -202,9 +205,10 @@ class BasicSampler(object):
                 warnings.warn(warning_message)
 
     def iterfrbs(
-        self, start: int = 0,
+        self,
+        start: int = 0,
         stop: int | None = None,
-        step: int = 1
+        step: int = 1,
     ) -> BasicSampler:
 
         stop = self.size if stop is None else stop
@@ -216,7 +220,7 @@ class BasicSampler(object):
         size: int = 1,
         start: int = 0,
         stop: int | None = None,
-        retindex: bool = False
+        retindex: bool = False,
     ) -> BasicSampler:
 
         stop = self.size if stop is None else stop

@@ -9,11 +9,14 @@ from ...cosmology import Cosmology
 unit = units.pc / units.cm**3
 
 
-class InterGalacticDM():
-
+class InterGalacticDM(object):
     MODELS = {
         'Takahashi2021': {
-            'a': 0.475, 'b': 0.703, 'c': 3.19, 'd': 0.02, 'z0': 5.42
+            'a': 0.475,
+            'b': 0.703,
+            'c': 3.19,
+            'd': 0.02,
+            'z0': 5.42,
         }
     }
 
@@ -24,7 +27,7 @@ class InterGalacticDM():
         zmin: float = 0.0,
         zmax: float = 6.2,
         Xp: float = 0.76,
-        **kwargs
+        **kwargs,
     ):
 
         self.Xp = Xp
@@ -40,8 +43,7 @@ class InterGalacticDM():
 
         if isinstance(cosmology, str):
             self.cosmology = Cosmology(
-                source=cosmology,
-                free_electron_bias=free_electron_model
+                source=cosmology, free_electron_bias=free_electron_model
             )
         elif isinstance(cosmology, Cosmology):
             self.cosmology = cosmology
@@ -49,7 +51,7 @@ class InterGalacticDM():
         self._integrate()
 
     def _takahashi2021(self, z: numpy.ndarray) -> numpy.ndarray:
-        c1 = self.a * (z + self.b)**self.d
+        c1 = self.a * (z + self.b) ** self.d
         c2 = 1 - numpy.tanh(self.c * (z - self.z0))
         return c1 * c2
 
@@ -58,9 +60,7 @@ class InterGalacticDM():
         return (1 + z) * fe
 
     def _integrand(
-        self,
-        X: tuple[float, float],
-        z: float
+        self, X: tuple[float, float], z: float
     ) -> tuple[float, float]:
 
         X1, X2 = X
@@ -98,5 +98,5 @@ class InterGalacticDM():
     def __call__(self, z: numpy.ndarray) -> numpy.ndarray:
         loc = self.mean(z)
         scale = self.std(z)
-        z = truncnorm.rvs(a=-loc/scale, b=numpy.inf, size=z.size)
+        z = truncnorm.rvs(a=-loc / scale, b=numpy.inf, size=z.size)
         return scale * z + loc

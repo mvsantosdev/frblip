@@ -30,7 +30,7 @@ class RadioTelescope(object):
         'switched': 2,
         'correlation': numpy.sqrt(2),
         '1bit-digital': 2.21,
-        '2bit-digital': 1.58
+        '2bit-digital': 1.58,
     }
 
     @from_source(_DATA)
@@ -52,13 +52,24 @@ class RadioTelescope(object):
         frequency_range: units.Quantity | tuple[float, float] = (3e-3, 3e5),
         kind: str = 'gaussian',
         array: units.Quantity | numpy.ndarray | None = None,
-        offset: units.Quantity | tuple[float, float] = None
+        offset: units.Quantity | tuple[float, float] = None,
     ):
 
-        self._load_params(az, alt, lat, lon, height, reference_frequency,
-                          system_temperature, receiver_type, sampling_time,
-                          degradation_factor, polarizations, directivity,
-                          frequency_range)
+        self._load_params(
+            az,
+            alt,
+            lat,
+            lon,
+            height,
+            reference_frequency,
+            system_temperature,
+            receiver_type,
+            sampling_time,
+            degradation_factor,
+            polarizations,
+            directivity,
+            frequency_range,
+        )
 
         self.kind = kind
         self.radius
@@ -66,10 +77,18 @@ class RadioTelescope(object):
         self._set_offset(offset)
         self._gain
 
-    @default_units(az='deg', alt='deg', lat='deg', lon='deg', height='m',
-                   reference_frequency='MHz', system_temperature='K',
-                   sampling_time='ms', directivity='dB(1 / sr)',
-                   frequency_range='MHz')
+    @default_units(
+        az='deg',
+        alt='deg',
+        lat='deg',
+        lon='deg',
+        height='m',
+        reference_frequency='MHz',
+        system_temperature='K',
+        sampling_time='ms',
+        directivity='dB(1 / sr)',
+        frequency_range='MHz',
+    )
     def _load_params(
         self,
         az: units.Quantity | float,
@@ -84,7 +103,7 @@ class RadioTelescope(object):
         degradation_factor: float,
         polarizations: int,
         directivity: units.Quantity | float,
-        frequency_range: units.Quantity | tuple[float, float]
+        frequency_range: units.Quantity | tuple[float, float],
     ):
 
         self.az = az
@@ -138,8 +157,7 @@ class RadioTelescope(object):
         Rotz = rotation_matrix(-self.az_shift, 'z')
         Rot = Rotz @ Roty
 
-        us = coordinates.UnitSphericalRepresentation(lon=self.az,
-                                                     lat=self.alt)
+        us = coordinates.UnitSphericalRepresentation(lon=self.az, lat=self.alt)
         cartesian = us.to_cartesian()
         x, y, z = Rot @ cartesian.xyz
         r, lat, lon = coordinates.cartesian_to_spherical(x, y, z)
@@ -157,7 +175,7 @@ class RadioTelescope(object):
         else:
             shape = array.shape
             positions, dims = shape
-            assert dims == 2, "array is not bidimensional."
+            assert dims == 2, 'array is not bidimensional.'
             if (positions > 1) and (self.radius.size == 1):
                 self.radius = numpy.tile(self.radius, positions)
             self.time_array = self._array
@@ -243,26 +261,27 @@ class RadioTelescope(object):
 
     def __getitem__(
         self,
-        idx: int | str | slice | numpy.ndarray
+        idx: int | str | slice | numpy.ndarray,
     ) -> RadioTelescope:
 
         copy = dill.copy(self)
 
         size = self._RadioTelescope_gain.size
 
-        copy.__dict__.update({
-            attr: value[idx]
-            for attr, value in copy.__dict__.items()
-            if numpy.size(value) == size
-        })
+        copy.__dict__.update(
+            {
+                attr: value[idx]
+                for attr, value in copy.__dict__.items()
+                if numpy.size(value) == size
+            }
+        )
 
         return copy
 
     def to_pkl(self, name: str):
 
         output_dict = {
-            attr: getattr(self, attr)
-            for attr in RadioTelescope.DEFAULT_VALUES
+            attr: getattr(self, attr) for attr in RadioTelescope.DEFAULT_VALUES
         }
 
         file_name = '{}.pkl'.format(name)
@@ -273,21 +292,24 @@ class RadioTelescope(object):
     def to_json(self, name: str):
 
         output_dict = {
-            attr: getattr(self, attr)
-            for attr in RadioTelescope.DEFAULT_VALUES
+            attr: getattr(self, attr) for attr in RadioTelescope.DEFAULT_VALUES
         }
 
-        output_dict.update({
-            key: value.value
-            for key, value in output_dict.items()
-            if hasattr(value, 'unit')
-        })
+        output_dict.update(
+            {
+                key: value.value
+                for key, value in output_dict.items()
+                if hasattr(value, 'unit')
+            }
+        )
 
-        output_dict.update({
-            key: value.tolist() if value.size > 1 else value.item()
-            for key, value in output_dict.items()
-            if isinstance(value, numpy.ndarray)
-        })
+        output_dict.update(
+            {
+                key: value.tolist() if value.size > 1 else value.item()
+                for key, value in output_dict.items()
+                if isinstance(value, numpy.ndarray)
+            }
+        )
 
         file_name = '{}.json'.format(name)
         file = open(file_name, 'w', encoding='utf-8')

@@ -40,21 +40,34 @@ class SensitivityMap(BasicSampler, HEALPix):
         emission_frame: bool = False,
         cosmology: str = 'Planck_18',
         zmin: float = 0.0,
-        zmax: float = 30.0
+        zmax: float = 30.0,
     ):
 
         HEALPix.__init__(self, nside, order)
 
-        self._load_params(phistar, gamma, log_Lstar, log_L0,
-                          low_frequency, high_frequency,
-                          low_frequency_cal, high_frequency_cal,
-                          emission_frame, cosmology, zmin, zmax)
+        self._load_params(
+            phistar,
+            gamma,
+            log_Lstar,
+            log_L0,
+            low_frequency,
+            high_frequency,
+            low_frequency_cal,
+            high_frequency_cal,
+            emission_frame,
+            cosmology,
+            zmin,
+            zmax,
+        )
 
     @default_units(
-        log_L0='dex(erg / s)', log_Lstar='dex(erg / s)',
-        phistar='1 / (Gpc^3 yr)', low_frequency='MHz',
-        high_frequency='MHz', low_frequency_cal='MHz',
-        high_frequency_cal='MHz'
+        log_L0='dex(erg / s)',
+        log_Lstar='dex(erg / s)',
+        phistar='1 / (Gpc^3 yr)',
+        low_frequency='MHz',
+        high_frequency='MHz',
+        low_frequency_cal='MHz',
+        high_frequency_cal='MHz',
     )
     def _load_params(
         self,
@@ -69,7 +82,7 @@ class SensitivityMap(BasicSampler, HEALPix):
         emission_frame: bool,
         cosmology: str,
         zmin: float,
-        zmax: float
+        zmax: float,
     ):
 
         self.log_L0 = log_L0
@@ -96,8 +109,9 @@ class SensitivityMap(BasicSampler, HEALPix):
 
     @cached_property
     def _zdist(self) -> Redshift:
-        return Redshift(zmin=self.zmin, zmax=self.zmax,
-                        cosmology=self._cosmology)
+        return Redshift(
+            zmin=self.zmin, zmax=self.zmax, cosmology=self._cosmology
+        )
 
     @cached_property
     def _lumdist(self) -> Schechter:
@@ -145,13 +159,13 @@ class SensitivityMap(BasicSampler, HEALPix):
         self,
         redshift: float,
         density_flux: units.Quantity,
-        spectral_index: float
+        spectral_index: float,
     ) -> units.Quantity:
 
         sip = 1 + spectral_index
         sign = numpy.sign(sip)
-        nuhp = (self.high_frequency_cal / units.MHz)**sip
-        nulp = (self.low_frequency_cal / units.MHz)**sip
+        nuhp = (self.high_frequency_cal / units.MHz) ** sip
+        nulp = (self.low_frequency_cal / units.MHz) ** sip
         dnu = sign * (nuhp - nulp)
 
         lum_dist = self._cosmology.luminosity_distance(redshift.ravel())
@@ -159,14 +173,11 @@ class SensitivityMap(BasicSampler, HEALPix):
 
         Lthre = 4 * numpy.pi * dnu * lum_dist**2 * density_flux
         if self.emission_frame:
-            return Lthre / (1 + redshift)**sip
+            return Lthre / (1 + redshift) ** sip
         return Lthre
 
     @observation_method
-    def altaz(
-        self,
-        observation: Observation
-    ) -> coordinates.SkyCoord:
+    def altaz(self, observation: Observation) -> coordinates.SkyCoord:
 
         return getattr(observation, 'altaz', None)
 
@@ -179,12 +190,12 @@ class SensitivityMap(BasicSampler, HEALPix):
         total: str | bool = False,
         channels: int = 1,
         unit: units.Unit | str = '1/year',
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> units.Quantity:
 
-        zg, rates = self.get_redshift_table(sensitivity, zmin, zmax,
-                                            spectral_index, total,
-                                            channels, unit, eps)
+        zg, rates = self.get_redshift_table(
+            sensitivity, zmin, zmax, spectral_index, total, channels, unit, eps
+        )
 
         def redshift_rate(z):
 
@@ -205,12 +216,12 @@ class SensitivityMap(BasicSampler, HEALPix):
         channels: int = 1,
         time: units.Quantity | float | str = '1 year',
         tolerance: float = 1,
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> tuple[float, float, float]:
 
-        redshift, rates = self.get_redshift_table(sensitivity, zmin, zmax,
-                                                  spectral_index, total,
-                                                  channels, eps=eps)
+        redshift, rates = self.get_redshift_table(
+            sensitivity, zmin, zmax, spectral_index, total, channels, eps=eps
+        )
 
         idx = rates.argmax()
         x = redshift[idx:][::-1]
@@ -245,19 +256,28 @@ class SensitivityMap(BasicSampler, HEALPix):
         channels: int = 1,
         time: units.Quantity | float | str = '1 year',
         tolerance: float = 1,
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> tuple[float, float, float]:
 
-        sensitivity = self._sensitivity(observation, spectral_index,
-                                        total, channels)
+        sensitivity = self._sensitivity(
+            observation, spectral_index, total, channels
+        )
         sens = snr * sensitivity
         sens.attrs['unit'] = sensitivity.unit
 
         zmin, zmax = self._redshift_range(observation)
 
-        return self.get_maximum_redshift(sens, zmin, zmax, spectral_index,
-                                         total, channels, time, tolerance,
-                                         eps)
+        return self.get_maximum_redshift(
+            sens,
+            zmin,
+            zmax,
+            spectral_index,
+            total,
+            channels,
+            time,
+            tolerance,
+            eps,
+        )
 
     def get_redshift_table(
         self,
@@ -268,7 +288,7 @@ class SensitivityMap(BasicSampler, HEALPix):
         total: str | bool = False,
         channels: int = 1,
         unit: units.Unit | str = '1/year',
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> tuple[numpy.ndarray, units.Quantity]:
 
         data = sensitivity.data
@@ -279,14 +299,16 @@ class SensitivityMap(BasicSampler, HEALPix):
         smin = sflux.min()
         smax = sflux.max()
 
-        zg, sg, table = self.get_rate_table(smin, smax, zmin, zmax,
-                                            spectral_index, eps)
+        zg, sg, table = self.get_rate_table(
+            smin, smax, zmin, zmax, spectral_index, eps
+        )
 
         table = (table * self.pixel_area).to(unit)
 
         rates = numpy.apply_along_axis(
             lambda x: numpy.interp(x=sflux, xp=sg, fp=x).sum(),
-            axis=1, arr=table
+            axis=1,
+            arr=table,
         )
 
         return zg.ravel(), rates
@@ -301,18 +323,20 @@ class SensitivityMap(BasicSampler, HEALPix):
         total: str | bool = False,
         channels: int = 1,
         unit: units.Unit | str = '1/year',
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> tuple[numpy.ndarray, units.Quantity]:
 
-        sensitivity = self._sensitivity(observation, spectral_index,
-                                        total, channels)
+        sensitivity = self._sensitivity(
+            observation, spectral_index, total, channels
+        )
         sens = snr * sensitivity
         sens.attrs['unit'] = sensitivity.unit
 
         zmin, zmax = self._redshift_range(observation)
 
-        return self.get_redshift_table(sens, zmin, zmax, spectral_index,
-                                       total, channels, unit, eps)
+        return self.get_redshift_table(
+            sens, zmin, zmax, spectral_index, total, channels, unit, eps
+        )
 
     @numpy.errstate(divide='ignore', over='ignore')
     def get_rate_table(
@@ -322,7 +346,7 @@ class SensitivityMap(BasicSampler, HEALPix):
         zmin: float,
         zmax: float,
         spectral_index: float = 0.0,
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]:
 
         log_min = units.LogQuantity(smin)
@@ -357,11 +381,12 @@ class SensitivityMap(BasicSampler, HEALPix):
         zmax: float,
         unit: units.Unit | str,
         spectral_index: float,
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> types.FunctionType:
 
-        zg, sg, pdf = self.get_rate_table(smin, smax, zmin, zmax,
-                                          spectral_index, eps)
+        zg, sg, pdf = self.get_rate_table(
+            smin, smax, zmin, zmax, spectral_index, eps
+        )
         spdf = numpy.trapz(x=zg, y=pdf, axis=0)
         spdf = spdf * self.pixel_area
 
@@ -377,17 +402,18 @@ class SensitivityMap(BasicSampler, HEALPix):
     def _redshift_range(
         self,
         observation: Observation,
-        channels: int = 1
+        channels: int = 1,
     ) -> tuple[float, float]:
 
-        return observation.redshift_range(self.low_frequency,
-                                          self.high_frequency)
+        return observation.redshift_range(
+            self.low_frequency, self.high_frequency
+        )
 
     @observation_method
     def redshift_range(
         self,
         observation: Observation,
-        channels: int = 1
+        channels: int = 1,
     ) -> tuple[float, float]:
 
         return self._redshift_range(observation, channels)
@@ -396,7 +422,7 @@ class SensitivityMap(BasicSampler, HEALPix):
         self,
         observation: Observation,
         total: str | bool = False,
-        channels: int = 1
+        channels: int = 1,
     ) -> xarray.DataArray:
 
         return observation.get_noise(total, channels)
@@ -408,7 +434,7 @@ class SensitivityMap(BasicSampler, HEALPix):
         observation: Observation,
         total: str | bool = False,
         channels: int = 1,
-        todense: bool = False
+        todense: bool = False,
     ) -> xarray.DataArray:
 
         return self._noise(observation, total, channels)
@@ -418,7 +444,7 @@ class SensitivityMap(BasicSampler, HEALPix):
         observation: Observation,
         spectral_index: float = 0.0,
         total: str | bool = False,
-        channels: int = 1
+        channels: int = 1,
     ) -> xarray.DataArray:
 
         sign = numpy.sign(spectral_index + 1)
@@ -438,11 +464,10 @@ class SensitivityMap(BasicSampler, HEALPix):
         spectral_index: float = 0.0,
         total: str | bool = False,
         channels: int = 1,
-        todense: bool = False
+        todense: bool = False,
     ) -> xarray.DataArray:
 
-        return self._sensitivity(observation, spectral_index,
-                                 total, channels)
+        return self._sensitivity(observation, spectral_index, total, channels)
 
     @numpy.errstate(over='ignore')
     def get_rate_map(
@@ -452,7 +477,7 @@ class SensitivityMap(BasicSampler, HEALPix):
         zmax: float = 30,
         spectral_index: float = 0.0,
         unit: units.Unit | str = 'year',
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> xarray.DataArray:
 
         if isinstance(unit, str):
@@ -473,8 +498,9 @@ class SensitivityMap(BasicSampler, HEALPix):
         smin = sflux.min()
         smax = sflux.max()
 
-        spec_rate = self.specific_rate(smin, smax, zmin, zmax, rate_unit,
-                                       spectral_index, eps)
+        spec_rate = self.specific_rate(
+            smin, smax, zmin, zmax, rate_unit, spectral_index, eps
+        )
         rates = spec_rate(sflux)
 
         rate_map = COO(data.coords, rates, data.shape)
@@ -490,11 +516,12 @@ class SensitivityMap(BasicSampler, HEALPix):
         zmax: float = 30,
         spectral_index: float = 0.0,
         unit: units.Unit | str = 'year',
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> xarray.DataArray:
 
-        rate_map = self.get_rate_map(sensitivity, zmin, zmax,
-                                     spectral_index, unit, eps)
+        rate_map = self.get_rate_map(
+            sensitivity, zmin, zmax, spectral_index, unit, eps
+        )
         return rate_map.sum('PIXEL', keep_attrs=True)
 
     @xarrayfy(snr=('SNR',))
@@ -506,11 +533,12 @@ class SensitivityMap(BasicSampler, HEALPix):
         total: str | bool = False,
         channels: int = 1,
         unit: units.Unit | str = 'year',
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> xarray.DataArray:
 
-        sensitivity = self._sensitivity(observation, spectral_index,
-                                        total, channels)
+        sensitivity = self._sensitivity(
+            observation, spectral_index, total, channels
+        )
 
         sens = sensitivity * snr
         sens.attrs = sensitivity.attrs
@@ -527,16 +555,26 @@ class SensitivityMap(BasicSampler, HEALPix):
         total: str | bool = False,
         channels: int = 1,
         unit: units.Unit | str = 'year',
-        eps: float = 1e-4
+        eps: float = 1e-4,
     ) -> xarray.DataArray:
 
         spec_idxs = numpy.atleast_1d(spectral_index)
 
-        rates = xarray.concat([
-            self._si_rate_map(observation, spectral_index, snr,
-                              total, channels, unit, eps)
-            for spec_idx in spec_idxs
-        ], dim='Spectral Index')
+        rates = xarray.concat(
+            [
+                self._si_rate_map(
+                    observation,
+                    spectral_index,
+                    snr,
+                    total,
+                    channels,
+                    unit,
+                    eps,
+                )
+                for spec_idx in spec_idxs
+            ],
+            dim='Spectral Index',
+        )
 
         rates = rates.assign_coords({'SNR': snr})
 
@@ -553,11 +591,12 @@ class SensitivityMap(BasicSampler, HEALPix):
         channels: int = 1,
         unit: units.Unit | str = 'year',
         eps: float = 1e-4,
-        todense: bool = False
+        todense: bool = False,
     ) -> xarray.DataArray:
 
-        return self._rate_map(observation, spectral_index, snr,
-                              total, channels, unit, eps)
+        return self._rate_map(
+            observation, spectral_index, snr, total, channels, unit, eps
+        )
 
     def _rate(
         self,
@@ -570,8 +609,9 @@ class SensitivityMap(BasicSampler, HEALPix):
         eps: float = 1e-4,
     ) -> xarray.DataArray:
 
-        rate_map = self._rate_map(observation, spectral_index, snr,
-                                  total, channels, unit, eps)
+        rate_map = self._rate_map(
+            observation, spectral_index, snr, total, channels, unit, eps
+        )
         return rate_map.sum('PIXEL', keep_attrs=True)
 
     @observation_method
@@ -585,8 +625,9 @@ class SensitivityMap(BasicSampler, HEALPix):
         channels: int = 1,
         unit: units.Unit | str = 'year',
         eps: float = 1e-4,
-        todense: bool = True
+        todense: bool = True,
     ) -> xarray.DataArray:
 
-        return self._rate(observation, spectral_index, snr,
-                          total, channels, unit, eps)
+        return self._rate(
+            observation, spectral_index, snr, total, channels, unit, eps
+        )

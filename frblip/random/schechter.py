@@ -5,12 +5,11 @@ from scipy.integrate import quad, cumtrapz
 
 
 class Schechter(rv_continuous):
-
     def __init__(
         self,
         xmin: float,
         gamma: float,
-        eps: float = 1e-3
+        eps: float = 1e-3,
     ):
 
         super().__init__()

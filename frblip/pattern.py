@@ -8,14 +8,13 @@ from .decorators import default_units
 
 
 class FunctionalPattern(object):
-
     @default_units(radius='deg', alt='deg', az='deg')
     def __init__(
         self,
         radius: units.Quantity,
         alt: float = 90.0,
         az: float = 0.0,
-        kind: str = 'gaussian'
+        kind: str = 'gaussian',
     ):
 
         self.radius = radius
@@ -44,14 +43,12 @@ class FunctionalPattern(object):
     def __call__(self, altaz) -> numpy.ndarray:
 
         altazoffs = [
-            altaz.transform_to(self.offsets[i])
-            for i in range(self.offs)
+            altaz.transform_to(self.offsets[i]) for i in range(self.offs)
         ]
 
-        cossines = numpy.column_stack([
-            altazoff.cartesian.x
-            for altazoff in altazoffs
-        ])
+        cossines = numpy.column_stack(
+            [altazoff.cartesian.x for altazoff in altazoffs]
+        )
 
         arcs = numpy.arccos(cossines)
         rescaled_arc = (arcs / self.radius).to(1).value
@@ -61,7 +58,7 @@ class FunctionalPattern(object):
         return (numpy.abs(x) <= 1).astype(int)
 
     def _gaussian(self, x: float | numpy.ndarray) -> numpy.ndarray:
-        return numpy.exp(-x**2)
+        return numpy.exp(-(x**2))
 
     def _bessel(self, x: float | numpy.ndarray) -> numpy.ndarray:
-        return numpy.nan_to_num(j1(2 * x) / x, nan=1.0)**2
+        return numpy.nan_to_num(j1(2 * x) / x, nan=1.0) ** 2
