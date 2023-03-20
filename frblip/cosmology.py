@@ -1,9 +1,8 @@
-import numpy
-import pyccl
-from astropy import units, constants
-
 from functools import cached_property
 
+import numpy
+import pyccl
+from astropy import constants, units
 from scipy.integrate import quad
 
 from .decorators import default_units, from_source

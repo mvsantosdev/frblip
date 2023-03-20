@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import dill
-
-import numpy
-import xarray
-
 from itertools import combinations
 
+import dill
+import numpy
+import xarray
 from astropy import coordinates, units
-
 from astropy.time import Time
 
 

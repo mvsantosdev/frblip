@@ -1,7 +1,8 @@
 import os
-import numpy
-import healpy
 import warnings
+
+import healpy
+import numpy
 from astropy import units
 from pygedm import generate_healpix_dm_map
 

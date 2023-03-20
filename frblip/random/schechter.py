@@ -1,7 +1,6 @@
 import numpy
-
+from scipy.integrate import cumtrapz, quad
 from scipy.stats import rv_continuous
-from scipy.integrate import quad, cumtrapz
 
 
 class Schechter(rv_continuous):

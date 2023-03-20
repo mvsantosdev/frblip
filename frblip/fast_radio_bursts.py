@@ -1,40 +1,39 @@
 from __future__ import annotations
-import warnings
 
+import bz2
 import os
 import sys
 import types
-
-import bz2
-import dill
-
-import numpy
-import xarray
-import sparse
-
-from numpy import random
-
-from scipy.special import erf
-from scipy._lib._util import check_random_state
-
-from operator import itemgetter
+import warnings
 from functools import cached_property
-from toolz.dicttoolz import merge, valmap, keyfilter
+from operator import itemgetter
 
+import dill
+import numpy
+import sparse
+import xarray
+from astropy import constants, coordinates, units
 from astropy.time import Time
-from astropy import units, coordinates, constants
-
-from .random import Redshift, Schechter, SpectralIndex
-
-from .random.dispersion_measure import GalacticDM
-from .random.dispersion_measure import InterGalacticDM, HostGalaxyDM
-
-from .cosmology import Cosmology
-from .observation import Observation
+from numpy import random
+from scipy._lib._util import check_random_state
+from scipy.special import erf
+from toolz.dicttoolz import keyfilter, merge, valmap
 
 from .basic_sampler import BasicSampler
-from .decorators import xarrayfy, default_units
-from .decorators import observation_method, todense_option
+from .cosmology import Cosmology
+from .decorators import (
+    default_units,
+    observation_method,
+    todense_option,
+    xarrayfy,
+)
+from .observation import Observation
+from .random import Redshift, Schechter, SpectralIndex
+from .random.dispersion_measure import (
+    GalacticDM,
+    HostGalaxyDM,
+    InterGalacticDM,
+)
 
 
 class FastRadioBursts(BasicSampler):

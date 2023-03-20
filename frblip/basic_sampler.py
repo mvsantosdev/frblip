@@ -1,26 +1,22 @@
 from __future__ import annotations
 
+import bz2
 import os
 import sys
 import types
 import warnings
-
-import bz2
-import dill
-
-import numpy
-import xarray
-from sparse import COO
-
 from operator import itemgetter
 
+import dill
+import numpy
+import xarray
+from astropy import constants, coordinates, units
+from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator, erfa_astrom
 from astropy.time import Time
-from astropy import units, constants, coordinates
-from astropy.coordinates.erfa_astrom import erfa_astrom
-from astropy.coordinates.erfa_astrom import ErfaAstromInterpolator
+from sparse import COO
 
+from .observation import Interferometry, Observation
 from .radio_telescope import RadioTelescope
-from .observation import Observation, Interferometry
 
 
 class BasicSampler(object):

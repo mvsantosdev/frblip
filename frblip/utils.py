@@ -1,9 +1,9 @@
 import bz2
+
 import dill
 
 from .fast_radio_bursts import FastRadioBursts
 from .radio_telescope import RadioTelescope
-
 
 blips = FastRadioBursts
 telescope = RadioTelescope

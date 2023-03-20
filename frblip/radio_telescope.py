@@ -1,23 +1,19 @@
 from __future__ import annotations
 
-import os
 import bz2
-import dill
 import json
-
-import numpy
-
-from operator import itemgetter
+import os
 from functools import cached_property
+from operator import itemgetter
 
-from astropy import coordinates, units, constants
+import dill
+import numpy
+from astropy import constants, coordinates, units
 from astropy.coordinates.matrix_utilities import rotation_matrix
 
+from .decorators import default_units, from_source
 from .grid import CartesianGrid
 from .pattern import FunctionalPattern
-
-from .decorators import from_source, default_units
-
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = os.path.join(_ROOT, 'data')

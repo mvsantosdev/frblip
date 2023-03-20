@@ -1,6 +1,5 @@
 import numpy
-
-from astropy import units, coordinates
+from astropy import coordinates, units
 
 from .basic_sampler import BasicSampler
 

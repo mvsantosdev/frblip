@@ -1,8 +1,5 @@
 import numpy
-
-from scipy.stats import norm
-from scipy.stats import truncnorm
-from scipy.stats import rv_continuous
+from scipy.stats import norm, rv_continuous, truncnorm
 
 
 class Mixture(rv_continuous):

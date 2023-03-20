@@ -4,9 +4,8 @@ import numpy
 import pandas
 from astropy import units
 
-from ..mixture import Mixture
-
 from ...cosmology import Cosmology
+from ..mixture import Mixture
 
 _ROOT = os.path.abspath(os.path.dirname(__file__))
 _DATA = _ROOT.replace('random/dispersion_measure', 'data')

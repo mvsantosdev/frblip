@@ -1,8 +1,7 @@
 import numpy
-
-from scipy.stats import truncnorm
-from scipy.integrate import odeint
 from astropy import units
+from scipy.integrate import odeint
+from scipy.stats import truncnorm
 
 from ...cosmology import Cosmology
 

@@ -1,24 +1,23 @@
 import types
+from functools import cached_property
 
 import numpy
 import xarray
-from sparse import COO
-from astropy_healpix import HEALPix
-
+from astropy import coordinates, units
 from astropy.time import Time
-
-from functools import cached_property
-
-from .random import Redshift, Schechter
-from .cosmology import Cosmology
-
-from astropy import units, coordinates
+from astropy_healpix import HEALPix
+from sparse import COO
 
 from .basic_sampler import BasicSampler
-from .decorators import xarrayfy, default_units
-from .decorators import observation_method, todense_option
-
+from .cosmology import Cosmology
+from .decorators import (
+    default_units,
+    observation_method,
+    todense_option,
+    xarrayfy,
+)
 from .observation import Observation
+from .random import Redshift, Schechter
 
 
 class SensitivityMap(BasicSampler, HEALPix):

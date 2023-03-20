@@ -1,8 +1,8 @@
-import numpy
-from scipy.special import j1
-from astropy import units, coordinates
-
 from functools import cached_property
+
+import numpy
+from astropy import coordinates, units
+from scipy.special import j1
 
 from .decorators import default_units
 

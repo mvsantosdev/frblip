@@ -1,7 +1,5 @@
 import numpy
-
 from astropy import units
-
 from scipy.integrate import cumtrapz
 from scipy.stats import rv_continuous
 

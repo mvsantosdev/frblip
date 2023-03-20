@@ -1,18 +1,16 @@
-import os
-import json
 import bz2
-import dill
+import inspect
+import json
+import os
+from functools import wraps
+from glob import glob
 
+import dill
 import numpy
 import xarray
+from astropy.units import Quantity, Unit
 from sparse import COO
 from toolz.dicttoolz import valfilter
-
-import inspect
-from glob import glob
-from functools import wraps
-
-from astropy.units import Unit, Quantity
 
 
 def fixargs(function, *args, **kwargs):
