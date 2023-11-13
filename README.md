@@ -37,3 +37,27 @@ To install the remaining dependencies and frblip:
 1. **[Quick Start](https://github.com/mvsantosdev/frblip/tree/master/examples/quick_start.ipynb)**
 
 2. **[All examples](https://github.com/mvsantosdev/frblip/tree/master/examples)**
+
+## Warning: Alpha Version Software
+
+Dear Users,
+
+Please be advised that the software you are about to use is currently in the alpha development stage. This means that it is a preliminary release and may not be stable or feature-complete. As such, it is intended for testing purposes only, and we strongly discourage its use in a production or critical environment.
+
+Key points to consider:
+
+Bugs and Issues: Alpha versions are likely to contain bugs, errors, and unforeseen issues. These can range from minor inconveniences to serious malfunctions.
+
+Limited Features: Some features may be missing or incomplete in the alpha version. Expect changes, additions, and removals in subsequent updates.
+
+-Data Loss Risk: Due to the experimental nature of alpha software, there is a risk of data loss or corruption. Avoid using it with important or irreplaceable data.
+
+-Security Concerns: Security measures may not be fully implemented in alpha versions. Do not use this software for tasks that require a high level of security.
+
+-Frequent Updates: Alpha software is actively being developed, and updates may be frequent. Be prepared for regular updates and changes to improve the software.
+
+-User Feedback: Your feedback is crucial in helping us identify and address issues. Please report any bugs, glitches, or suggestions for improvement through the provided channels.
+
+By using this alpha version, you acknowledge and accept the risks associated with its experimental nature. We appreciate your participation in the testing process and look forward to your valuable feedback to enhance the software.
+
+Thank you for your understanding.
